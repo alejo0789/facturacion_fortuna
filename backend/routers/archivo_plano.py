@@ -8,11 +8,15 @@ from typing import Optional, List
 from decimal import Decimal
 from datetime import date, datetime
 import io
+import os
 import httpx
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, Alignment
 
 router = APIRouter()
+
+# Path to template file
+TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), '..', 'Template_archivo_plano', 'template_plano.xlsx')
 
 # --- Schemas ---
 
@@ -23,17 +27,22 @@ class OficinaArchivoPlano(BaseModel):
     nombre_oficina: Optional[str] = None
 
 
+class FacturaArchivoPlano(BaseModel):
+    """Invoice with its offices for flat file generation"""
+    numero_factura: Optional[str] = None
+    fecha_factura: Optional[date] = None  # For extracting month
+    oficinas: List[OficinaArchivoPlano]
+
+
 class ArchivoPlanoRequest(BaseModel):
     """Request to generate flat file Excel"""
     proveedor_nit: str
     proveedor_nombre: Optional[str] = None
-    numero_factura: Optional[str] = None
     fecha_causacion: Optional[date] = None  # Defaults to today
     tiene_iva: bool = True  # If supplier has IVA
-    tiene_retefuente: bool = False  # If supplier has retefuente
-    oficinas: List[OficinaArchivoPlano]
+    porcentaje_retefuente: float = 0  # 0 = no retefuente, 4 = 4%, 6 = 6%
+    facturas: List[FacturaArchivoPlano]  # List of invoices with their offices
     numedoc: int = 1290  # Variable for future updates
-    descripcion: Optional[str] = None  # For DETALLE column
 
 
 # --- Helper Functions ---
@@ -85,22 +94,32 @@ async def get_centro_costo(cod_oficina: str) -> str:
     return ""
 
 
-def format_date_with_apostrophe(d: date) -> str:
-    """Format date as 'YYYY/MM/DD with leading apostrophe"""
-    return f"'{d.strftime('%Y/%m/%d')}"
+def format_date_for_excel(d: date) -> str:
+    """Format date as YYYY/MM/DD for Excel (template has text format)"""
+    return d.strftime('%Y/%m/%d')
 
 
-def format_with_apostrophe(value: str) -> str:
-    """Add leading apostrophe to value"""
-    return f"'{value}"
+def format_value(value: str) -> str:
+    """Return value as-is (template already has text format configured)"""
+    return value
+
+
+def get_month_name_spanish(d: date) -> str:
+    """Get Spanish month name from date"""
+    months = {
+        1: "ENERO", 2: "FEBRERO", 3: "MARZO", 4: "ABRIL",
+        5: "MAYO", 6: "JUNIO", 7: "JULIO", 8: "AGOSTO",
+        9: "SEPTIEMBRE", 10: "OCTUBRE", 11: "NOVIEMBRE", 12: "DICIEMBRE"
+    }
+    return months.get(d.month, "")
 
 
 def create_flat_file_row(
     row_index: int,  # Excel row number (2, 3, 4...) for formulas
-    empresa: str = "101 ",
+    empresa: str = "101",  # Must be text, not number
     clase: str = "0000 ",
     vinkey: str = ".",
-    tipodoc: str = "'DC07",  # With apostrophe
+    tipodoc: str = "DC07",  # Template handles text format
     numedoc: int = 1290,
     reg: int = 0,  # Changed to 0
     fecha: str = "",
@@ -132,7 +151,7 @@ def create_flat_file_row(
     valdebi: float = 0,   # Always 0, not empty
     valcred: float = 0,   # Always 0, not empty
     parci_o: int = 0,     # Changed to 0
-    tpreg: str = "1",
+    tpreg: int = 1,       # Must be number, not text
     detalle: str = "",
     serial: str = ".",
     formapago: str = ".",
@@ -195,50 +214,55 @@ async def generate_rows_for_oficina(
     fecha: str,
     numedoc: int,
     tiene_iva: bool,
-    tiene_retefuente: bool,
-    detalle: str,
+    numero_factura: str,  # For building DETALLE
+    fecha_factura: Optional[date],  # For extracting month
     starting_row_index: int  # Excel row number to start (2, 3, 4...)
-) -> tuple[List[list], int]:
+) -> tuple[List[list], int, dict]:
     """
-    Generate all rows for a single office.
+    Generate debit rows (70%/30%) for a single office.
+    
+    The 70%/30% is calculated on (valor / 1.19) if tiene_iva.
     
     Returns:
-        tuple: (list of rows, next_row_index)
-    
-    Accounts:
-    - '61350513: 70% of value (VALDEBI)
-    - '61700360: 30% of value (VALDEBI)
-    - '24081003: IVA = 19% of (70% + 30%) if tiene_iva (VALDEBI)
-    - '23652501: Retefuente = 4% of total if tiene_retefuente (VALCRED)
-    - '23355002: Total balance (VALCRED)
+        tuple: (list of rows, next_row_index, office_info for final rows)
     """
     rows = []
     current_row = starting_row_index
     
     # Get centro de costo from Oracle
-    ccosto = await get_centro_costo(oficina.cod_oficina)
+    ccosto_raw = await get_centro_costo(oficina.cod_oficina)
+    ccosto = format_value(ccosto_raw) if ccosto_raw else ""
     
     # Format values
-    vinculado = format_with_apostrophe(proveedor_nit)
-    destino = format_with_apostrophe(oficina.cod_oficina)
+    vinculado = format_value(proveedor_nit)
+    destino = format_value(oficina.cod_oficina)
+    
+    # Build DETALLE: FACT {num} SERVICIO DE INTERNET {oficina} MES {mes}
+    nombre_oficina = oficina.nombre_oficina or oficina.cod_oficina
+    mes_factura = get_month_name_spanish(fecha_factura) if fecha_factura else ""
+    detalle = f"FACT {numero_factura} SERVICIO DE INTERNET {nombre_oficina} MES {mes_factura}"
     
     valor = float(oficina.valor)
-    valor_70 = round(valor * 0.70, 0)
-    valor_30 = round(valor * 0.30, 0)
-    valor_iva = round((valor_70 + valor_30) * 0.19, 0) if tiene_iva else 0
-    valor_retefuente = round(valor * 0.04, 0) if tiene_retefuente else 0
     
-    # Calculate total for balance (cuenta 23355002)
-    total_debitos = valor_70 + valor_30 + valor_iva
-    total_creditos = valor_retefuente
-    valor_balance = total_debitos - total_creditos
+    # Calculate base value (without IVA if applicable)
+    # If tiene_iva: valor includes IVA, so base = valor / 1.19
+    if tiene_iva:
+        valor_base = round(valor / 1.19, 0)
+        valor_iva = round(valor - valor_base, 0)
+    else:
+        valor_base = valor
+        valor_iva = 0
+    
+    # Split base value 70%/30%
+    valor_70 = round(valor_base * 0.70, 0)
+    valor_30 = round(valor_base * 0.30, 0)
     
     # Row 1: Account 61350513 - 70% (VALDEBI)
     rows.append(create_flat_file_row(
         row_index=current_row,
         numedoc=numedoc,
         fecha=fecha,
-        cuenta=format_with_apostrophe("61350513"),
+        cuenta=format_value("61350513"),
         vinculado=vinculado,
         ccosto=ccosto,
         destino=destino,
@@ -252,7 +276,7 @@ async def generate_rows_for_oficina(
         row_index=current_row,
         numedoc=numedoc,
         fecha=fecha,
-        cuenta=format_with_apostrophe("61700360"),
+        cuenta=format_value("61700360"),
         vinculado=vinculado,
         ccosto=ccosto,
         destino=destino,
@@ -261,28 +285,73 @@ async def generate_rows_for_oficina(
     ))
     current_row += 1
     
-    # Row 3: Account 24081003 - IVA 19% (VALDEBI) - only if tiene_iva
-    if tiene_iva:
+    # Return office info for final rows
+    office_info = {
+        "ccosto": ccosto,
+        "destino": destino,
+        "vinculado": vinculado,
+        "valor": valor,
+        "valor_base": valor_base,
+        "valor_iva": valor_iva,
+        "valor_70": valor_70,
+        "valor_30": valor_30,
+        "detalle": detalle  # For summary rows
+    }
+    
+    return rows, current_row, office_info
+
+
+def create_final_summary_rows(
+    total_debitos: float,  # Sum of all 70% + 30% across all offices
+    total_iva: float,      # Total IVA across all offices
+    tiene_iva: bool,
+    porcentaje_retefuente: float,  # 0, 4, or 6
+    total_valor: float,    # Sum of all office valores
+    last_office_info: dict,  # ccosto, destino, vinculado from last office
+    numedoc: int,
+    fecha: str,
+    detalle: str,
+    starting_row_index: int
+) -> tuple[List[list], int]:
+    """
+    Generate final summary rows: IVA, Retefuente (if applicable), and Total.
+    Uses the last office's ccosto and destino.
+    """
+    rows = []
+    current_row = starting_row_index
+    
+    ccosto = last_office_info["ccosto"]
+    destino = last_office_info["destino"]
+    vinculado = last_office_info["vinculado"]
+    
+    # Calculate retefuente based on percentage (0%, 4%, or 6%)
+    valor_retefuente = round(total_valor * (porcentaje_retefuente / 100), 0) if porcentaje_retefuente > 0 else 0
+    
+    # Calculate balance: total debitos + IVA - retefuente
+    valor_balance = total_debitos + total_iva - valor_retefuente
+    
+    # Row: Account 24081003 - IVA total (VALDEBI) - only if tiene_iva
+    if tiene_iva and total_iva > 0:
         rows.append(create_flat_file_row(
             row_index=current_row,
             numedoc=numedoc,
             fecha=fecha,
-            cuenta=format_with_apostrophe("24081003"),
+            cuenta=format_value("24081003"),
             vinculado=vinculado,
             ccosto=ccosto,
-            destino=destino,
-            valdebi=valor_iva,
+            destino=".",  # IVA row uses "." for DESTINO
+            valdebi=total_iva,
             detalle=detalle
         ))
         current_row += 1
     
-    # Row 4: Account 23652501 - Retefuente 4% (VALCRED) - only if tiene_retefuente
-    if tiene_retefuente:
+    # Row: Account 23652501 - Retefuente (VALCRED) - only if porcentaje > 0
+    if porcentaje_retefuente > 0:
         rows.append(create_flat_file_row(
             row_index=current_row,
             numedoc=numedoc,
             fecha=fecha,
-            cuenta=format_with_apostrophe("23652501"),
+            cuenta=format_value("23652501"),
             vinculado=vinculado,
             ccosto=ccosto,
             destino=destino,
@@ -291,12 +360,12 @@ async def generate_rows_for_oficina(
         ))
         current_row += 1
     
-    # Row 5: Account 23355002 - Balance total (VALCRED)
+    # Row: Account 23355002 - Balance total (VALCRED)
     rows.append(create_flat_file_row(
         row_index=current_row,
         numedoc=numedoc,
         fecha=fecha,
-        cuenta=format_with_apostrophe("23355002"),
+        cuenta=format_value("23355002"),
         vinculado=vinculado,
         ccosto=ccosto,
         destino=destino,
@@ -333,49 +402,90 @@ async def generar_archivo_plano(request: ArchivoPlanoRequest):
     - Account 61350513: 70% of value (debit)
     - Account 61700360: 30% of value (debit)
     - Account 24081003: IVA 19% (debit) - if tiene_iva
-    - Account 23652501: Retefuente 4% (credit) - if tiene_retefuente
+    - Account 23652501: Retefuente (credit) - if porcentaje_retefuente > 0
     - Account 23355002: Balance total (credit)
     """
-    if not request.oficinas:
-        raise HTTPException(status_code=400, detail="Debe proporcionar al menos una oficina")
+    if not request.facturas:
+        raise HTTPException(status_code=400, detail="Debe proporcionar al menos una factura")
     
     # Use today's date if not provided
     fecha_causacion = request.fecha_causacion or date.today()
-    fecha_str = format_date_with_apostrophe(fecha_causacion)
-    
-    # Build description for DETALLE column
-    detalle = request.descripcion or f"Fact {request.numero_factura}, {request.proveedor_nombre or ''}"
+    fecha_str = format_date_for_excel(fecha_causacion)
     
     # Generate all rows
     all_rows = []
     current_row_index = 2  # Excel rows start at 2 (row 1 is headers)
-    for oficina in request.oficinas:
-        rows, current_row_index = await generate_rows_for_oficina(
-            oficina=oficina,
-            proveedor_nit=request.proveedor_nit,
-            fecha=fecha_str,
-            numedoc=request.numedoc,
-            tiene_iva=request.tiene_iva,
-            tiene_retefuente=request.tiene_retefuente,
-            detalle=detalle,
-            starting_row_index=current_row_index
-        )
-        all_rows.extend(rows)
     
-    # Create Excel workbook
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Archivo Plano"
+    # Process each factura separately with incrementing NUMEDOC
+    for factura_index, factura in enumerate(request.facturas):
+        if not factura.oficinas:
+            continue
+        
+        # NUMEDOC increments per factura: first factura uses base, next uses base+1, etc.
+        factura_numedoc = request.numedoc + factura_index
+        
+        # Accumulators for this factura
+        factura_debitos = 0  # Sum of 70% + 30%
+        factura_iva = 0
+        factura_valor = 0
+        last_office_info = None
+        last_detalle = ""  # Store the last detalle for summary rows
+        
+        # Generate rows for each office in this factura
+        for oficina in factura.oficinas:
+            rows, current_row_index, office_info = await generate_rows_for_oficina(
+                oficina=oficina,
+                proveedor_nit=request.proveedor_nit,
+                fecha=fecha_str,
+                numedoc=factura_numedoc,
+                tiene_iva=request.tiene_iva,
+                numero_factura=factura.numero_factura or '',
+                fecha_factura=factura.fecha_factura,
+                starting_row_index=current_row_index
+            )
+            all_rows.extend(rows)
+            
+            # Accumulate totals for this factura
+            factura_debitos += office_info["valor_70"] + office_info["valor_30"]
+            factura_iva += office_info["valor_iva"]
+            factura_valor += office_info["valor"]
+            last_office_info = office_info
+            last_detalle = office_info.get("detalle", "")
+        
+        # Generate IVA and Total rows for THIS factura
+        if last_office_info:
+            summary_rows, current_row_index = create_final_summary_rows(
+                total_debitos=factura_debitos,
+                total_iva=factura_iva,
+                tiene_iva=request.tiene_iva,
+                porcentaje_retefuente=request.porcentaje_retefuente,
+                total_valor=factura_valor,
+                last_office_info=last_office_info,
+                numedoc=factura_numedoc,
+                fecha=fecha_str,
+                detalle=last_detalle,
+                starting_row_index=current_row_index
+            )
+            all_rows.extend(summary_rows)
     
-    # Write headers
-    for col, header in enumerate(HEADERS, 1):
-        cell = ws.cell(row=1, column=col, value=header)
-        cell.font = Font(bold=True)
+    # Load Excel template (preserves all cell formats)
+    try:
+        wb = load_workbook(TEMPLATE_PATH)
+        ws = wb.active
+    except FileNotFoundError:
+        raise HTTPException(status_code=500, detail="Template file not found")
     
-    # Write data rows
+    # Write data rows (row 1 is headers in template, data starts at row 2)
     for row_idx, row_data in enumerate(all_rows, 2):
         for col_idx, value in enumerate(row_data, 1):
-            ws.cell(row=row_idx, column=col_idx, value=value)
+            cell = ws.cell(row=row_idx, column=col_idx)
+            cell.value = value
+    
+    # Clear excess rows (rows after our data that have old template data)
+    last_data_row = len(all_rows) + 1  # +1 because data starts at row 2
+    for row_idx in range(last_data_row + 1, ws.max_row + 1):
+        for col_idx in range(1, 44):  # 43 columns
+            ws.cell(row=row_idx, column=col_idx).value = None
     
     # Save to buffer
     buffer = io.BytesIO()
@@ -398,27 +508,64 @@ async def preview_archivo_plano(request: ArchivoPlanoRequest):
     Preview the flat file data without generating Excel.
     Returns JSON with all rows that would be generated.
     """
-    if not request.oficinas:
-        raise HTTPException(status_code=400, detail="Debe proporcionar al menos una oficina")
+    if not request.facturas:
+        raise HTTPException(status_code=400, detail="Debe proporcionar al menos una factura")
     
     fecha_causacion = request.fecha_causacion or date.today()
-    fecha_str = format_date_with_apostrophe(fecha_causacion)
-    detalle = request.descripcion or f"Fact {request.numero_factura}, {request.proveedor_nombre or ''}"
+    fecha_str = format_date_for_excel(fecha_causacion)
     
     all_rows = []
     current_row_index = 2  # Excel rows start at 2 (row 1 is headers)
-    for oficina in request.oficinas:
-        rows, current_row_index = await generate_rows_for_oficina(
-            oficina=oficina,
-            proveedor_nit=request.proveedor_nit,
-            fecha=fecha_str,
-            numedoc=request.numedoc,
-            tiene_iva=request.tiene_iva,
-            tiene_retefuente=request.tiene_retefuente,
-            detalle=detalle,
-            starting_row_index=current_row_index
-        )
-        all_rows.extend(rows)
+    
+    # Process each factura separately with incrementing NUMEDOC
+    for factura_index, factura in enumerate(request.facturas):
+        if not factura.oficinas:
+            continue
+        
+        # NUMEDOC increments per factura
+        factura_numedoc = request.numedoc + factura_index
+        
+        # Accumulators for this factura
+        factura_debitos = 0
+        factura_iva = 0
+        factura_valor = 0
+        last_office_info = None
+        last_detalle = ""
+        
+        for oficina in factura.oficinas:
+            rows, current_row_index, office_info = await generate_rows_for_oficina(
+                oficina=oficina,
+                proveedor_nit=request.proveedor_nit,
+                fecha=fecha_str,
+                numedoc=factura_numedoc,
+                tiene_iva=request.tiene_iva,
+                numero_factura=factura.numero_factura or '',
+                fecha_factura=factura.fecha_factura,
+                starting_row_index=current_row_index
+            )
+            all_rows.extend(rows)
+            
+            factura_debitos += office_info["valor_70"] + office_info["valor_30"]
+            factura_iva += office_info["valor_iva"]
+            factura_valor += office_info["valor"]
+            last_office_info = office_info
+            last_detalle = office_info.get("detalle", "")
+        
+        # Generate IVA and Total rows for THIS factura
+        if last_office_info:
+            summary_rows, current_row_index = create_final_summary_rows(
+                total_debitos=factura_debitos,
+                total_iva=factura_iva,
+                tiene_iva=request.tiene_iva,
+                porcentaje_retefuente=request.porcentaje_retefuente,
+                total_valor=factura_valor,
+                last_office_info=last_office_info,
+                numedoc=factura_numedoc,
+                fecha=fecha_str,
+                detalle=last_detalle,
+                starting_row_index=current_row_index
+            )
+            all_rows.extend(summary_rows)
     
     # Convert rows to dict for better readability
     rows_as_dicts = []

@@ -126,6 +126,10 @@ export default function DashboardHome() {
     const [loading, setLoading] = useState(true);
     const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
     const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
+    const [oficinas, setOficinas] = useState<Array<{ id: number; cod_oficina?: string; nombre?: string; ciudad?: string }>>([]);
+    const [selectedOficina, setSelectedOficina] = useState<number | null>(null);
+    const [oficinaSearch, setOficinaSearch] = useState('');
+    const [showOficinaDropdown, setShowOficinaDropdown] = useState(false);
 
     // Calcular métricas mensuales
     const getCurrentMonthData = () => {
@@ -153,11 +157,25 @@ export default function DashboardHome() {
         return months;
     };
 
+    // Load oficinas once on mount
+    useEffect(() => {
+        fetch(`${API_URL}/reportes/filtros`)
+            .then(r => r.json())
+            .then(data => {
+                if (data.oficinas) setOficinas(data.oficinas);
+            })
+            .catch(err => console.error('Error loading oficinas:', err));
+    }, []);
+
     useEffect(() => {
         const fetchData = async () => {
             setLoading(true);
             try {
-                const statsRes = await fetch(`${API_URL}/reportes/estadisticas?año=${selectedYear}`);
+                let statsUrl = `${API_URL}/reportes/estadisticas?año=${selectedYear}`;
+                if (selectedOficina) {
+                    statsUrl += `&oficina_id=${selectedOficina}`;
+                }
+                const statsRes = await fetch(statsUrl);
                 if (statsRes.ok) {
                     setEstadisticas(await statsRes.json());
                 }
@@ -189,7 +207,7 @@ export default function DashboardHome() {
             }
         };
         fetchData();
-    }, [selectedYear]);
+    }, [selectedYear, selectedOficina]);
 
     if (loading) {
         return (
@@ -212,7 +230,66 @@ export default function DashboardHome() {
                     </h1>
                     <p className="mt-2 text-lg text-slate-500">Resumen de facturación - {MESES[selectedMonth]} {selectedYear}</p>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3">
+                    {/* Oficina filter */}
+                    <div className="relative">
+                        <input
+                            type="text"
+                            className="rounded-xl border-0 bg-white px-4 py-3 text-sm font-medium text-slate-700 shadow-lg ring-1 ring-slate-200 focus:ring-2 focus:ring-indigo-500 w-48"
+                            placeholder="Filtrar por oficina..."
+                            value={selectedOficina
+                                ? oficinas.find(o => o.id === selectedOficina)?.nombre || ''
+                                : oficinaSearch
+                            }
+                            onChange={(e) => {
+                                setOficinaSearch(e.target.value);
+                                if (selectedOficina) setSelectedOficina(null);
+                            }}
+                            onFocus={() => setShowOficinaDropdown(true)}
+                            onBlur={() => setTimeout(() => setShowOficinaDropdown(false), 200)}
+                        />
+                        {selectedOficina && (
+                            <button
+                                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                                onClick={() => { setSelectedOficina(null); setOficinaSearch(''); }}
+                            >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        )}
+                        {showOficinaDropdown && !selectedOficina && (
+                            <div className="absolute z-10 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                                <button
+                                    className="w-full px-3 py-2 text-left text-sm text-gray-500 hover:bg-gray-50"
+                                    onClick={() => { setSelectedOficina(null); setShowOficinaDropdown(false); setOficinaSearch(''); }}
+                                >
+                                    Todas las oficinas
+                                </button>
+                                {oficinas
+                                    .filter(o => {
+                                        const search = oficinaSearch.toLowerCase();
+                                        return !search ||
+                                            (o.nombre || '').toLowerCase().includes(search) ||
+                                            (o.cod_oficina || '').toLowerCase().includes(search) ||
+                                            (o.ciudad || '').toLowerCase().includes(search);
+                                    })
+                                    .slice(0, 10)
+                                    .map(o => (
+                                        <button
+                                            key={o.id}
+                                            className="w-full px-3 py-2 text-left text-sm hover:bg-blue-50"
+                                            onClick={() => { setSelectedOficina(o.id); setShowOficinaDropdown(false); setOficinaSearch(''); }}
+                                        >
+                                            <span className="font-medium">{o.cod_oficina}</span>
+                                            <span className="text-gray-700 ml-2">{o.nombre}</span>
+                                            {o.ciudad && <span className="text-gray-500 ml-1">- {o.ciudad}</span>}
+                                        </button>
+                                    ))
+                                }
+                            </div>
+                        )}
+                    </div>
                     <select
                         value={selectedMonth}
                         onChange={(e) => setSelectedMonth(Number(e.target.value))}

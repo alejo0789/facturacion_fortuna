@@ -9,7 +9,7 @@ import oracledb
 
 import sys
 sys.path.append('..')
-from oracle_database import get_oficina_by_codigo, get_all_oficinas, get_oracle_connection
+from oracle_database import get_oficina_by_codigo, get_all_oficinas, get_oracle_connection, get_consecutivo_documento
 
 router = APIRouter()
 
@@ -341,6 +341,67 @@ async def get_all_oficinas_oracle():
             total=len(results),
             message=f"Se encontraron {len(results)} oficinas"
         )
+            
+    except oracledb.Error as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error de conexión con Oracle: {str(e)}"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error interno: {str(e)}"
+        )
+
+
+# ============== ENDPOINT CONSECUTIVO DOCUMENTO ==============
+
+class ConsecutivoDocumento(BaseModel):
+    """Schema for document consecutive information"""
+    clase: Optional[str] = None
+    tipo: Optional[str] = None
+    nombre_documento: Optional[str] = None
+    consecutivo_actual: Optional[int] = None
+
+
+class ConsecutivoDocumentoResponse(BaseModel):
+    """Response schema for document consecutive"""
+    success: bool
+    data: Optional[ConsecutivoDocumento] = None
+    message: Optional[str] = None
+
+
+@router.get("/consecutivo-documento/{tipo_documento}", response_model=ConsecutivoDocumentoResponse)
+async def get_consecutivo_doc(tipo_documento: str, clase_documento: str = "0000"):
+    """
+    Get the current consecutive number for a document type from Oracle.
+    
+    Args:
+        tipo_documento: Document type code (e.g., 'DC07')
+        clase_documento: Document class code (default: '0000')
+    
+    Returns:
+        Document consecutive information including the current number
+    
+    Example:
+        GET /api/consecutivo-documento/DC07
+        GET /api/consecutivo-documento/DC07?clase_documento=0000
+    """
+    try:
+        result = get_consecutivo_documento(tipo_documento, clase_documento)
+        
+        if result:
+            return ConsecutivoDocumentoResponse(
+                success=True,
+                data=ConsecutivoDocumento(**result),
+                message=f"Consecutivo encontrado para documento {tipo_documento}"
+            )
+        else:
+            return ConsecutivoDocumentoResponse(
+                success=False,
+                data=None,
+                message=f"No se encontró documento con tipo: {tipo_documento} y clase: {clase_documento}"
+            )
             
     except oracledb.Error as e:
         raise HTTPException(

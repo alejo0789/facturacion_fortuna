@@ -21,7 +21,6 @@ export default function FacturasPage() {
     const [page, setPage] = useState(1);
     const [hasMore, setHasMore] = useState(true);
     const [filterEstado, setFilterEstado] = useState<string>('');
-    const [soloPendientes, setSoloPendientes] = useState(false);
     const ITEMS_PER_PAGE = 20;
 
     // Date filters
@@ -102,10 +101,15 @@ export default function FacturasPage() {
     const [isArchivoPlanoModalOpen, setIsArchivoPlanoModalOpen] = useState(false);
     const [archivoPlanoConfig, setArchivoPlanoConfig] = useState({
         tiene_iva: true,
-        tiene_retefuente: false,
-        numedoc: 1290,
-        descripcion: ''
+        porcentaje_retefuente: 0,  // 0 = sin retefuente, 4 = 4%, 6 = 6%
+        numedoc: 1290
     });
+    const [loadingConsecutivo, setLoadingConsecutivo] = useState(false);
+    const [consecutivoManager, setConsecutivoManager] = useState<{
+        consecutivo: number | null;
+        nombre_documento: string | null;
+        cargado: boolean;
+    }>({ consecutivo: null, nombre_documento: null, cargado: false });
 
     // Historial modal - previous invoices for same proveedor + oficina
     const [isHistorialModalOpen, setIsHistorialModalOpen] = useState(false);
@@ -249,38 +253,59 @@ export default function FacturasPage() {
             return;
         }
 
-        // Get proveedor info
-        const firstFactura = selectedFacturasData[0];
-        const proveedorNombre = firstFactura.proveedor?.nombre || '';
-
-        // Build oficinas array from assigned oficinas
-        const oficinas: Array<{ cod_oficina: string; valor: number; nombre_oficina?: string }> = [];
-
+        // Check that at least one factura has assigned offices
+        let hasOfficinas = false;
         for (const factura of selectedFacturasData) {
             if (factura.oficinas_asignadas && factura.oficinas_asignadas.length > 0) {
                 for (const oa of factura.oficinas_asignadas) {
                     if (oa.oficina?.cod_oficina && oa.valor) {
-                        oficinas.push({
-                            cod_oficina: oa.oficina.cod_oficina,
-                            valor: oa.valor,
-                            nombre_oficina: oa.oficina.nombre
-                        });
+                        hasOfficinas = true;
+                        break;
                     }
                 }
             }
+            if (hasOfficinas) break;
         }
 
-        if (oficinas.length === 0) {
+        if (!hasOfficinas) {
             alert('Las facturas seleccionadas no tienen oficinas asignadas con código y valor');
             return;
         }
 
-        // Open config modal instead of generating directly
-        setArchivoPlanoConfig(prev => ({
-            ...prev,
-            descripcion: `Fact ${firstFactura.numero_factura || ''}, ${proveedorNombre}`
-        }));
+        // Open config modal
         setIsArchivoPlanoModalOpen(true);
+
+        // Load consecutive from Manager
+        loadConsecutivoManager();
+    };
+
+    // Load consecutive from Manager Oracle
+    const loadConsecutivoManager = async () => {
+        setLoadingConsecutivo(true);
+        setConsecutivoManager({ consecutivo: null, nombre_documento: null, cargado: false });
+        try {
+            const res = await fetch(`${API_URL}/consecutivo-documento/DC07`);
+            if (res.ok) {
+                const data = await res.json();
+                if (data.success && data.data) {
+                    const nuevoConsecutivo = (data.data.consecutivo_actual || 0) + 1;
+                    setConsecutivoManager({
+                        consecutivo: nuevoConsecutivo,
+                        nombre_documento: data.data.nombre_documento,
+                        cargado: true
+                    });
+                    // Update the numedoc in config
+                    setArchivoPlanoConfig(prev => ({
+                        ...prev,
+                        numedoc: nuevoConsecutivo
+                    }));
+                }
+            }
+        } catch (error) {
+            console.error('Error loading consecutivo from Manager', error);
+        } finally {
+            setLoadingConsecutivo(false);
+        }
     };
 
     // Actually generate the file after configuration
@@ -294,30 +319,42 @@ export default function FacturasPage() {
             const proveedorNit = firstFactura.proveedor?.nit || '';
             const proveedorNombre = firstFactura.proveedor?.nombre || '';
 
-            // Build oficinas array
-            const oficinas: Array<{ cod_oficina: string; valor: number }> = [];
+            // Build facturas array with grouped offices
+            const facturasForRequest: Array<{
+                numero_factura: string;
+                fecha_factura: string | null;
+                oficinas: Array<{ cod_oficina: string; valor: number; nombre_oficina: string }>;
+            }> = [];
+
             for (const factura of selectedFacturasData) {
+                const oficinas: Array<{ cod_oficina: string; valor: number; nombre_oficina: string }> = [];
                 if (factura.oficinas_asignadas && factura.oficinas_asignadas.length > 0) {
                     for (const oa of factura.oficinas_asignadas) {
                         if (oa.oficina?.cod_oficina && oa.valor) {
                             oficinas.push({
                                 cod_oficina: oa.oficina.cod_oficina,
-                                valor: oa.valor
+                                valor: oa.valor,
+                                nombre_oficina: oa.oficina.nombre || oa.oficina.cod_oficina
                             });
                         }
                     }
+                }
+                if (oficinas.length > 0) {
+                    facturasForRequest.push({
+                        numero_factura: factura.numero_factura || '',
+                        fecha_factura: factura.fecha_factura || null,
+                        oficinas: oficinas
+                    });
                 }
             }
 
             const requestBody = {
                 proveedor_nit: proveedorNit,
                 proveedor_nombre: proveedorNombre,
-                numero_factura: firstFactura.numero_factura || '',
                 tiene_iva: archivoPlanoConfig.tiene_iva,
-                tiene_retefuente: archivoPlanoConfig.tiene_retefuente,
+                porcentaje_retefuente: archivoPlanoConfig.porcentaje_retefuente,
                 numedoc: archivoPlanoConfig.numedoc,
-                oficinas: oficinas,
-                descripcion: archivoPlanoConfig.descripcion
+                facturas: facturasForRequest
             };
 
             const res = await fetch(`${API_URL}/archivo-plano/generar`, {
@@ -373,9 +410,6 @@ export default function FacturasPage() {
             if (filterEstado) {
                 params.append('estado', filterEstado);
             }
-            if (soloPendientes) {
-                params.append('solo_pendientes', 'true');
-            }
             if (filterFechaDesde) {
                 params.append('fecha_desde', filterFechaDesde);
             }
@@ -397,7 +431,7 @@ export default function FacturasPage() {
         } finally {
             setLoading(false);
         }
-    }, [filterEstado, soloPendientes, filterFechaDesde, filterFechaHasta, filterOficinaId]);
+    }, [filterEstado, filterFechaDesde, filterFechaHasta, filterOficinaId]);
 
     const fetchStats = async () => {
         try {
@@ -451,7 +485,7 @@ export default function FacturasPage() {
             fetchFacturas(search, 1);
         }, 300);
         return () => clearTimeout(timer);
-    }, [search, filterEstado, soloPendientes, filterFechaDesde, filterFechaHasta, filterOficinaId]);
+    }, [search, filterEstado, filterFechaDesde, filterFechaHasta, filterOficinaId]);
 
     useEffect(() => {
         fetchStats();
@@ -844,10 +878,6 @@ export default function FacturasPage() {
                             <div className="text-2xl font-bold text-green-700">{stats.pagadas}</div>
                             <div className="text-xs text-green-600">Pagadas</div>
                         </div>
-                        <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-2 text-center">
-                            <div className="text-2xl font-bold text-red-700">{stats.sin_contrato}</div>
-                            <div className="text-xs text-red-600">Sin Contrato</div>
-                        </div>
                     </div>
                 )}
             </div>
@@ -1035,17 +1065,6 @@ export default function FacturasPage() {
                         </div>
                     )}
                 </div>
-
-                {/* Solo Pendientes Toggle */}
-                <label className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-4 py-3 cursor-pointer hover:bg-gray-50">
-                    <input
-                        type="checkbox"
-                        checked={soloPendientes}
-                        onChange={(e) => setSoloPendientes(e.target.checked)}
-                        className="w-4 h-4 text-blue-600"
-                    />
-                    <span className="text-sm text-gray-700">Solo sin contrato</span>
-                </label>
             </div>
 
             {/* Facturas List */}
@@ -1959,6 +1978,29 @@ export default function FacturasPage() {
                         </div>
 
                         <div className="p-6 space-y-4">
+                            {/* Manager Consecutivo Info */}
+                            {loadingConsecutivo ? (
+                                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-center gap-3">
+                                    <div className="animate-spin w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full"></div>
+                                    <span className="text-blue-700 text-sm">Consultando consecutivo en Manager...</span>
+                                </div>
+                            ) : consecutivoManager.cargado && (
+                                <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4">
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <svg className="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                        </svg>
+                                        <span className="font-semibold text-emerald-700">Extraído de Manager ERP</span>
+                                    </div>
+                                    <p className="text-sm text-emerald-600 mb-1">
+                                        Tipo: <span className="font-medium">{consecutivoManager.nombre_documento || 'DC07'}</span>
+                                    </p>
+                                    <p className="text-sm text-emerald-600">
+                                        Siguiente consecutivo disponible: <span className="font-bold text-lg">{consecutivoManager.consecutivo}</span>
+                                    </p>
+                                </div>
+                            )}
+
                             {/* Numero Documento */}
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -1973,22 +2015,22 @@ export default function FacturasPage() {
                                     }))}
                                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                 />
+                                {consecutivoManager.cargado && archivoPlanoConfig.numedoc === consecutivoManager.consecutivo && (
+                                    <p className="text-xs text-emerald-600 mt-1 flex items-center gap-1">
+                                        <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                                        </svg>
+                                        Valor sincronizado con Manager
+                                    </p>
+                                )}
                             </div>
 
-                            {/* Descripcion */}
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">
-                                    Descripción (DETALLE)
-                                </label>
-                                <textarea
-                                    value={archivoPlanoConfig.descripcion}
-                                    onChange={(e) => setArchivoPlanoConfig(prev => ({
-                                        ...prev,
-                                        descripcion: e.target.value
-                                    }))}
-                                    rows={2}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                />
+                            {/* Info about auto-generated description */}
+                            <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+                                <p className="text-sm text-gray-600">
+                                    <span className="font-medium">Descripción:</span> Se genera automáticamente con el formato:<br />
+                                    <code className="text-xs bg-gray-200 px-1 py-0.5 rounded">FACT [número] SERVICIO DE INTERNET [oficina] MES [mes]</code>
+                                </p>
                             </div>
 
                             {/* Checkboxes for IVA and Retefuente */}
@@ -2009,21 +2051,55 @@ export default function FacturasPage() {
                                     </div>
                                 </label>
 
-                                <label className="flex items-center gap-3 cursor-pointer">
-                                    <input
-                                        type="checkbox"
-                                        checked={archivoPlanoConfig.tiene_retefuente}
-                                        onChange={(e) => setArchivoPlanoConfig(prev => ({
-                                            ...prev,
-                                            tiene_retefuente: e.target.checked
-                                        }))}
-                                        className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                                    />
-                                    <div>
-                                        <span className="font-medium text-gray-800">Tiene Retefuente (4%)</span>
-                                        <p className="text-xs text-gray-500">Cuenta '23652501</p>
+                                {/* Retefuente selector */}
+                                <div className="mt-3">
+                                    <span className="font-medium text-gray-800 block mb-2">Retefuente</span>
+                                    <p className="text-xs text-gray-500 mb-2">Cuenta '23652501</p>
+                                    <div className="flex gap-4">
+                                        <label className="flex items-center gap-2 cursor-pointer">
+                                            <input
+                                                type="radio"
+                                                name="retefuente"
+                                                value="0"
+                                                checked={archivoPlanoConfig.porcentaje_retefuente === 0}
+                                                onChange={() => setArchivoPlanoConfig(prev => ({
+                                                    ...prev,
+                                                    porcentaje_retefuente: 0
+                                                }))}
+                                                className="w-4 h-4 text-blue-600 focus:ring-blue-500"
+                                            />
+                                            <span className="text-sm text-gray-700">Sin retefuente</span>
+                                        </label>
+                                        <label className="flex items-center gap-2 cursor-pointer">
+                                            <input
+                                                type="radio"
+                                                name="retefuente"
+                                                value="4"
+                                                checked={archivoPlanoConfig.porcentaje_retefuente === 4}
+                                                onChange={() => setArchivoPlanoConfig(prev => ({
+                                                    ...prev,
+                                                    porcentaje_retefuente: 4
+                                                }))}
+                                                className="w-4 h-4 text-blue-600 focus:ring-blue-500"
+                                            />
+                                            <span className="text-sm text-gray-700">4%</span>
+                                        </label>
+                                        <label className="flex items-center gap-2 cursor-pointer">
+                                            <input
+                                                type="radio"
+                                                name="retefuente"
+                                                value="6"
+                                                checked={archivoPlanoConfig.porcentaje_retefuente === 6}
+                                                onChange={() => setArchivoPlanoConfig(prev => ({
+                                                    ...prev,
+                                                    porcentaje_retefuente: 6
+                                                }))}
+                                                className="w-4 h-4 text-blue-600 focus:ring-blue-500"
+                                            />
+                                            <span className="text-sm text-gray-700">6%</span>
+                                        </label>
                                     </div>
-                                </label>
+                                </div>
                             </div>
                         </div>
 

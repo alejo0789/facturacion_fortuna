@@ -136,3 +136,54 @@ def get_all_oficinas() -> List[Dict[str, Any]]:
             cursor.close()
         if connection:
             connection.close()
+
+
+def get_consecutivo_documento(tipo_documento: str, clase_documento: str = "0000") -> Optional[Dict[str, Any]]:
+    """
+    Retrieves the last used consecutive number for a document type from movements table.
+    
+    Args:
+        tipo_documento: The document type code (e.g., 'DC07')
+        clase_documento: The document class code (default: '0000') - not used in new query but kept for compatibility
+    
+    Returns:
+        Dictionary with document consecutive information or None if not found
+    """
+    connection = None
+    cursor = None
+    try:
+        connection = get_oracle_connection()
+        cursor = connection.cursor()
+        
+        # Query to get the last used consecutive from movements table
+        query = """
+            SELECT 
+                MAX(MCNNUMEDOC) AS ULTIMO_ASIENTO_MOV
+            FROM 
+                MANAGER.MNGMCN 
+            WHERE 
+                MCNTIPODOC = :tipo_documento
+        """
+        
+        cursor.execute(query, {
+            "tipo_documento": tipo_documento
+        })
+        row = cursor.fetchone()
+        
+        if row and row[0] is not None:
+            return {
+                "clase": clase_documento,
+                "tipo": tipo_documento,
+                "nombre_documento": f"Ultimo asiento movimiento {tipo_documento}",
+                "consecutivo_actual": row[0]
+            }
+        return None
+        
+    except oracledb.Error as e:
+        print(f"Error executing query: {e}")
+        raise
+    finally:
+        if cursor:
+            cursor.close()
+        if connection:
+            connection.close()
