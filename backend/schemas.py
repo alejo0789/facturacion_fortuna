@@ -7,7 +7,6 @@ from decimal import Decimal
 class ProveedorBase(BaseModel):
     nit: str
     nombre: str
-    iva: Optional[str] = None
 
 class ProveedorCreate(ProveedorBase):
     pass
@@ -37,8 +36,8 @@ class Oficina(OficinaBase):
 
 # --- Contrato Schemas ---
 class ContratoBase(BaseModel):
-    proveedor_id: int
-    oficina_id: int
+    proveedor_id: Optional[int] = None
+    oficina_id: Optional[int] = None
     titular_nombre: Optional[str] = None
     titular_cc_nit: Optional[str] = None
     linea: Optional[str] = None
@@ -54,6 +53,9 @@ class ContratoBase(BaseModel):
     tipo_canal: Optional[str] = None
     valor_mensual: Optional[Decimal] = None
     archivo_contrato: Optional[str] = None
+    tiene_iva: Optional[str] = "no"
+    tiene_retefuente: Optional[str] = "no"
+    retefuente_pct: Optional[Decimal] = None
 
 class ContratoCreate(ContratoBase):
     pass

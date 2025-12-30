@@ -2,7 +2,6 @@ export interface Proveedor {
     id: number;
     nit: string;
     nombre: string;
-    iva?: string;
 }
 
 export interface Oficina {
@@ -39,6 +38,9 @@ export interface Contrato {
     tipo_canal?: string;
     valor_mensual?: number;
     archivo_contrato?: string;
+    tiene_iva?: string;
+    tiene_retefuente?: string;
+    retefuente_pct?: number;
 }
 
 export interface Pago {

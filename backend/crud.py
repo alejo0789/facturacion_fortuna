@@ -474,3 +474,48 @@ async def asignar_multiples_oficinas(db: AsyncSession, factura_id: int, oficinas
     
     await db.commit()
     return await get_factura(db, factura_id)
+
+
+async def get_contratos_pendientes_por_llegar(db: AsyncSession, year: int, month: int):
+    """
+    Find active contracts that do not have an associated invoice for the given month/year.
+    Assumes monthly billing.
+    """
+    from sqlalchemy import extract, and_
+    
+    # 1. Get IDs of contracts that ALREADY have an invoice for this period
+    # We check through FacturaOficina links to Factura
+    invoiced_contracts_query = (
+        select(models.FacturaOficina.contrato_id)
+        .join(models.Factura, models.Factura.id == models.FacturaOficina.factura_id)
+        .filter(
+            and_(
+                extract('year', models.Factura.fecha_factura) == year,
+                extract('month', models.Factura.fecha_factura) == month,
+                models.FacturaOficina.contrato_id.isnot(None)
+            )
+        )
+    )
+    
+    result_invoiced = await db.execute(invoiced_contracts_query)
+    invoiced_ids = {row[0] for row in result_invoiced.all()}
+    
+    # 2. Get all active contracts that are NOT in the invoiced list
+    query = (
+        select(models.Contrato)
+        .options(
+            selectinload(models.Contrato.proveedor),
+            selectinload(models.Contrato.oficina)
+        )
+        .filter(
+            and_(
+                models.Contrato.estado == 'ACTIVO',
+                models.Contrato.proveedor_id.isnot(None),
+                models.Contrato.oficina_id.isnot(None),
+                models.Contrato.id.notin_(list(invoiced_ids)) if invoiced_ids else True
+            )
+        )
+    )
+    
+    result = await db.execute(query)
+    return result.scalars().all()

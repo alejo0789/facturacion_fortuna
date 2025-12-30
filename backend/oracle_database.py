@@ -138,6 +138,51 @@ def get_all_oficinas() -> List[Dict[str, Any]]:
             connection.close()
 
 
+def get_proveedor_by_nit_oracle(nit: str) -> Optional[Dict[str, Any]]:
+    """
+    Retrieves provider name from MANAGER.VINCULADO table by NIT (VINCEDULA).
+    
+    Args:
+        nit: The provider's NIT number
+    
+    Returns:
+        Dictionary with provider information or None if not found
+    """
+    connection = None
+    cursor = None
+    try:
+        connection = get_oracle_connection()
+        cursor = connection.cursor()
+        
+        query = """
+            SELECT 
+                TRIM(VINNOMBRE)
+            FROM 
+                MANAGER.VINCULADO
+            WHERE 
+                TRIM(VINCEDULA) = TRIM(:nit)
+        """
+        
+        cursor.execute(query, {"nit": nit})
+        row = cursor.fetchone()
+        
+        if row:
+            return {
+                "nit": nit,
+                "nombre": row[0]
+            }
+        return None
+        
+    except oracledb.Error as e:
+        print(f"Error executing query: {e}")
+        raise
+    finally:
+        if cursor:
+            cursor.close()
+        if connection:
+            connection.close()
+
+
 def get_consecutivo_documento(tipo_documento: str, clase_documento: str = "0000") -> Optional[Dict[str, Any]]:
     """
     Retrieves the last used consecutive number for a document type from movements table.

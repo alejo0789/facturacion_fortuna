@@ -6,18 +6,28 @@ Key features:
 2. Manually assign oficina and auto-detect related contrato
 3. Store invoice URL (received via API)
 4. View invoice via URL or network share
+5. Upload invoice PDF manually
 """
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
 from fastapi.responses import RedirectResponse, FileResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
 from pathlib import Path
 from urllib.parse import unquote
+from datetime import datetime, date
 import os
+import httpx
+import uuid
 import schemas, crud
 from database import get_db
 
 router = APIRouter()
+
+# Configuration for invoice uploads
+INVOICE_UPLOAD_PATH = r"\\192.168.2.20\Facturas\temp"
+WEBHOOK_URL = "https://acertemos.a.pinggy.link/webhook/d15fc127-671d-4b24-8221-bac74a6f4648"
+
+
 
 
 # --- Main Factura Endpoints ---
@@ -489,17 +499,382 @@ async def cambiar_estado(
 @router.get("/facturas/stats/resumen")
 async def resumen_facturas(db: AsyncSession = Depends(get_db)):
     """Get summary statistics for facturas"""
+    from datetime import datetime
     todas = await crud.get_facturas(db, limit=10000)
     
     pendientes = len([f for f in todas if f.estado == 'PENDIENTE'])
     asignadas = len([f for f in todas if f.estado == 'ASIGNADA'])
     pagadas = len([f for f in todas if f.estado == 'PAGADA'])
-    sin_contrato = len([f for f in todas if f.contrato_id is None])
+    
+    # Calculate missing invoices for this month
+    today = datetime.now()
+    missing_contracts = await crud.get_contratos_pendientes_por_llegar(db, today.year, today.month)
+    pendientes_por_llegar = len(missing_contracts)
     
     return {
         "total": len(todas),
-        "pendientes": pendientes,
+        "sin_oficina": pendientes, # Re-labeling or providing specific key
+        "pendientes": pendientes,   # Keeping old key for compatibility
         "asignadas": asignadas,
         "pagadas": pagadas,
-        "sin_contrato": sin_contrato
+        "pendientes_por_llegar": pendientes_por_llegar
     }
+
+
+@router.get("/facturas/stats/contratos-pendientes", response_model=List[schemas.Contrato])
+async def list_missing_contracts(db: AsyncSession = Depends(get_db)):
+    """List contracts that have not sent an invoice in the current month"""
+    from datetime import datetime
+    today = datetime.now()
+    return await crud.get_contratos_pendientes_por_llegar(db, today.year, today.month)
+
+
+# --- Manual Invoice Upload ---
+
+@router.post("/facturas/upload")
+async def upload_factura(
+    file: UploadFile = File(None),
+    proveedor_nit: str = Form(None),
+    proveedor_nombre: str = Form(None),
+    numero_factura: str = Form(None),
+    fecha_factura: str = Form(None),
+    fecha_vencimiento: str = Form(None),
+    valor: float = Form(None),
+    observaciones: str = Form(None),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Upload an invoice PDF manually or create an invoice with manual data.
+    
+    - If a PDF file is provided, it will be saved to the server and the webhook will be notified
+    - If no file is provided, an invoice will be created with the manual data
+    
+    The PDF is saved to: \\\\192.168.2.20\\Facturas\\temp
+    Then webhook is notified: https://acertemos.a.pinggy.link/webhook/...
+    """
+    url_factura = None
+    
+    # Handle PDF file upload
+    if file and file.filename:
+        # Validate file type
+        if not file.filename.lower().endswith('.pdf'):
+            raise HTTPException(status_code=400, detail="Solo se permiten archivos PDF")
+        
+        # Generate unique filename to avoid conflicts
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        unique_id = str(uuid.uuid4())[:8]
+        safe_filename = f"{timestamp}_{unique_id}_{file.filename}"
+        
+        # Create full path
+        file_path = os.path.join(INVOICE_UPLOAD_PATH, safe_filename)
+        
+        # Check if directory exists
+        try:
+            if not os.path.exists(INVOICE_UPLOAD_PATH):
+                os.makedirs(INVOICE_UPLOAD_PATH, exist_ok=True)
+        except Exception as e:
+            raise HTTPException(
+                status_code=500, 
+                detail=f"No se puede acceder a la carpeta de destino: {INVOICE_UPLOAD_PATH}. Error: {str(e)}"
+            )
+        
+        # Save file
+        try:
+            content = await file.read()
+            with open(file_path, "wb") as f:
+                f.write(content)
+            
+            # Create URL for the saved file
+            url_factura = f"file://192.168.2.20/Facturas/temp/{safe_filename}"
+            
+        except Exception as e:
+            raise HTTPException(
+                status_code=500, 
+                detail=f"Error guardando archivo: {str(e)}"
+            )
+        
+        # Notify webhook
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                webhook_data = {
+                    "event": "invoice_uploaded",
+                    "file_path": file_path,
+                    "file_url": url_factura,
+                    "filename": safe_filename,
+                    "original_filename": file.filename,
+                    "uploaded_at": datetime.now().isoformat(),
+                    "proveedor_nit": proveedor_nit,
+                    "numero_factura": numero_factura
+                }
+                
+                response = await client.post(WEBHOOK_URL, json=webhook_data)
+                webhook_status = response.status_code
+                
+        except Exception as e:
+            # Don't fail the upload if webhook fails, just log it
+            print(f"Warning: Webhook notification failed: {e}")
+            webhook_status = None
+    
+    # If no file and no invoice data provided
+    if not file and not proveedor_nit and not numero_factura:
+        raise HTTPException(
+            status_code=400, 
+            detail="Debe proporcionar un archivo PDF o datos de la factura"
+        )
+    
+    # Create factura record if proveedor info is provided
+    factura_created = None
+    if proveedor_nit:
+        # Parse dates if provided
+        parsed_fecha_factura = None
+        parsed_fecha_vencimiento = None
+        
+        if fecha_factura:
+            try:
+                parsed_fecha_factura = datetime.strptime(fecha_factura, "%Y-%m-%d").date()
+            except:
+                pass
+        
+        if fecha_vencimiento:
+            try:
+                parsed_fecha_vencimiento = datetime.strptime(fecha_vencimiento, "%Y-%m-%d").date()
+            except:
+                pass
+        
+        # Find or create proveedor
+        proveedor = await crud.get_proveedor_by_nit(db, proveedor_nit)
+        
+        if not proveedor and proveedor_nombre:
+            proveedor = await crud.create_proveedor(
+                db, 
+                schemas.ProveedorCreate(nit=proveedor_nit, nombre=proveedor_nombre)
+            )
+        
+        if proveedor:
+            # Create factura
+            factura_data = schemas.FacturaCreate(
+                proveedor_id=proveedor.id,
+                numero_factura=numero_factura,
+                fecha_factura=parsed_fecha_factura,
+                fecha_vencimiento=parsed_fecha_vencimiento,
+                valor=valor,
+                url_factura=url_factura,
+                observaciones=observaciones,
+                estado='PENDIENTE'
+            )
+            
+            factura_created = await crud.create_factura(db, factura_data)
+    
+    return {
+        "ok": True,
+        "message": "Factura procesada correctamente",
+        "file_saved": url_factura is not None,
+        "file_url": url_factura,
+        "webhook_notified": True if file else False,
+        "factura_id": factura_created.id if factura_created else None,
+        "factura": factura_created
+    }
+
+
+@router.post("/facturas/upload-pdf")
+async def upload_factura_pdf(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Upload a PDF file for OCR processing by n8n.
+    
+    Returns an upload_id that can be used to poll for processing status.
+    The frontend should poll /facturas/upload-status/{upload_id} to check when
+    n8n has finished processing the invoice.
+    
+    Flow:
+    1. Frontend uploads PDF -> gets upload_id
+    2. Backend saves PDF and notifies webhook with upload_id
+    3. n8n processes the PDF (OCR, extraction)
+    4. n8n calls /facturas/crear-con-oficina with upload_id in the request
+    5. Backend creates factura and updates upload status to COMPLETED
+    6. Frontend polls /facturas/upload-status/{upload_id} and sees COMPLETED
+    """
+    import models
+    from sqlalchemy.future import select
+    
+    # Validate file type
+    if not file.filename.lower().endswith('.pdf'):
+        raise HTTPException(status_code=400, detail="Solo se permiten archivos PDF")
+    
+    # Generate unique upload_id
+    upload_id = str(uuid.uuid4())
+    
+    # Generate unique filename
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    safe_filename = f"{timestamp}_{upload_id[:8]}_{file.filename}"
+    
+    # Create full path
+    file_path = os.path.join(INVOICE_UPLOAD_PATH, safe_filename)
+    url_factura = f"file://192.168.2.20/Facturas/temp/{safe_filename}"
+    
+    # Create upload tracking record
+    upload_record = models.FacturaUpload(
+        upload_id=upload_id,
+        filename=safe_filename,
+        original_filename=file.filename,
+        file_path=file_path,
+        file_url=url_factura,
+        status='UPLOADING'
+    )
+    db.add(upload_record)
+    await db.commit()
+    
+    # Check if directory exists and save file
+    try:
+        if not os.path.exists(INVOICE_UPLOAD_PATH):
+            os.makedirs(INVOICE_UPLOAD_PATH, exist_ok=True)
+        
+        content = await file.read()
+        with open(file_path, "wb") as f:
+            f.write(content)
+        
+        # Update status to PROCESSING
+        upload_record.status = 'PROCESSING'
+        await db.commit()
+        
+    except Exception as e:
+        # Update status to ERROR
+        upload_record.status = 'ERROR'
+        upload_record.error_message = str(e)
+        await db.commit()
+        
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Error guardando archivo: {str(e)}"
+        )
+    
+    # Notify webhook with upload_id
+    webhook_success = False
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            webhook_data = {
+                "event": "invoice_uploaded",
+                "upload_id": upload_id,  # Important! n8n needs this to update status
+                "file_path": file_path,
+                "file_url": url_factura,
+                "filename": safe_filename,
+                "original_filename": file.filename,
+                "uploaded_at": datetime.now().isoformat()
+            }
+            
+            response = await client.post(WEBHOOK_URL, json=webhook_data)
+            webhook_success = response.status_code in [200, 201, 202]
+            
+    except Exception as e:
+        print(f"Warning: Webhook notification failed: {e}")
+        # Don't fail - just mark as error in record
+        upload_record.error_message = f"Webhook failed: {e}"
+        await db.commit()
+    
+    return {
+        "ok": True,
+        "upload_id": upload_id,
+        "message": "Archivo subido, procesando...",
+        "filename": safe_filename,
+        "webhook_notified": webhook_success
+    }
+
+
+@router.get("/facturas/upload-status/{upload_id}")
+async def get_upload_status(
+    upload_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Check the status of a PDF upload/processing.
+    
+    Statuses:
+    - UPLOADING: File is being uploaded
+    - PROCESSING: File uploaded, n8n is processing
+    - COMPLETED: n8n finished, factura created
+    - ERROR: Something went wrong
+    
+    When status is COMPLETED, the response includes the created factura.
+    """
+    import models
+    from sqlalchemy.future import select
+    from sqlalchemy.orm import selectinload
+    
+    result = await db.execute(
+        select(models.FacturaUpload).filter(models.FacturaUpload.upload_id == upload_id)
+    )
+    upload = result.scalars().first()
+    
+    if not upload:
+        raise HTTPException(status_code=404, detail="Upload no encontrado")
+    
+    response = {
+        "upload_id": upload.upload_id,
+        "status": upload.status,
+        "filename": upload.original_filename,
+        "created_at": upload.created_at.isoformat() if upload.created_at else None,
+        "processed_at": upload.processed_at.isoformat() if upload.processed_at else None,
+        "error_message": upload.error_message
+    }
+    
+    # If completed, include factura details
+    if upload.status == 'COMPLETED' and upload.factura_id:
+        factura = await crud.get_factura(db, upload.factura_id)
+        if factura:
+            response["factura"] = {
+                "id": factura.id,
+                "numero_factura": factura.numero_factura,
+                "proveedor_nombre": factura.proveedor.nombre if factura.proveedor else None,
+                "proveedor_nit": factura.proveedor.nit if factura.proveedor else None,
+                "valor": float(factura.valor) if factura.valor else None,
+                "estado": factura.estado,
+                "oficinas_count": len(factura.oficinas_asignadas) if factura.oficinas_asignadas else 0
+            }
+    
+    return response
+
+
+@router.post("/facturas/upload-complete/{upload_id}")
+async def complete_upload(
+    upload_id: str,
+    factura_id: int = Query(None, description="ID of the created factura"),
+    status: str = Query("COMPLETED", description="COMPLETED or ERROR"),
+    error_message: str = Query(None, description="Error message if status is ERROR"),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Called by n8n to update the upload status when processing is complete.
+    
+    n8n should call this endpoint after creating the factura via /facturas/crear-con-oficina.
+    """
+    import models
+    from sqlalchemy.future import select
+    
+    result = await db.execute(
+        select(models.FacturaUpload).filter(models.FacturaUpload.upload_id == upload_id)
+    )
+    upload = result.scalars().first()
+    
+    if not upload:
+        raise HTTPException(status_code=404, detail="Upload no encontrado")
+    
+    upload.status = status
+    upload.processed_at = datetime.now()
+    
+    if factura_id:
+        upload.factura_id = factura_id
+    
+    if error_message:
+        upload.error_message = error_message
+    
+    await db.commit()
+    
+    return {
+        "ok": True,
+        "upload_id": upload_id,
+        "status": status,
+        "factura_id": factura_id
+    }
+

@@ -1,6 +1,8 @@
 import { useEffect, useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import type { Factura, Oficina, Proveedor, OficinaConContrato } from '../types';
 import Modal, { FormField, inputClassName } from '../components/Modal';
+import UploadFacturaModal from '../components/UploadFacturaModal';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
@@ -89,8 +91,10 @@ export default function FacturasPage() {
         pendientes: number;
         asignadas: number;
         pagadas: number;
-        sin_contrato: number;
+        pendientes_por_llegar: number;
     } | null>(null);
+
+    const navigate = useNavigate();
 
     // Multi-select for consolidado
     const [selectedFacturaIds, setSelectedFacturaIds] = useState<Set<number>>(new Set());
@@ -121,6 +125,9 @@ export default function FacturasPage() {
         proveedorId: number;
         oficinaId: number;
     } | null>(null);
+
+    // Upload factura modal
+    const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
 
     // Load historical invoices for a proveedor + oficina
     const loadHistorialFacturas = async (
@@ -858,9 +865,20 @@ export default function FacturasPage() {
         <div className="space-y-6">
             {/* Header with Stats */}
             <div className="flex flex-col md:flex-row justify-between items-start gap-4">
-                <div>
-                    <h1 className="text-3xl font-bold text-gray-900">Facturas</h1>
-                    <p className="text-gray-500 mt-1">Gestiona las facturas de proveedores</p>
+                <div className="flex items-center gap-4">
+                    <div>
+                        <h1 className="text-3xl font-bold text-gray-900">Facturas</h1>
+                        <p className="text-gray-500 mt-1">Gestiona las facturas de proveedores</p>
+                    </div>
+                    <button
+                        onClick={() => setIsUploadModalOpen(true)}
+                        className="flex items-center gap-2 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white px-4 py-2.5 rounded-lg font-medium shadow-lg hover:shadow-xl transition-all duration-200"
+                    >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                        </svg>
+                        Subir Factura
+                    </button>
                 </div>
 
                 {/* Stats Cards */}
@@ -868,7 +886,7 @@ export default function FacturasPage() {
                     <div className="flex gap-3">
                         <div className="bg-yellow-50 border border-yellow-200 rounded-lg px-4 py-2 text-center">
                             <div className="text-2xl font-bold text-yellow-700">{stats.pendientes}</div>
-                            <div className="text-xs text-yellow-600">Pendientes</div>
+                            <div className="text-xs text-yellow-600">Sin Oficina</div>
                         </div>
                         <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-2 text-center">
                             <div className="text-2xl font-bold text-blue-700">{stats.asignadas}</div>
@@ -878,6 +896,13 @@ export default function FacturasPage() {
                             <div className="text-2xl font-bold text-green-700">{stats.pagadas}</div>
                             <div className="text-xs text-green-600">Pagadas</div>
                         </div>
+                        <button
+                            onClick={() => navigate('/facturas/pendientes')}
+                            className="bg-red-50 border border-red-200 rounded-lg px-4 py-2 text-center hover:bg-red-100 transition-colors"
+                        >
+                            <div className="text-2xl font-bold text-red-700">{stats.pendientes_por_llegar}</div>
+                            <div className="text-xs text-red-600 font-semibold">Pendientes</div>
+                        </button>
                     </div>
                 )}
             </div>
@@ -2123,6 +2148,16 @@ export default function FacturasPage() {
                     </div>
                 </div>
             )}
+
+            {/* Upload Factura Modal */}
+            <UploadFacturaModal
+                isOpen={isUploadModalOpen}
+                onClose={() => setIsUploadModalOpen(false)}
+                onSuccess={() => {
+                    fetchFacturas(search, page);
+                    fetchStats();
+                }}
+            />
         </div>
     );
 }

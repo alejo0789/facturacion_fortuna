@@ -155,7 +155,10 @@ export default function ContractModal({ isOpen, onClose, onSave, contract }: Con
         proveedor_id: 0,
         oficina_id: 0,
         estado: 'ACTIVO',
-        valor_mensual: 0
+        valor_mensual: 0,
+        tiene_iva: 'no',
+        tiene_retefuente: 'no',
+        retefuente_pct: undefined
     });
 
     const [proveedores, setProveedores] = useState<Proveedor[]>([]);
@@ -373,6 +376,50 @@ export default function ContractModal({ isOpen, onClose, onSave, contract }: Con
                     </FormField>
                 </div>
 
+                <div className="grid grid-cols-3 gap-4">
+                    <FormField label="IVA">
+                        <select
+                            className={inputClassName}
+                            value={formData.tiene_iva || 'no'}
+                            onChange={e => setFormData({ ...formData, tiene_iva: e.target.value })}
+                        >
+                            <option value="no">No</option>
+                            <option value="si">Sí</option>
+                        </select>
+                    </FormField>
+
+                    <FormField label="Retefuente">
+                        <select
+                            className={inputClassName}
+                            value={formData.tiene_retefuente || 'no'}
+                            onChange={e => {
+                                const val = e.target.value;
+                                setFormData({
+                                    ...formData,
+                                    tiene_retefuente: val,
+                                    retefuente_pct: val === 'no' ? undefined : formData.retefuente_pct || 4
+                                });
+                            }}
+                        >
+                            <option value="no">No</option>
+                            <option value="si">Sí</option>
+                        </select>
+                    </FormField>
+
+                    {formData.tiene_retefuente === 'si' && (
+                        <FormField label="% Retefuente">
+                            <select
+                                className={inputClassName}
+                                value={formData.retefuente_pct || 4}
+                                onChange={e => setFormData({ ...formData, retefuente_pct: Number(e.target.value) })}
+                            >
+                                <option value={4}>4%</option>
+                                <option value={6}>6%</option>
+                            </select>
+                        </FormField>
+                    )}
+                </div>
+
                 <FormField label="Plan / Tipo de Canal">
                     <div className="grid grid-cols-2 gap-4">
                         <input
@@ -388,6 +435,16 @@ export default function ContractModal({ isOpen, onClose, onSave, contract }: Con
                             onChange={e => setFormData({ ...formData, tipo_canal: e.target.value })}
                         />
                     </div>
+                </FormField>
+
+                <FormField label="Observaciones">
+                    <textarea
+                        className={`${inputClassName} min-h-[80px] resize-y`}
+                        placeholder="Notas o comentarios adicionales sobre el contrato..."
+                        value={formData.observaciones || ''}
+                        onChange={e => setFormData({ ...formData, observaciones: e.target.value })}
+                        rows={3}
+                    />
                 </FormField>
 
                 {/* File Upload Section */}

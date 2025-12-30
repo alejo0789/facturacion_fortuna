@@ -8,6 +8,7 @@ import ProveedoresPage from './pages/ProveedoresPage';
 import PagosPage from './pages/PagosPage';
 import FacturasPage from './pages/FacturasPage';
 import ReportesPage from './pages/ReportesPage';
+import PendientesPorLlegarPage from './pages/PendientesPorLlegarPage';
 
 function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -27,6 +28,7 @@ function App() {
             <Route path="/proveedores" element={<ProveedoresPage />} />
             <Route path="/pagos" element={<PagosPage />} />
             <Route path="/facturas" element={<FacturasPage />} />
+            <Route path="/facturas/pendientes" element={<PendientesPorLlegarPage />} />
             <Route path="/reportes" element={<ReportesPage />} />
           </Routes>
         </main>

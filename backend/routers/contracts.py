@@ -130,12 +130,85 @@ async def delete_contract_pdf(contrato_id: int, db: AsyncSession = Depends(get_d
 async def read_proveedores(skip: int = 0, limit: int = 100, db: AsyncSession = Depends(get_db)):
     return await crud.get_proveedores(db, skip=skip, limit=limit)
 
+@router.get("/proveedores/buscar-oracle/{nit}")
+async def buscar_proveedor_oracle(nit: str, db: AsyncSession = Depends(get_db)):
+    """
+    Busca un proveedor por NIT en Oracle MANAGER.VINCULADO.
+    Retorna el nombre si existe, o error si no se encuentra.
+    También verifica si ya existe en la base de datos local.
+    """
+    from oracle_database import get_proveedor_by_nit_oracle
+    
+    # Limpiar el NIT - remover guión y dígito verificador si existe
+    nit_clean = nit.split('-')[0].strip() if '-' in nit else nit.strip()
+    
+    # Verificar si ya existe en la base de datos local
+    existing = await crud.get_proveedor_by_nit(db, nit_clean)
+    if existing:
+        return {
+            "found": True,
+            "source": "local",
+            "nit": existing.nit,
+            "nombre": existing.nombre,
+            "already_exists": True,
+            "message": "Este proveedor ya existe en la base de datos local"
+        }
+    
+    # Buscar en Oracle
+    try:
+        oracle_result = get_proveedor_by_nit_oracle(nit_clean)
+        
+        if oracle_result:
+            return {
+                "found": True,
+                "source": "oracle",
+                "nit": nit_clean,
+                "nombre": oracle_result["nombre"],
+                "already_exists": False,
+                "message": "Proveedor encontrado en Oracle"
+            }
+        else:
+            return {
+                "found": False,
+                "source": None,
+                "nit": nit_clean,
+                "nombre": None,
+                "already_exists": False,
+                "message": "Proveedor no encontrado en Oracle (MANAGER.VINCULADO)"
+            }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error consultando Oracle: {str(e)}")
+
 @router.post("/proveedores/", response_model=schemas.Proveedor)
 async def create_proveedor(proveedor: schemas.ProveedorCreate, db: AsyncSession = Depends(get_db)):
-    db_prov = await crud.get_proveedor_by_nit(db, nit=proveedor.nit)
+    """
+    Crea un proveedor. Si solo viene el NIT, consulta Oracle para obtener el nombre.
+    """
+    from oracle_database import get_proveedor_by_nit_oracle
+    
+    # Limpiar el NIT
+    nit_clean = proveedor.nit.split('-')[0].strip() if '-' in proveedor.nit else proveedor.nit.strip()
+    
+    # Verificar si ya existe
+    db_prov = await crud.get_proveedor_by_nit(db, nit=nit_clean)
     if db_prov:
-        raise HTTPException(status_code=400, detail="Provider with this NIT already exists")
-    return await crud.create_proveedor(db, proveedor)
+        raise HTTPException(status_code=400, detail="Ya existe un proveedor con este NIT")
+    
+    # Si no viene el nombre o viene vacío, buscarlo en Oracle
+    nombre = proveedor.nombre
+    if not nombre or nombre.strip() == "" or nombre == "PENDING_ORACLE_LOOKUP":
+        oracle_result = get_proveedor_by_nit_oracle(nit_clean)
+        if oracle_result:
+            nombre = oracle_result["nombre"]
+        else:
+            raise HTTPException(
+                status_code=404, 
+                detail=f"No se encontró el proveedor con NIT {nit_clean} en Oracle"
+            )
+    
+    # Crear el proveedor con el NIT limpio
+    proveedor_data = schemas.ProveedorCreate(nit=nit_clean, nombre=nombre)
+    return await crud.create_proveedor(db, proveedor_data)
 
 @router.get("/oficinas/", response_model=List[schemas.Oficina])
 async def read_oficinas(skip: int = 0, limit: int = 100, search: Optional[str] = None, db: AsyncSession = Depends(get_db)):

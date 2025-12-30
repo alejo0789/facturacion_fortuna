@@ -8,7 +8,6 @@ class Proveedor(Base):
     id = Column(Integer, primary_key=True, index=True)
     nit = Column(String(50), unique=True, nullable=False)
     nombre = Column(String(255), nullable=False)
-    iva = Column(String(50))
     
     # Relationships
     contratos = relationship("Contrato", back_populates="proveedor")
@@ -54,6 +53,11 @@ class Contrato(Base):
     tipo_canal = Column(String(100))
     valor_mensual = Column(Numeric(12, 2))
     archivo_contrato = Column(String(500))  # Path to contract PDF file
+    
+    # Tax details
+    tiene_iva = Column(String(10), default="no")  # "si" or "no"
+    tiene_retefuente = Column(String(10), default="no")  # "si" or "no"
+    retefuente_pct = Column(Numeric(5, 2))  # e.g., 4 or 6
     
     # Relationships
     proveedor = relationship("Proveedor", back_populates="contratos")
@@ -144,3 +148,28 @@ class FacturaOficina(Base):
     oficina = relationship("Oficina")
     contrato = relationship("Contrato")
 
+
+class FacturaUpload(Base):
+    """Tracks PDF uploads and their processing status by n8n"""
+    __tablename__ = "factura_uploads"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    upload_id = Column(String(50), unique=True, index=True, nullable=False)  # UUID for tracking
+    filename = Column(String(255))
+    original_filename = Column(String(255))
+    file_path = Column(Text)
+    file_url = Column(Text)
+    
+    # Processing status
+    status = Column(String(50), default='UPLOADING')  # UPLOADING, PROCESSING, COMPLETED, ERROR
+    error_message = Column(Text)
+    
+    # Result - links to created factura if successful
+    factura_id = Column(Integer, ForeignKey("facturas.id"), nullable=True)
+    
+    # Timestamps
+    created_at = Column(DateTime, default=func.now())
+    processed_at = Column(DateTime, nullable=True)
+    
+    # Relationship
+    factura = relationship("Factura")
