@@ -1,0 +1,22 @@
+name: Mirror to GitLab HTTPS
+
+on:
+  push:
+    branches:
+      - main  # O la rama que quieras sincronizar. Quita esto si quieres todas.
+  delete:
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0 # Importante para traer todo el historial y ramas
+
+      - name: Mirror to GitLab
+        uses: pixta-dev/repository-mirroring-action@v1
+        with:
+          # Construimos la URL con el token para autenticación HTTPS
+          target_repo_url: https://oauth2:${{ secrets.GITLAB_TOKEN }}@gitlab.com/ingenieroia_acertemos/facturacion_fortuna.git
