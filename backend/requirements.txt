@@ -9,3 +9,4 @@ openpyxl
 pandas
 Pillow
 oracledb
+httpx
