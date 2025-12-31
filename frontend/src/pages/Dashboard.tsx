@@ -136,7 +136,7 @@ export default function Dashboard() {
                     contratos.map((c) => (
                         <div
                             key={c.id}
-                            className={`card hover:shadow-xl transition-shadow duration-300 border-l-4 ${c.estado === 'ACTIVO' ? 'border-green-500' : 'border-red-400'
+                            className={`card hover:shadow-xl transition-shadow duration-300 border-l-4 ${c.estado === 'ACTIVO' ? 'border-green-500' : c.estado === 'EN TRAMITE' ? 'border-yellow-500' : 'border-red-400'
                                 }`}
                         >
                             <div className="flex flex-col md:flex-row justify-between gap-4">
@@ -162,7 +162,9 @@ export default function Dashboard() {
                                                 onClick={() => toggleStatus(c)}
                                                 className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium cursor-pointer transition-all hover:scale-105 ${c.estado === 'ACTIVO'
                                                     ? 'bg-green-100 text-green-800 hover:bg-green-200'
-                                                    : 'bg-red-100 text-red-800 hover:bg-red-200'
+                                                    : c.estado === 'EN TRAMITE'
+                                                        ? 'bg-yellow-100 text-yellow-800 hover:bg-yellow-200'
+                                                        : 'bg-red-100 text-red-800 hover:bg-red-200'
                                                     }`}
                                             >
                                                 {c.estado || 'Unknown'}
@@ -172,10 +174,10 @@ export default function Dashboard() {
                                         <div>
                                             <span className="block text-gray-400 text-xs uppercase">Tipo</span>
                                             <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${c.tipo === 'Fijo' ? 'bg-blue-100 text-blue-800' :
-                                                    c.tipo === 'Movil' ? 'bg-purple-100 text-purple-800' :
-                                                        c.tipo === 'Colaboracion' ? 'bg-yellow-100 text-yellow-800' :
-                                                            c.tipo === 'Leasing' ? 'bg-orange-100 text-orange-800' :
-                                                                'bg-gray-100 text-gray-600'
+                                                c.tipo === 'Movil' ? 'bg-purple-100 text-purple-800' :
+                                                    c.tipo === 'Colaboracion' ? 'bg-yellow-100 text-yellow-800' :
+                                                        c.tipo === 'Leasing' ? 'bg-orange-100 text-orange-800' :
+                                                            'bg-gray-100 text-gray-600'
                                                 }`}>
                                                 {c.tipo || '-'}
                                             </span>

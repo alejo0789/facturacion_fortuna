@@ -357,6 +357,7 @@ export default function ContractModal({ isOpen, onClose, onSave, contract }: Con
                             onChange={e => setFormData({ ...formData, estado: e.target.value })}
                         >
                             <option value="ACTIVO">ACTIVO</option>
+                            <option value="EN TRAMITE">EN TRAMITE</option>
                             <option value="CANCELADO">CANCELADO</option>
                         </select>
                     </FormField>
