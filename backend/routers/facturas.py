@@ -101,13 +101,15 @@ async def create_factura_api(
     return await crud.create_factura(db, factura_data)
 
 
-@router.post("/facturas/crear-con-oficina", response_model=schemas.Factura)
+@router.post("/facturas/crear-con-oficina")
 async def create_factura_con_oficinas(
     request: schemas.FacturaCreateConOficinas,
     db: AsyncSession = Depends(get_db)
 ):
     """
     Create a new factura with optional oficina assignments using cod_oficina.
+    
+    ENDPOINT PARA AGENTE N8N - Respuestas de error detalladas incluidas.
     
     - proveedor_nit: Required. NIT of the provider
     - proveedor_nombre: Optional. Name to create provider if not found
@@ -124,76 +126,269 @@ async def create_factura_con_oficinas(
             {"cod_oficina": "OF-002", "valor": 250000}
         ]
     }
+    
+    RESPUESTA EXITOSA:
+    {
+        "success": true,
+        "factura_id": 123,
+        "factura": {...},
+        "proveedor_creado": false,
+        "oficinas_asignadas": ["OF-001"],
+        "oficinas_no_encontradas": ["OF-002"],
+        "warnings": ["Oficina OF-002 no encontrada"]
+    }
+    
+    RESPUESTA DE ERROR:
+    {
+        "success": false,
+        "error_code": "PROVEEDOR_NOT_FOUND",
+        "error_message": "Proveedor con NIT 123 no encontrado",
+        "accion_sugerida": "Proporcionar proveedor_nombre para crear uno nuevo",
+        "datos_recibidos": {...},
+        "datos_guardados": {...}
+    }
     """
-    # Find or create proveedor (optional)
-    proveedor_id = None
+    # Track progress for detailed error reporting
+    progress = {
+        "proveedor_encontrado": False,
+        "proveedor_creado": False,
+        "factura_creada": False,
+        "oficinas_procesadas": False
+    }
+    datos_guardados = {}
+    warnings = []
     
-    if request.proveedor_nit:
-        proveedor = await crud.get_proveedor_by_nit(db, request.proveedor_nit)
+    try:
+        # Step 1: Find or create proveedor (optional)
+        proveedor_id = None
+        proveedor = None
         
-        if proveedor:
-            proveedor_id = proveedor.id
-        elif request.proveedor_nombre:
-            # Create new proveedor
-            proveedor = await crud.create_proveedor(
-                db, 
-                schemas.ProveedorCreate(
-                    nit=request.proveedor_nit,
-                    nombre=request.proveedor_nombre
-                )
+        if request.proveedor_nit:
+            proveedor = await crud.get_proveedor_by_nit(db, request.proveedor_nit)
+            
+            if proveedor:
+                proveedor_id = proveedor.id
+                progress["proveedor_encontrado"] = True
+                datos_guardados["proveedor"] = {
+                    "id": proveedor.id,
+                    "nit": proveedor.nit,
+                    "nombre": proveedor.nombre,
+                    "existia": True
+                }
+            elif request.proveedor_nombre:
+                # Create new proveedor
+                try:
+                    proveedor = await crud.create_proveedor(
+                        db, 
+                        schemas.ProveedorCreate(
+                            nit=request.proveedor_nit,
+                            nombre=request.proveedor_nombre
+                        )
+                    )
+                    proveedor_id = proveedor.id
+                    progress["proveedor_creado"] = True
+                    datos_guardados["proveedor"] = {
+                        "id": proveedor.id,
+                        "nit": proveedor.nit,
+                        "nombre": proveedor.nombre,
+                        "existia": False,
+                        "recien_creado": True
+                    }
+                except Exception as e:
+                    return {
+                        "success": False,
+                        "error_code": "PROVEEDOR_CREATE_ERROR",
+                        "error_message": f"Error al crear proveedor: {str(e)}",
+                        "accion_sugerida": "Verificar que el NIT no esté duplicado y que los datos del proveedor sean válidos. Intentar crear el proveedor manualmente primero.",
+                        "datos_recibidos": {
+                            "proveedor_nit": request.proveedor_nit,
+                            "proveedor_nombre": request.proveedor_nombre
+                        },
+                        "datos_guardados": datos_guardados,
+                        "progress": progress
+                    }
+            else:
+                # Proveedor not found and no name to create
+                return {
+                    "success": False,
+                    "error_code": "PROVEEDOR_NOT_FOUND",
+                    "error_message": f"Proveedor con NIT '{request.proveedor_nit}' no encontrado en la base de datos",
+                    "accion_sugerida": "Proporcionar el campo 'proveedor_nombre' para crear un nuevo proveedor automáticamente, o crear el proveedor manualmente antes de enviar la factura.",
+                    "datos_recibidos": {
+                        "proveedor_nit": request.proveedor_nit,
+                        "numero_factura": request.numero_factura,
+                        "valor": str(request.valor) if request.valor else None
+                    },
+                    "datos_guardados": datos_guardados,
+                    "progress": progress,
+                    "alternativa": "Puedes crear la factura sin proveedor omitiendo el campo proveedor_nit, y asignar el proveedor manualmente después."
+                }
+        
+        # Step 2: Create factura
+        try:
+            factura_data = schemas.FacturaCreate(
+                proveedor_id=proveedor_id,
+                numero_factura=request.numero_factura,
+                cufe=request.cufe,
+                fecha_factura=request.fecha_factura,
+                fecha_vencimiento=request.fecha_vencimiento,
+                valor=request.valor,
+                url_factura=request.url_factura,
+                observaciones=request.observaciones,
+                estado='PENDIENTE' if not request.oficinas else 'ASIGNADA'
             )
-            proveedor_id = proveedor.id
-        else:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Proveedor con NIT {request.proveedor_nit} no encontrado. Proporcione proveedor_nombre para crear uno nuevo."
-            )
-    
-    # Create factura (proveedor_id can be None)
-    factura_data = schemas.FacturaCreate(
-        proveedor_id=proveedor_id,
-        numero_factura=request.numero_factura,
-        cufe=request.cufe,
-        fecha_factura=request.fecha_factura,
-        fecha_vencimiento=request.fecha_vencimiento,
-        valor=request.valor,
-        url_factura=request.url_factura,
-        observaciones=request.observaciones,
-        estado='PENDIENTE' if not request.oficinas else 'ASIGNADA'
-    )
-    
-    factura = await crud.create_factura(db, factura_data)
-    
-    # If oficinas provided, assign them
-    if request.oficinas:
+            
+            factura = await crud.create_factura(db, factura_data)
+            progress["factura_creada"] = True
+            datos_guardados["factura"] = {
+                "id": factura.id,
+                "numero_factura": factura.numero_factura,
+                "valor": str(factura.valor) if factura.valor else None,
+                "estado": factura.estado
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error_code": "FACTURA_CREATE_ERROR",
+                "error_message": f"Error al crear la factura: {str(e)}",
+                "accion_sugerida": "Verificar que los campos de la factura tengan el formato correcto. Fechas deben ser YYYY-MM-DD, valor debe ser numérico.",
+                "campos_problematicos": {
+                    "fecha_factura": str(request.fecha_factura) if request.fecha_factura else None,
+                    "fecha_vencimiento": str(request.fecha_vencimiento) if request.fecha_vencimiento else None,
+                    "valor": str(request.valor) if request.valor else None
+                },
+                "datos_recibidos": {
+                    "numero_factura": request.numero_factura,
+                    "cufe": request.cufe,
+                    "proveedor_nit": request.proveedor_nit
+                },
+                "datos_guardados": datos_guardados,
+                "progress": progress
+            }
+        
+        # Step 3: Assign oficinas if provided
         oficinas_asignadas = []
         oficinas_no_encontradas = []
+        oficinas_con_error = []
         
-        for of in request.oficinas:
-            # Skip if cod_oficina is null/empty
-            if not of.cod_oficina:
-                continue
-                
-            # Find oficina by cod_oficina
-            oficina = await crud.get_oficina_by_codigo(db, of.cod_oficina)
+        if request.oficinas:
+            progress["oficinas_procesadas"] = True
             
-            if oficina:
-                # Add oficina to factura
-                await crud.add_oficina_to_factura(
-                    db, factura.id, oficina.id, float(of.valor), None
-                )
-                oficinas_asignadas.append(of.cod_oficina)
-            else:
-                oficinas_no_encontradas.append(of.cod_oficina)
+            for of in request.oficinas:
+                # Skip if cod_oficina is null/empty
+                if not of.cod_oficina:
+                    warnings.append(f"Se omitió una oficina con código vacío o nulo (valor: {of.valor})")
+                    continue
+                
+                # Find oficina by cod_oficina
+                try:
+                    oficina = await crud.get_oficina_by_codigo(db, of.cod_oficina)
+                    
+                    if oficina:
+                        # Add oficina to factura
+                        await crud.add_oficina_to_factura(
+                            db, factura.id, oficina.id, float(of.valor), None
+                        )
+                        oficinas_asignadas.append({
+                            "cod_oficina": of.cod_oficina,
+                            "oficina_id": oficina.id,
+                            "oficina_nombre": oficina.nombre,
+                            "valor": str(of.valor)
+                        })
+                    else:
+                        oficinas_no_encontradas.append({
+                            "cod_oficina": of.cod_oficina,
+                            "valor": str(of.valor),
+                            "razon": f"No existe oficina con código '{of.cod_oficina}' en la base de datos"
+                        })
+                        warnings.append(f"Oficina con código '{of.cod_oficina}' no encontrada - el valor {of.valor} no fue asignado")
+                except Exception as e:
+                    oficinas_con_error.append({
+                        "cod_oficina": of.cod_oficina,
+                        "valor": str(of.valor),
+                        "error": str(e)
+                    })
+                    warnings.append(f"Error al asignar oficina '{of.cod_oficina}': {str(e)}")
+            
+            # Update factura observaciones with warnings about missing oficinas
+            if oficinas_no_encontradas or oficinas_con_error:
+                advertencias = []
+                if oficinas_no_encontradas:
+                    codigos = [o["cod_oficina"] for o in oficinas_no_encontradas]
+                    advertencias.append(f"Oficinas no encontradas: {', '.join(codigos)}")
+                if oficinas_con_error:
+                    codigos = [o["cod_oficina"] for o in oficinas_con_error]
+                    advertencias.append(f"Oficinas con error: {', '.join(codigos)}")
+                
+                nueva_obs = (factura.observaciones or "") + f" [ADVERTENCIA: {'; '.join(advertencias)}]"
+                factura.observaciones = nueva_obs
+                await db.commit()
         
         # Refresh factura to get updated relationships
         factura = await crud.get_factura(db, factura.id)
         
+        # Build success response with detailed information
+        response = {
+            "success": True,
+            "factura_id": factura.id,
+            "factura": {
+                "id": factura.id,
+                "numero_factura": factura.numero_factura,
+                "cufe": factura.cufe,
+                "fecha_factura": str(factura.fecha_factura) if factura.fecha_factura else None,
+                "fecha_vencimiento": str(factura.fecha_vencimiento) if factura.fecha_vencimiento else None,
+                "valor": str(factura.valor) if factura.valor else None,
+                "estado": factura.estado,
+                "url_factura": factura.url_factura,
+                "observaciones": factura.observaciones,
+                "proveedor_id": factura.proveedor_id,
+                "proveedor_nombre": factura.proveedor.nombre if factura.proveedor else None,
+                "proveedor_nit": factura.proveedor.nit if factura.proveedor else None
+            },
+            "proveedor_creado": progress["proveedor_creado"],
+            "oficinas_asignadas": oficinas_asignadas,
+            "oficinas_no_encontradas": oficinas_no_encontradas,
+            "oficinas_con_error": oficinas_con_error,
+            "warnings": warnings if warnings else None,
+            "progress": progress
+        }
+        
+        # Add suggestions if there were issues with oficinas
         if oficinas_no_encontradas:
-            # Still return the factura but add a warning
-            factura.observaciones = (factura.observaciones or "") + f" [ADVERTENCIA: Oficinas no encontradas: {', '.join(oficinas_no_encontradas)}]"
-    
-    return factura
+            response["accion_requerida"] = {
+                "mensaje": "Algunas oficinas no fueron encontradas y sus valores no fueron asignados",
+                "opciones": [
+                    "1. Crear las oficinas faltantes en el sistema y luego asignarlas manualmente a la factura",
+                    "2. Usar el endpoint PUT /api/facturas/{factura_id}/oficinas-multiples para asignar las oficinas correctas",
+                    "3. Verificar que los códigos de oficina sean correctos consultando GET /api/oficinas/"
+                ],
+                "factura_url": f"/api/facturas/{factura.id}"
+            }
+        
+        return response
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
+    except Exception as e:
+        # Catch any unexpected errors
+        return {
+            "success": False,
+            "error_code": "UNEXPECTED_ERROR",
+            "error_message": f"Error inesperado: {str(e)}",
+            "error_type": type(e).__name__,
+            "accion_sugerida": "Contactar al administrador del sistema. Este es un error no contemplado.",
+            "datos_recibidos": {
+                "proveedor_nit": request.proveedor_nit,
+                "proveedor_nombre": request.proveedor_nombre,
+                "numero_factura": request.numero_factura,
+                "valor": str(request.valor) if request.valor else None,
+                "oficinas_count": len(request.oficinas) if request.oficinas else 0
+            },
+            "datos_guardados": datos_guardados,
+            "progress": progress,
+            "nota": "Si se muestra progress.factura_creada=True, la factura fue creada pero hubo un error posterior. Puedes buscarla por numero_factura."
+        }
 
 
 @router.get("/facturas/", response_model=List[schemas.Factura])
@@ -684,47 +879,33 @@ async def upload_factura_pdf(
     """
     Upload a PDF file for OCR processing by n8n.
     
-    Returns an upload_id that can be used to poll for processing status.
-    The frontend should poll /facturas/upload-status/{upload_id} to check when
-    n8n has finished processing the invoice.
+    This endpoint is synchronous - it waits for n8n to process the PDF and respond.
+    n8n uses "Respond to Webhook" node to return the result.
     
     Flow:
-    1. Frontend uploads PDF -> gets upload_id
-    2. Backend saves PDF and notifies webhook with upload_id
-    3. n8n processes the PDF (OCR, extraction)
-    4. n8n calls /facturas/crear-con-oficina with upload_id in the request
-    5. Backend creates factura and updates upload status to COMPLETED
-    6. Frontend polls /facturas/upload-status/{upload_id} and sees COMPLETED
-    """
-    import models
-    from sqlalchemy.future import select
+    1. Frontend uploads PDF
+    2. Backend saves PDF and calls webhook
+    3. Backend WAITS for n8n to respond (up to 120 seconds)
+    4. n8n processes the PDF (OCR, extraction), creates factura
+    5. n8n responds with the result
+    6. Backend returns the result to frontend
     
+    n8n should respond with JSON:
+    - Success: {"success": true, "factura_id": 123, "factura": {...}}
+    - Error: {"success": false, "error": "Error message"}
+    """
     # Validate file type
     if not file.filename.lower().endswith('.pdf'):
         raise HTTPException(status_code=400, detail="Solo se permiten archivos PDF")
     
-    # Generate unique upload_id
-    upload_id = str(uuid.uuid4())
-    
     # Generate unique filename
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    safe_filename = f"{timestamp}_{upload_id[:8]}_{file.filename}"
+    unique_id = str(uuid.uuid4())[:8]
+    safe_filename = f"{timestamp}_{unique_id}_{file.filename}"
     
     # Create full path
     file_path = os.path.join(INVOICE_UPLOAD_PATH, safe_filename)
     url_factura = f"file://192.168.2.20/Facturas/temp/{safe_filename}"
-    
-    # Create upload tracking record
-    upload_record = models.FacturaUpload(
-        upload_id=upload_id,
-        filename=safe_filename,
-        original_filename=file.filename,
-        file_path=file_path,
-        file_url=url_factura,
-        status='UPLOADING'
-    )
-    db.add(upload_record)
-    await db.commit()
     
     # Check if directory exists and save file
     try:
@@ -735,28 +916,17 @@ async def upload_factura_pdf(
         with open(file_path, "wb") as f:
             f.write(content)
         
-        # Update status to PROCESSING
-        upload_record.status = 'PROCESSING'
-        await db.commit()
-        
     except Exception as e:
-        # Update status to ERROR
-        upload_record.status = 'ERROR'
-        upload_record.error_message = str(e)
-        await db.commit()
-        
         raise HTTPException(
             status_code=500, 
             detail=f"Error guardando archivo: {str(e)}"
         )
     
-    # Notify webhook with upload_id
-    webhook_success = False
+    # Call webhook and WAIT for n8n response (timeout 120 seconds for OCR processing)
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=120.0) as client:
             webhook_data = {
                 "event": "invoice_uploaded",
-                "upload_id": upload_id,  # Important! n8n needs this to update status
                 "file_path": file_path,
                 "file_url": url_factura,
                 "filename": safe_filename,
@@ -765,21 +935,64 @@ async def upload_factura_pdf(
             }
             
             response = await client.post(WEBHOOK_URL, json=webhook_data)
-            webhook_success = response.status_code in [200, 201, 202]
             
+            # Check if n8n responded successfully
+            if response.status_code in [200, 201, 202]:
+                try:
+                    n8n_result = response.json()
+                    
+                    # n8n returned success
+                    if n8n_result.get("success"):
+                        return {
+                            "ok": True,
+                            "message": "Factura procesada correctamente",
+                            "file_url": url_factura,
+                            "filename": safe_filename,
+                            "factura_id": n8n_result.get("factura_id"),
+                            "factura": n8n_result.get("factura"),
+                            "n8n_response": n8n_result
+                        }
+                    else:
+                        # n8n returned an error
+                        return {
+                            "ok": False,
+                            "message": n8n_result.get("error", "Error procesando factura en n8n"),
+                            "file_url": url_factura,
+                            "filename": safe_filename,
+                            "n8n_response": n8n_result
+                        }
+                except Exception as json_error:
+                    # n8n responded but not with valid JSON
+                    return {
+                        "ok": True,
+                        "message": "Archivo procesado (respuesta no JSON)",
+                        "file_url": url_factura,
+                        "filename": safe_filename,
+                        "raw_response": response.text[:500]
+                    }
+            else:
+                # n8n returned error status
+                return {
+                    "ok": False,
+                    "message": f"Error en n8n: HTTP {response.status_code}",
+                    "file_url": url_factura,
+                    "filename": safe_filename
+                }
+            
+    except httpx.TimeoutException:
+        return {
+            "ok": False,
+            "message": "Timeout: n8n tardó demasiado en procesar (más de 120 segundos)",
+            "file_url": url_factura,
+            "filename": safe_filename
+        }
     except Exception as e:
-        print(f"Warning: Webhook notification failed: {e}")
-        # Don't fail - just mark as error in record
-        upload_record.error_message = f"Webhook failed: {e}"
-        await db.commit()
-    
-    return {
-        "ok": True,
-        "upload_id": upload_id,
-        "message": "Archivo subido, procesando...",
-        "filename": safe_filename,
-        "webhook_notified": webhook_success
-    }
+        return {
+            "ok": False,
+            "message": f"Error conectando con n8n: {str(e)}",
+            "file_url": url_factura,
+            "filename": safe_filename
+        }
 
 
 @router.get("/facturas/upload-status/{upload_id}")
