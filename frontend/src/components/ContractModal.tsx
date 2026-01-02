@@ -369,10 +369,10 @@ export default function ContractModal({ isOpen, onClose, onSave, contract }: Con
                             onChange={e => setFormData({ ...formData, tipo: e.target.value })}
                         >
                             <option value="">Seleccionar...</option>
-                            <option value="Fijo">Fijo</option>
-                            <option value="Movil">Móvil</option>
-                            <option value="Colaboracion">Colaboración</option>
-                            <option value="Leasing">Leasing</option>
+                            <option value="FIJO">Fijo</option>
+                            <option value="MOVIL">Móvil</option>
+                            <option value="COLABORACION">Colaboración</option>
+                            <option value="LEASING">Leasing</option>
                         </select>
                     </FormField>
                 </div>

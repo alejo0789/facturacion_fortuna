@@ -173,10 +173,10 @@ export default function Dashboard() {
                                         </div>
                                         <div>
                                             <span className="block text-gray-400 text-xs uppercase">Tipo</span>
-                                            <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${c.tipo === 'Fijo' ? 'bg-blue-100 text-blue-800' :
-                                                c.tipo === 'Movil' ? 'bg-purple-100 text-purple-800' :
-                                                    c.tipo === 'Colaboracion' ? 'bg-yellow-100 text-yellow-800' :
-                                                        c.tipo === 'Leasing' ? 'bg-orange-100 text-orange-800' :
+                                            <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${c.tipo === 'FIJO' ? 'bg-blue-100 text-blue-800' :
+                                                c.tipo === 'MOVIL' ? 'bg-purple-100 text-purple-800' :
+                                                    c.tipo === 'COLABORACION' ? 'bg-yellow-100 text-yellow-800' :
+                                                        c.tipo === 'LEASING' ? 'bg-orange-100 text-orange-800' :
                                                             'bg-gray-100 text-gray-600'
                                                 }`}>
                                                 {c.tipo || '-'}
