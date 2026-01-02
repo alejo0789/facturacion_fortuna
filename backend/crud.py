@@ -11,8 +11,18 @@ async def get_proveedor(db: AsyncSession, proveedor_id: int):
     result = await db.execute(select(models.Proveedor).filter(models.Proveedor.id == proveedor_id))
     return result.scalars().first()
 
-async def get_proveedores(db: AsyncSession, skip: int = 0, limit: int = 100):
-    result = await db.execute(select(models.Proveedor).offset(skip).limit(limit))
+async def get_proveedores(db: AsyncSession, skip: int = 0, limit: int = 100, search: Optional[str] = None):
+    query = select(models.Proveedor)
+    
+    if search:
+        query = query.filter(
+            or_(
+                models.Proveedor.nombre.ilike(f"%{search}%"),
+                models.Proveedor.nit.ilike(f"%{search}%")
+            )
+        )
+    
+    result = await db.execute(query.offset(skip).limit(limit))
     return result.scalars().all()
 
 async def create_proveedor(db: AsyncSession, proveedor: schemas.ProveedorCreate):

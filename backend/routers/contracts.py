@@ -127,8 +127,8 @@ async def delete_contract_pdf(contrato_id: int, db: AsyncSession = Depends(get_d
 
 # --- Helpers for Providers/Offices ---
 @router.get("/proveedores/", response_model=List[schemas.Proveedor])
-async def read_proveedores(skip: int = 0, limit: int = 100, db: AsyncSession = Depends(get_db)):
-    return await crud.get_proveedores(db, skip=skip, limit=limit)
+async def read_proveedores(skip: int = 0, limit: int = 100, search: Optional[str] = None, db: AsyncSession = Depends(get_db)):
+    return await crud.get_proveedores(db, skip=skip, limit=limit, search=search)
 
 @router.get("/proveedores/buscar-oracle/{nit}")
 async def buscar_proveedor_oracle(nit: str, db: AsyncSession = Depends(get_db)):

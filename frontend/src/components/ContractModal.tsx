@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Contrato, Proveedor, Oficina } from '../types';
 import Modal, { FormField, inputClassName } from './Modal';
 
@@ -11,38 +11,86 @@ interface ContractModalProps {
     contract?: Contrato;
 }
 
-// Componente de búsqueda con autocompletado
-interface SearchableSelectProps<T> {
-    items: T[];
+// Componente de búsqueda con autocompletado que busca en el servidor
+interface ServerSearchableSelectProps<T> {
+    endpoint: string;
     value: number;
-    onChange: (id: number) => void;
+    onChange: (id: number, item?: T) => void;
     getLabel: (item: T) => string;
     getSearchText: (item: T) => string;
     placeholder: string;
-    selectedItem?: T;
+    initialItem?: T | null;
 }
 
-function SearchableSelect<T extends { id: number }>({
-    items,
+function ServerSearchableSelect<T extends { id: number }>({
+    endpoint,
     value,
     onChange,
     getLabel,
-    getSearchText,
     placeholder,
-}: SearchableSelectProps<T>) {
+    initialItem,
+}: ServerSearchableSelectProps<T>) {
     const [search, setSearch] = useState('');
     const [isOpen, setIsOpen] = useState(false);
     const [highlightedIndex, setHighlightedIndex] = useState(0);
+    const [items, setItems] = useState<T[]>([]);
+    const [loading, setLoading] = useState(false);
+    const [selectedItem, setSelectedItem] = useState<T | null>(initialItem || null);
     const containerRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
+    const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-    const selectedItem = items.find(item => item.id === value);
+    // Set initial item when provided
+    useEffect(() => {
+        if (initialItem) {
+            setSelectedItem(initialItem);
+            if (!isOpen) {
+                setSearch(getLabel(initialItem));
+            }
+        }
+    }, [initialItem]);
 
-    const filteredItems = items.filter(item => {
-        const searchLower = search.toLowerCase();
-        return getSearchText(item).toLowerCase().includes(searchLower);
-    });
+    // Fetch items from server with debounce
+    const fetchItems = useCallback(async (query: string) => {
+        setLoading(true);
+        try {
+            const params = new URLSearchParams({
+                skip: '0',
+                limit: '20',
+            });
+            if (query.trim()) {
+                params.append('search', query.trim());
+            }
+            const res = await fetch(`${API_URL}/${endpoint}?${params}`);
+            if (res.ok) {
+                const data = await res.json();
+                setItems(data);
+            }
+        } catch (error) {
+            console.error('Error fetching items:', error);
+        } finally {
+            setLoading(false);
+        }
+    }, [endpoint]);
 
+    // Debounced search
+    useEffect(() => {
+        if (isOpen) {
+            if (debounceRef.current) {
+                clearTimeout(debounceRef.current);
+            }
+            debounceRef.current = setTimeout(() => {
+                fetchItems(search);
+            }, 300);
+        }
+        return () => {
+            if (debounceRef.current) {
+                clearTimeout(debounceRef.current);
+            }
+        };
+    }, [search, isOpen, fetchItems]);
+
+    // Update display when selectedItem changes and dropdown is closed
     useEffect(() => {
         if (selectedItem && !isOpen) {
             setSearch(getLabel(selectedItem));
@@ -65,7 +113,8 @@ function SearchableSelect<T extends { id: number }>({
     }, [selectedItem]);
 
     const handleSelect = (item: T) => {
-        onChange(item.id);
+        setSelectedItem(item);
+        onChange(item.id, item);
         setSearch(getLabel(item));
         setIsOpen(false);
     };
@@ -80,7 +129,7 @@ function SearchableSelect<T extends { id: number }>({
             switch (e.key) {
                 case 'ArrowDown':
                     e.preventDefault();
-                    setHighlightedIndex(prev => Math.min(prev + 1, filteredItems.length - 1));
+                    setHighlightedIndex(prev => Math.min(prev + 1, items.length - 1));
                     break;
                 case 'ArrowUp':
                     e.preventDefault();
@@ -88,8 +137,8 @@ function SearchableSelect<T extends { id: number }>({
                     break;
                 case 'Enter':
                     e.preventDefault();
-                    if (filteredItems[highlightedIndex]) {
-                        handleSelect(filteredItems[highlightedIndex]);
+                    if (items[highlightedIndex]) {
+                        handleSelect(items[highlightedIndex]);
                     }
                     break;
                 case 'Escape':
@@ -115,18 +164,25 @@ function SearchableSelect<T extends { id: number }>({
                     setIsOpen(true);
                     setHighlightedIndex(0);
                     if (e.target.value === '') {
+                        setSelectedItem(null);
                         onChange(0);
                     }
                 }}
                 onFocus={() => {
                     setIsOpen(true);
                     setSearch('');
+                    fetchItems(''); // Load initial items
                 }}
                 onKeyDown={handleKeyDown}
             />
-            {isOpen && filteredItems.length > 0 && (
+            {loading && (
+                <div className="absolute right-3 top-3">
+                    <div className="animate-spin h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full"></div>
+                </div>
+            )}
+            {isOpen && items.length > 0 && (
                 <div className="absolute z-50 w-full mt-1 bg-slate-700 border border-slate-600 rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                    {filteredItems.map((item, index) => (
+                    {items.map((item, index) => (
                         <div
                             key={item.id}
                             className={`px-3 py-2 cursor-pointer text-sm ${index === highlightedIndex
@@ -141,7 +197,7 @@ function SearchableSelect<T extends { id: number }>({
                     ))}
                 </div>
             )}
-            {isOpen && filteredItems.length === 0 && search && (
+            {isOpen && items.length === 0 && search && !loading && (
                 <div className="absolute z-50 w-full mt-1 bg-slate-700 border border-slate-600 rounded-lg shadow-lg p-3 text-sm text-slate-400">
                     No se encontraron resultados
                 </div>
@@ -149,6 +205,7 @@ function SearchableSelect<T extends { id: number }>({
         </div>
     );
 }
+
 
 export default function ContractModal({ isOpen, onClose, onSave, contract }: ContractModalProps) {
     const [formData, setFormData] = useState<Partial<Contrato>>({
@@ -161,17 +218,10 @@ export default function ContractModal({ isOpen, onClose, onSave, contract }: Con
         retefuente_pct: undefined
     });
 
-    const [proveedores, setProveedores] = useState<Proveedor[]>([]);
-    const [oficinas, setOficinas] = useState<Oficina[]>([]);
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [fileError, setFileError] = useState<string>('');
     const [uploading, setUploading] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
-
-    useEffect(() => {
-        fetch(`${API_URL}/proveedores/`).then(r => r.json()).then(setProveedores);
-        fetch(`${API_URL}/oficinas/`).then(r => r.json()).then(setOficinas);
-    }, []);
 
     useEffect(() => {
         if (contract) {
@@ -297,24 +347,26 @@ export default function ContractModal({ isOpen, onClose, onSave, contract }: Con
             <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                     <FormField label="Proveedor (buscar por nombre o NIT)" required>
-                        <SearchableSelect
-                            items={proveedores}
+                        <ServerSearchableSelect<Proveedor>
+                            endpoint="proveedores"
                             value={formData.proveedor_id || 0}
-                            onChange={id => setFormData({ ...formData, proveedor_id: id })}
-                            getLabel={p => `${p.nombre} (${p.nit})`}
-                            getSearchText={p => `${p.nombre} ${p.nit}`}
+                            onChange={(id) => setFormData({ ...formData, proveedor_id: id })}
+                            getLabel={(p) => `${p.nombre} (${p.nit})`}
+                            getSearchText={(p) => `${p.nombre} ${p.nit}`}
                             placeholder="Buscar proveedor..."
+                            initialItem={contract?.proveedor}
                         />
                     </FormField>
 
                     <FormField label="Oficina (buscar por código o nombre)" required>
-                        <SearchableSelect
-                            items={oficinas}
+                        <ServerSearchableSelect<Oficina>
+                            endpoint="oficinas"
                             value={formData.oficina_id || 0}
-                            onChange={id => setFormData({ ...formData, oficina_id: id })}
-                            getLabel={o => `${o.cod_oficina || ''} - ${o.nombre || ''}`}
-                            getSearchText={o => `${o.cod_oficina || ''} ${o.nombre || ''} ${o.ciudad || ''}`}
+                            onChange={(id) => setFormData({ ...formData, oficina_id: id })}
+                            getLabel={(o) => `${o.cod_oficina || ''} - ${o.nombre || ''}`}
+                            getSearchText={(o) => `${o.cod_oficina || ''} ${o.nombre || ''} ${o.ciudad || ''}`}
                             placeholder="Buscar oficina..."
+                            initialItem={contract?.oficina}
                         />
                     </FormField>
                 </div>
