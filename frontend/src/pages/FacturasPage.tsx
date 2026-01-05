@@ -262,22 +262,46 @@ export default function FacturasPage() {
 
         // Check that at least one factura has assigned offices
         let hasOfficinas = false;
+        let firstContrato: { tiene_iva?: string; tiene_retefuente?: string; retefuente_pct?: number } | null = null;
+
         for (const factura of selectedFacturasData) {
             if (factura.oficinas_asignadas && factura.oficinas_asignadas.length > 0) {
                 for (const oa of factura.oficinas_asignadas) {
                     if (oa.oficina?.cod_oficina && oa.valor) {
                         hasOfficinas = true;
+                        // Get the first contract with tax info
+                        if (!firstContrato && oa.contrato) {
+                            firstContrato = oa.contrato;
+                        }
                         break;
                     }
                 }
             }
-            if (hasOfficinas) break;
+            if (hasOfficinas && firstContrato) break;
         }
 
         if (!hasOfficinas) {
             alert('Las facturas seleccionadas no tienen oficinas asignadas con código y valor');
             return;
         }
+
+        // Pre-fill IVA and Retefuente from contract data
+        let tieneIva = true; // default
+        let porcentajeRetefuente = 0; // default
+
+        if (firstContrato) {
+            tieneIva = firstContrato.tiene_iva === 'si';
+            if (firstContrato.tiene_retefuente === 'si' && firstContrato.retefuente_pct) {
+                porcentajeRetefuente = firstContrato.retefuente_pct;
+            }
+        }
+
+        // Update config with contract values
+        setArchivoPlanoConfig(prev => ({
+            ...prev,
+            tiene_iva: tieneIva,
+            porcentaje_retefuente: porcentajeRetefuente
+        }));
 
         // Open config modal
         setIsArchivoPlanoModalOpen(true);
@@ -1998,8 +2022,8 @@ export default function FacturasPage() {
 
             {/* Archivo Plano Configuration Modal */}
             {isArchivoPlanoModalOpen && (
-                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50">
-                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4">
+                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
                         <div className="p-6 border-b border-gray-100">
                             <h3 className="text-xl font-bold text-gray-900">Configurar Archivo Plano</h3>
                             <p className="text-sm text-gray-500 mt-1">
