@@ -2676,168 +2676,126 @@ export default function FacturasPage() {
                                         {loadingCausacionPreview ? 'Cargando...' : 'Ver Preview'}
                                     </button>
                                 ) : (
-                                    <button
-                                        onClick={() => {
-                                            // Generate JSON for Postman testing
-                                            if (causacionPreviewData) {
-                                                // Convert fecha to Oracle DATE format
-                                                const fechaPartes = causacionPreviewData.fecha_causacion.split('/');
-                                                const fechaOracle = fechaPartes.length === 3
-                                                    ? `${fechaPartes[0]}-${fechaPartes[1]}-${fechaPartes[2]}`
-                                                    : causacionPreviewData.fecha_causacion;
-
-                                                let regCounter = 0;
-                                                const registros = causacionPreviewData.facturas.flatMap(factura => {
-                                                    regCounter = 0; // Reset for each factura
-                                                    return factura.rows.map(row => {
-                                                        regCounter++;
-                                                        const isCredito = row.tipo_movimiento === "CREDITO";
-                                                        const isBalance = row.cuenta === "23355002"; // Cuenta proveedor
-                                                        const isIVA = row.cuenta === "24081003";
-
-                                                        return {
-                                                            // Primary Keys
-                                                            MCNEMPRESA: "101",
-                                                            MCNCLASE: "0000",
-                                                            MCNVINKEY: ".",
-                                                            MCNTIPODOC: "DC07",
-                                                            MCNNUMEDOC: factura.numedoc,
-                                                            MCNREG: regCounter,
-                                                            MCNFECHA: fechaOracle,
-
-                                                            // Cruce 1 - Solo para línea de balance (crédito proveedor)
-                                                            MCNCLACRU1: isBalance ? "0000" : "",
-                                                            MCNTIPCRU1: isBalance ? "DC07" : "",
-                                                            MCNNUMCRU1: isBalance ? factura.numedoc : 0,
-                                                            MCNCUOCRU1: 0,
-
-                                                            // Sucursal
-                                                            MCNSUCURS: ".",
-
-                                                            // Cuenta contable
-                                                            MCNCUENTA: row.cuenta,
-
-                                                            // Vinculado (NIT proveedor)
-                                                            MCNVINCULA: causacionPreviewData.proveedor_nit,
-                                                            MCNSUCVIN: ".",
-
-                                                            // Centro de costo y destino
-                                                            MCNCCOSTO: row.ccosto || ".",
-                                                            MCNDESTINO: row.destino || ".",
-
-                                                            // Vendedor/Cobrador/Zona
-                                                            MCNVENDE: ".",
-                                                            MCNCOBRA: ".",
-                                                            MCNZONA: ".",
-
-                                                            // Fecha inicio y plazo
-                                                            MCNFECINI: fechaOracle,
-                                                            MCNPLAZO: 0,
-
-                                                            // Valores débito/crédito
-                                                            MCNVALDEBI: isCredito ? 0 : row.valor,
-                                                            MCNVALCRED: isCredito ? row.valor : 0,
-
-                                                            // Tasa e IVA
-                                                            MCNTASA: isIVA ? 19.0 : 0,
-                                                            MCNBASE: isIVA ? row.valor / 0.19 : 0, // Base gravable para IVA
-
-                                                            // Cruce 2
-                                                            MCNCLACRU2: "",
-                                                            MCNTIPCRU2: "",
-                                                            MCNNUMCRU2: 0,
-                                                            MCNCUOCRU2: 0,
-
-                                                            // Saldos
-                                                            MCNSALDODB: 0,
-                                                            MCNSALDOCR: isBalance ? row.valor : 0,
-
-                                                            // Usuario (se llenará en backend)
-                                                            MCNNEWUSER: "WEBAPP",
-                                                            MCNNEWFEC: null, // SYSDATE
-                                                            MCNMODUSER: "WEBAPP",
-                                                            MCNMODFEC: null, // SYSDATE
-
-                                                            // Bodega/Producto
-                                                            MCNBODEGA: ".",
-                                                            MCNPROPADR: ".",
-                                                            MCNPRODUCT: ".",
-
-                                                            // Cantidades
-                                                            MCNCANTI_O: 0,
-                                                            MCNUNI_O: ".",
-                                                            MCNPARCI_O: 0,
-                                                            MCNCANTID: 0,
-                                                            MCNUNIDAD: ".",
-
-                                                            // Precios
-                                                            MCNPRECIOB: 0,
-                                                            MCNFACTOR: 0,
-                                                            MCNDCTO1: 0,
-                                                            MCNDCTO2: 0,
-                                                            MCNDCTO3: 0,
-                                                            MCNDCTO4: 0,
-                                                            MCNIMPOCON: 0,
-                                                            MCNPRCOSVT: 0,
-
-                                                            // IVA tipo
-                                                            MCNIVATIPO: ".",
-                                                            MCNIVAPORC: 0,
-                                                            MNCNIVAINC: 0,
-
-                                                            // Otros
-                                                            MCNCOSTORE: 0,
-                                                            MCNDIMEORI: 0,
-                                                            MCNINDINV: "E",
-                                                            MCNLOTEPRO: "",
-                                                            MCNPRECIOX: 0,
-                                                            MCNREF1: ".",
-                                                            MCNREF2: ".",
-                                                            MCNESTADO: "a",
-
-                                                            // Detalle
-                                                            MCNDETALLE: row.detalle,
-
-                                                            // Final
-                                                            MCNFTE: ".",
-                                                            MCNTPREG: 1
-                                                        };
-                                                    });
-                                                });
-
-                                                const jsonData = {
-                                                    descripcion: "Datos para INSERT en MANAGER.MNGMCN - 66 columnas",
-                                                    instrucciones: "Cada objeto en 'registros' representa una fila para insertar",
-                                                    info: {
+                                    <div className="flex gap-2">
+                                        {/* Botón para copiar JSON */}
+                                        <button
+                                            onClick={() => {
+                                                if (causacionPreviewData) {
+                                                    const jsonData = {
                                                         proveedor_nit: causacionPreviewData.proveedor_nit,
                                                         proveedor_nombre: causacionPreviewData.proveedor_nombre,
-                                                        fecha_causacion: fechaOracle,
-                                                        numedoc_inicial: causacionPreviewData.numedoc_inicial,
-                                                        numedoc_final: causacionPreviewData.numedoc_final,
-                                                        total_registros: registros.length
-                                                    },
-                                                    registros: registros
-                                                };
+                                                        fecha_causacion: causacionPreviewData.fecha_causacion,
+                                                        tiene_iva: causacionPreviewData.tiene_iva,
+                                                        porcentaje_retefuente: causacionPreviewData.porcentaje_retefuente,
+                                                        numedoc: causacionPreviewData.numedoc_inicial
+                                                    };
+                                                    navigator.clipboard.writeText(JSON.stringify(jsonData, null, 2));
+                                                    alert('✅ JSON básico copiado');
+                                                }
+                                            }}
+                                            className="px-4 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-lg font-medium transition-colors flex items-center gap-2"
+                                        >
+                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                            </svg>
+                                            Copiar JSON
+                                        </button>
 
-                                                const jsonString = JSON.stringify(jsonData, null, 2);
+                                        {/* Botón para ejecutar causación */}
+                                        <button
+                                            onClick={async () => {
+                                                if (!causacionPreviewData) return;
 
-                                                // Copy to clipboard
-                                                navigator.clipboard.writeText(jsonString).then(() => {
-                                                    alert('✅ JSON copiado al portapapeles!\\n\\nPuedes pegarlo en Postman para hacer pruebas.\\n\\nTotal de registros: ' + jsonData.registros.length);
-                                                }).catch(() => {
-                                                    // Fallback: show in prompt
-                                                    console.log('JSON para Postman:', jsonString);
-                                                    alert('JSON generado (revisa la consola del navegador para copiarlo):\n\n' + jsonString.substring(0, 500) + '...');
-                                                });
-                                            }
-                                        }}
-                                        className="px-6 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium transition-colors flex items-center gap-2"
-                                    >
-                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                                        </svg>
-                                        Copiar JSON para Postman
-                                    </button>
+                                                const confirmed = window.confirm(
+                                                    `¿Está seguro de ejecutar la causación en Manager?\n\n` +
+                                                    `Proveedor: ${causacionPreviewData.proveedor_nombre}\n` +
+                                                    `NIT: ${causacionPreviewData.proveedor_nit}\n` +
+                                                    `NUMEDOC: ${causacionPreviewData.numedoc_inicial}\n` +
+                                                    `Total Facturas: ${causacionPreviewData.total_facturas}\n` +
+                                                    `Total Débitos: $${causacionPreviewData.total_debitos.toLocaleString('es-CO')}\n` +
+                                                    `Total Créditos: $${causacionPreviewData.total_creditos.toLocaleString('es-CO')}\n\n` +
+                                                    `Esta acción insertará registros en MNGDOC y MNGMCN.`
+                                                );
+
+                                                if (!confirmed) return;
+
+                                                try {
+                                                    // Prepare the request body matching the preview request
+                                                    const selectedFacturasData = facturas.filter(f => selectedFacturaIds.has(f.id));
+
+                                                    const facturasForRequest: Array<{
+                                                        numero_factura: string;
+                                                        fecha_factura: string | null;
+                                                        oficinas: Array<{ cod_oficina: string; valor: number; nombre_oficina: string }>;
+                                                    }> = [];
+
+                                                    for (const factura of selectedFacturasData) {
+                                                        const oficinas: Array<{ cod_oficina: string; valor: number; nombre_oficina: string }> = [];
+                                                        if (factura.oficinas_asignadas && factura.oficinas_asignadas.length > 0) {
+                                                            for (const oa of factura.oficinas_asignadas) {
+                                                                if (oa.oficina?.cod_oficina && oa.valor) {
+                                                                    oficinas.push({
+                                                                        cod_oficina: oa.oficina.cod_oficina,
+                                                                        valor: oa.valor,
+                                                                        nombre_oficina: oa.oficina.nombre || oa.oficina.cod_oficina
+                                                                    });
+                                                                }
+                                                            }
+                                                        }
+                                                        if (oficinas.length > 0) {
+                                                            facturasForRequest.push({
+                                                                numero_factura: factura.numero_factura || '',
+                                                                fecha_factura: factura.fecha_factura || null,
+                                                                oficinas: oficinas
+                                                            });
+                                                        }
+                                                    }
+
+                                                    const requestBody = {
+                                                        proveedor_nit: causacionPreviewData.proveedor_nit,
+                                                        proveedor_nombre: causacionPreviewData.proveedor_nombre,
+                                                        tiene_iva: causacionPreviewData.tiene_iva,
+                                                        porcentaje_retefuente: causacionPreviewData.porcentaje_retefuente,
+                                                        numedoc: causacionPreviewData.numedoc_inicial,
+                                                        facturas: facturasForRequest
+                                                    };
+
+                                                    const res = await fetch(`${API_URL}/causacion-manager/insertar`, {
+                                                        method: 'POST',
+                                                        headers: { 'Content-Type': 'application/json' },
+                                                        body: JSON.stringify(requestBody)
+                                                    });
+
+                                                    const result = await res.json();
+
+                                                    if (result.success) {
+                                                        alert(
+                                                            `✅ CAUSACIÓN EXITOSA\n\n` +
+                                                            `${result.message}\n\n` +
+                                                            `Registros MNGDOC: ${result.total_registros_mngdoc}\n` +
+                                                            `Registros MNGMCN: ${result.total_registros_mngmcn}`
+                                                        );
+                                                        setIsCausacionModalOpen(false);
+                                                        setSelectedFacturaIds(new Set());
+                                                    } else {
+                                                        alert(
+                                                            `❌ ERROR EN CAUSACIÓN\n\n` +
+                                                            `${result.message}\n\n` +
+                                                            `Error: ${result.error || 'Desconocido'}`
+                                                        );
+                                                    }
+                                                } catch (error) {
+                                                    alert(`❌ Error de conexión: ${error}`);
+                                                }
+                                            }}
+                                            className="px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors flex items-center gap-2"
+                                        >
+                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                            </svg>
+                                            Ejecutar Causación en Manager
+                                        </button>
+                                    </div>
                                 )}
                             </div>
                         </div>
