@@ -153,6 +153,25 @@ class FacturaCreateConOficinas(BaseModel):
     contrato_id: Optional[int] = None
     oficina_id: Optional[int] = None
     
+    # Validators to handle empty strings (from N8N or other APIs)
+    @validator('cufe', 'url_factura', 'proveedor_nit', 'proveedor_nombre', 'numero_factura', pre=True)
+    def empty_string_to_none_str(cls, v):
+        if v == '' or v == 'null' or v == 'undefined':
+            return None
+        return v
+    
+    @validator('fecha_factura', 'fecha_vencimiento', pre=True)
+    def empty_string_to_none_date(cls, v):
+        if v == '' or v == 'null' or v == 'undefined' or v is None:
+            return None
+        return v
+    
+    @validator('valor', pre=True)
+    def empty_string_to_none_decimal(cls, v):
+        if v == '' or v == 'null' or v == 'undefined' or v is None:
+            return None
+        return v
+    
     class Config:
         extra = 'ignore'  # Ignora campos extra que no están en el schema
 

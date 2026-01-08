@@ -940,13 +940,13 @@ async def insertar_causacion_manager(request: CausacionInsertRequest):
                         MCNPRECIOX, MCNREF1, MCNREF2, MCNESTADO, MCNDETALLE, MCNFTE, MCNTPREG
                     ) VALUES (
                         '101', '0000', '.', 'DC07', :numedoc, :reg, TO_DATE(:fecha, 'YYYY-MM-DD'),
-                        ' ', ' ', 0, 0, '.', '61350513', :nit,
+                        '0000', 'DC07', :numedoc, 0, '.', '61350513', :nit,
                         '.', :ccosto, :destino, '.', '.', '.', TO_DATE(:fecha, 'YYYY-MM-DD'), 0,
                         :valdebi, 0, 0, 0, ' ', ' ', 0, 0,
                         0, 0, 'WEBAPP', SYSDATE, 'WEBAPP', SYSDATE, '.',
                         '.', '.', 0, '.', 0, 0, '.',
-                        0, 0, 0, 0, 0, 0, 0, 0,
-                        '.', 0, 0, 0, 0, 'E', ' ',
+                        0, 1, 0, 0, 0, 0, 0, 0,
+                        '.', 0, 0, 0, 0, '.', '.',
                         0, '.', '.', 'a', :detalle, '.', 1
                     )
                 """, {
@@ -976,13 +976,13 @@ async def insertar_causacion_manager(request: CausacionInsertRequest):
                         MCNPRECIOX, MCNREF1, MCNREF2, MCNESTADO, MCNDETALLE, MCNFTE, MCNTPREG
                     ) VALUES (
                         '101', '0000', '.', 'DC07', :numedoc, :reg, TO_DATE(:fecha, 'YYYY-MM-DD'),
-                        ' ', ' ', 0, 0, '.', '61700360', :nit,
+                        '0000', 'DC07', :numedoc, 0, '.', '61700360', :nit,
                         '.', :ccosto, :destino, '.', '.', '.', TO_DATE(:fecha, 'YYYY-MM-DD'), 0,
                         :valdebi, 0, 0, 0, ' ', ' ', 0, 0,
                         0, 0, 'WEBAPP', SYSDATE, 'WEBAPP', SYSDATE, '.',
                         '.', '.', 0, '.', 0, 0, '.',
-                        0, 0, 0, 0, 0, 0, 0, 0,
-                        '.', 0, 0, 0, 0, 'E', ' ',
+                        0, 1, 0, 0, 0, 0, 0, 0,
+                        '.', 0, 0, 0, 0, '.', '.',
                         0, '.', '.', 'a', :detalle, '.', 1
                     )
                 """, {
@@ -1022,13 +1022,13 @@ async def insertar_causacion_manager(request: CausacionInsertRequest):
                         MCNPRECIOX, MCNREF1, MCNREF2, MCNESTADO, MCNDETALLE, MCNFTE, MCNTPREG
                     ) VALUES (
                         '101', '0000', '.', 'DC07', :numedoc, :reg, TO_DATE(:fecha, 'YYYY-MM-DD'),
-                        ' ', ' ', 0, 0, '.', '24081003', :nit,
+                        '0000', 'DC07', :numedoc, 0, '.', '24081003', :nit,
                         '.', :ccosto, '.', '.', '.', '.', TO_DATE(:fecha, 'YYYY-MM-DD'), 0,
                         :valdebi, 0, 19, :base, ' ', ' ', 0, 0,
                         0, 0, 'WEBAPP', SYSDATE, 'WEBAPP', SYSDATE, '.',
                         '.', '.', 0, '.', 0, 0, '.',
-                        0, 0, 0, 0, 0, 0, 0, 0,
-                        '.', 0, 0, 0, 0, 'E', ' ',
+                        0, 1, 0, 0, 0, 0, 0, 0,
+                        '.', 0, 0, 0, 0, '.', '.',
                         0, '.', '.', 'a', :detalle, '.', 1
                     )
                 """, {
@@ -1060,13 +1060,13 @@ async def insertar_causacion_manager(request: CausacionInsertRequest):
                         MCNPRECIOX, MCNREF1, MCNREF2, MCNESTADO, MCNDETALLE, MCNFTE, MCNTPREG
                     ) VALUES (
                         '101', '0000', '.', 'DC07', :numedoc, :reg, TO_DATE(:fecha, 'YYYY-MM-DD'),
-                        ' ', ' ', 0, 0, '.', '23652501', :nit,
+                        '0000', 'DC07', :numedoc, 0, '.', '23652501', :nit,
                         '.', :ccosto, :destino, '.', '.', '.', TO_DATE(:fecha, 'YYYY-MM-DD'), 0,
                         0, :valcred, 0, 0, ' ', ' ', 0, 0,
                         0, 0, 'WEBAPP', SYSDATE, 'WEBAPP', SYSDATE, '.',
                         '.', '.', 0, '.', 0, 0, '.',
-                        0, 0, 0, 0, 0, 0, 0, 0,
-                        '.', 0, 0, 0, 0, 'E', ' ',
+                        0, 1, 0, 0, 0, 0, 0, 0,
+                        '.', 0, 0, 0, 0, '.', '.',
                         0, '.', '.', 'a', :detalle, '.', 1
                     )
                 """, {
@@ -1104,8 +1104,8 @@ async def insertar_causacion_manager(request: CausacionInsertRequest):
                     0, :valcred, 0, 0, ' ', ' ', 0, 0,
                     0, :saldocr, 'WEBAPP', SYSDATE, 'WEBAPP', SYSDATE, '.',
                     '.', '.', 0, '.', 0, 0, '.',
-                    0, 0, 0, 0, 0, 0, 0, 0,
-                    '.', 0, 0, 0, 0, 'E', ' ',
+                    0, 1, 0, 0, 0, 0, 0, 0,
+                    '.', 0, 0, 0, 0, '.', '.',
                     0, '.', '.', 'a', :detalle, '.', 1
                 )
             """, {
