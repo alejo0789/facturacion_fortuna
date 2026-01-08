@@ -306,7 +306,7 @@ def create_final_summary_rows(
     total_iva: float,      # Total IVA across all offices
     tiene_iva: bool,
     porcentaje_retefuente: float,  # 0, 4, or 6
-    total_valor: float,    # Sum of all office valores
+    total_valor_base: float,    # Sum of valor_base (SIN IVA) for retefuente calculation
     last_office_info: dict,  # ccosto, destino, vinculado from last office
     numedoc: int,
     fecha: str,
@@ -324,8 +324,8 @@ def create_final_summary_rows(
     destino = last_office_info["destino"]
     vinculado = last_office_info["vinculado"]
     
-    # Calculate retefuente based on percentage (0%, 4%, or 6%)
-    valor_retefuente = round(total_valor * (porcentaje_retefuente / 100), 0) if porcentaje_retefuente > 0 else 0
+    # Calculate retefuente based on percentage (0%, 4%, or 6%) - SOBRE VALOR BASE SIN IVA
+    valor_retefuente = round(total_valor_base * (porcentaje_retefuente / 100), 0) if porcentaje_retefuente > 0 else 0
     
     # Calculate balance: total debitos + IVA - retefuente
     valor_balance = total_debitos + total_iva - valor_retefuente
@@ -427,7 +427,7 @@ async def generar_archivo_plano(request: ArchivoPlanoRequest):
         # Accumulators for this factura
         factura_debitos = 0  # Sum of 70% + 30%
         factura_iva = 0
-        factura_valor = 0
+        factura_valor_base = 0  # Sum of valor_base (sin IVA) para calcular retefuente
         last_office_info = None
         last_detalle = ""  # Store the last detalle for summary rows
         
@@ -448,7 +448,7 @@ async def generar_archivo_plano(request: ArchivoPlanoRequest):
             # Accumulate totals for this factura
             factura_debitos += office_info["valor_70"] + office_info["valor_30"]
             factura_iva += office_info["valor_iva"]
-            factura_valor += office_info["valor"]
+            factura_valor_base += office_info["valor_base"]  # Usar valor_base para retefuente
             last_office_info = office_info
             last_detalle = office_info.get("detalle", "")
         
@@ -459,7 +459,7 @@ async def generar_archivo_plano(request: ArchivoPlanoRequest):
                 total_iva=factura_iva,
                 tiene_iva=request.tiene_iva,
                 porcentaje_retefuente=request.porcentaje_retefuente,
-                total_valor=factura_valor,
+                total_valor_base=factura_valor_base,  # Pasar valor_base para retefuente
                 last_office_info=last_office_info,
                 numedoc=factura_numedoc,
                 fecha=fecha_str,
@@ -579,3 +579,313 @@ async def preview_archivo_plano(request: ArchivoPlanoRequest):
         "headers": HEADERS,
         "rows": rows_as_dicts
     }
+
+
+# --- Manager Causation Preview Endpoint ---
+
+class CausacionManagerPreviewRequest(BaseModel):
+    """Request to preview causation data for Manager"""
+    proveedor_nit: str
+    proveedor_nombre: Optional[str] = None
+    fecha_causacion: Optional[date] = None
+    tiene_iva: bool = True
+    porcentaje_retefuente: float = 0
+    facturas: List[FacturaArchivoPlano]
+    numedoc: int = 1290
+
+
+class CausacionRowPreview(BaseModel):
+    """A single row preview for the causation table"""
+    row_num: int
+    cuenta: str
+    tipo_movimiento: str  # DEBITO or CREDITO
+    ccosto: str
+    destino: str
+    valor: float
+    detalle: str
+
+
+class CausacionFacturaPreview(BaseModel):
+    """Preview for a single factura"""
+    numero_factura: str
+    numedoc: int
+    rows: List[CausacionRowPreview]
+    total_debitos: float
+    total_creditos: float
+
+
+class CausacionManagerPreviewResponse(BaseModel):
+    """Response with preview data for Manager causation"""
+    success: bool
+    proveedor_nit: str
+    proveedor_nombre: Optional[str]
+    fecha_causacion: str
+    tiene_iva: bool
+    porcentaje_retefuente: float
+    facturas: List[CausacionFacturaPreview]
+    total_facturas: int
+    total_debitos: float
+    total_creditos: float
+    balance: float
+    numedoc_inicial: int
+    numedoc_final: int
+
+
+@router.post("/causacion-manager/preview", response_model=CausacionManagerPreviewResponse)
+async def preview_causacion_manager(request: CausacionManagerPreviewRequest):
+    """
+    Preview the causation data that would be sent to Manager.
+    Returns a structured response for displaying in a table format.
+    
+    This does NOT insert anything into Manager - it's just a preview.
+    """
+    if not request.facturas:
+        raise HTTPException(status_code=400, detail="Debe proporcionar al menos una factura")
+    
+    fecha_causacion = request.fecha_causacion or date.today()
+    fecha_str = format_date_for_excel(fecha_causacion)
+    
+    facturas_preview: List[CausacionFacturaPreview] = []
+    total_debitos_global = 0
+    total_creditos_global = 0
+    
+    for factura_index, factura in enumerate(request.facturas):
+        if not factura.oficinas:
+            continue
+        
+        factura_numedoc = request.numedoc + factura_index
+        rows_preview: List[CausacionRowPreview] = []
+        factura_debitos = 0
+        factura_creditos = 0
+        factura_iva = 0
+        factura_valor_base = 0  # Sum of valor_base (sin IVA) para calcular retefuente
+        row_counter = 1
+        
+        # Process each oficina
+        for oficina in factura.oficinas:
+            ccosto_raw = await get_centro_costo(oficina.cod_oficina)
+            ccosto = ccosto_raw if ccosto_raw else ""
+            destino = oficina.cod_oficina
+            nombre_oficina = oficina.nombre_oficina or oficina.cod_oficina
+            mes_factura = get_month_name_spanish(factura.fecha_factura) if factura.fecha_factura else ""
+            detalle = f"FACT {factura.numero_factura or ''} SERVICIO DE INTERNET {nombre_oficina} MES {mes_factura}"
+            
+            valor = float(oficina.valor)
+            
+            # Calculate base value
+            if request.tiene_iva:
+                valor_base = round(valor / 1.19, 0)
+                valor_iva = round(valor - valor_base, 0)
+            else:
+                valor_base = valor
+                valor_iva = 0
+            
+            valor_70 = round(valor_base * 0.70, 0)
+            valor_30 = round(valor_base * 0.30, 0)
+            
+            # Row 1: Account 61350513 - 70% DEBITO
+            rows_preview.append(CausacionRowPreview(
+                row_num=row_counter,
+                cuenta="61350513",
+                tipo_movimiento="DEBITO",
+                ccosto=ccosto,
+                destino=destino,
+                valor=valor_70,
+                detalle=detalle
+            ))
+            row_counter += 1
+            factura_debitos += valor_70
+            
+            # Row 2: Account 61700360 - 30% DEBITO
+            rows_preview.append(CausacionRowPreview(
+                row_num=row_counter,
+                cuenta="61700360",
+                tipo_movimiento="DEBITO",
+                ccosto=ccosto,
+                destino=destino,
+                valor=valor_30,
+                detalle=detalle
+            ))
+            row_counter += 1
+            factura_debitos += valor_30
+            
+            factura_iva += valor_iva
+            factura_valor_base += valor_base  # Acumular valor_base para retefuente
+        
+        # Get last office info for summary rows
+        if factura.oficinas:
+            last_oficina = factura.oficinas[-1]
+            last_ccosto_raw = await get_centro_costo(last_oficina.cod_oficina)
+            last_ccosto = last_ccosto_raw if last_ccosto_raw else ""
+            last_destino = last_oficina.cod_oficina
+            last_nombre = last_oficina.nombre_oficina or last_oficina.cod_oficina
+            last_mes = get_month_name_spanish(factura.fecha_factura) if factura.fecha_factura else ""
+            last_detalle = f"FACT {factura.numero_factura or ''} SERVICIO DE INTERNET {last_nombre} MES {last_mes}"
+        
+        # IVA row (DEBITO)
+        if request.tiene_iva and factura_iva > 0:
+            rows_preview.append(CausacionRowPreview(
+                row_num=row_counter,
+                cuenta="24081003",
+                tipo_movimiento="DEBITO",
+                ccosto=last_ccosto,
+                destino=".",
+                valor=factura_iva,
+                detalle=last_detalle
+            ))
+            row_counter += 1
+            factura_debitos += factura_iva
+        
+        # Retefuente row (CREDITO) - SOBRE VALOR BASE SIN IVA
+        valor_retefuente = round(factura_valor_base * (request.porcentaje_retefuente / 100), 0) if request.porcentaje_retefuente > 0 else 0
+        if valor_retefuente > 0:
+            rows_preview.append(CausacionRowPreview(
+                row_num=row_counter,
+                cuenta="23652501",
+                tipo_movimiento="CREDITO",
+                ccosto=last_ccosto,
+                destino=last_destino,
+                valor=valor_retefuente,
+                detalle=last_detalle
+            ))
+            row_counter += 1
+            factura_creditos += valor_retefuente
+        
+        # Balance row (CREDITO) - Total to pay supplier
+        valor_balance = factura_debitos - factura_creditos
+        rows_preview.append(CausacionRowPreview(
+            row_num=row_counter,
+            cuenta="23355002",
+            tipo_movimiento="CREDITO",
+            ccosto=last_ccosto,
+            destino=last_destino,
+            valor=valor_balance,
+            detalle=last_detalle
+        ))
+        factura_creditos += valor_balance
+        
+        facturas_preview.append(CausacionFacturaPreview(
+            numero_factura=factura.numero_factura or f"Factura {factura_index + 1}",
+            numedoc=factura_numedoc,
+            rows=rows_preview,
+            total_debitos=factura_debitos,
+            total_creditos=factura_creditos
+        ))
+        
+        total_debitos_global += factura_debitos
+        total_creditos_global += factura_creditos
+    
+    numedoc_final = request.numedoc + len([f for f in request.facturas if f.oficinas]) - 1
+    
+    return CausacionManagerPreviewResponse(
+        success=True,
+        proveedor_nit=request.proveedor_nit,
+        proveedor_nombre=request.proveedor_nombre,
+        fecha_causacion=fecha_str,
+        tiene_iva=request.tiene_iva,
+        porcentaje_retefuente=request.porcentaje_retefuente,
+        facturas=facturas_preview,
+        total_facturas=len(facturas_preview),
+        total_debitos=total_debitos_global,
+        total_creditos=total_creditos_global,
+        balance=total_debitos_global - total_creditos_global,
+        numedoc_inicial=request.numedoc,
+        numedoc_final=numedoc_final
+    )
+
+
+# --- Diagnostic Endpoint: Inspect MNGMCN table structure ---
+
+@router.get("/mngmcn/estructura")
+async def get_mngmcn_estructura():
+    """
+    Diagnostic endpoint to get the structure of MANAGER.MNGMCN table.
+    Returns column names, data types, and sample data.
+    """
+    import sys
+    sys.path.append('..')
+    from oracle_database import get_oracle_connection
+    
+    connection = None
+    cursor = None
+    try:
+        connection = get_oracle_connection()
+        cursor = connection.cursor()
+        
+        # Get table structure
+        cursor.execute("""
+            SELECT 
+                COLUMN_NAME,
+                DATA_TYPE,
+                DATA_LENGTH,
+                DATA_PRECISION,
+                DATA_SCALE,
+                NULLABLE
+            FROM ALL_TAB_COLUMNS 
+            WHERE OWNER = 'MANAGER' 
+            AND TABLE_NAME = 'MNGMCN'
+            ORDER BY COLUMN_ID
+        """)
+        columns = cursor.fetchall()
+        
+        estructura = []
+        for col in columns:
+            estructura.append({
+                "column_name": col[0],
+                "data_type": col[1],
+                "data_length": col[2],
+                "data_precision": col[3],
+                "data_scale": col[4],
+                "nullable": col[5]
+            })
+        
+        # Get sample data (last 5 records with TIPODOC = 'DC07')
+        cursor.execute("""
+            SELECT * FROM (
+                SELECT * FROM MANAGER.MNGMCN 
+                WHERE MCNTIPODOC = 'DC07'
+                ORDER BY MCNNUMEDOC DESC
+            ) WHERE ROWNUM <= 5
+        """)
+        
+        # Get column names for the results
+        col_names = [desc[0] for desc in cursor.description]
+        rows = cursor.fetchall()
+        
+        sample_data = []
+        for row in rows:
+            row_dict = {}
+            for i, val in enumerate(row):
+                # Convert to string for JSON serialization
+                if val is not None:
+                    row_dict[col_names[i]] = str(val) if not isinstance(val, (int, float)) else val
+                else:
+                    row_dict[col_names[i]] = None
+            sample_data.append(row_dict)
+        
+        # Get max NUMEDOC for DC07
+        cursor.execute("""
+            SELECT MAX(MCNNUMEDOC) FROM MANAGER.MNGMCN WHERE MCNTIPODOC = 'DC07'
+        """)
+        max_numedoc = cursor.fetchone()[0]
+        
+        return {
+            "success": True,
+            "tabla": "MANAGER.MNGMCN",
+            "total_columnas": len(estructura),
+            "max_numedoc_dc07": max_numedoc,
+            "estructura": estructura,
+            "sample_data_dc07": sample_data,
+            "columnas_en_sample": col_names
+        }
+        
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e)
+        }
+    finally:
+        if cursor:
+            cursor.close()
+        if connection:
+            connection.close()

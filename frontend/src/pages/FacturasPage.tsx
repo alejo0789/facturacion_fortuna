@@ -115,6 +115,48 @@ export default function FacturasPage() {
         cargado: boolean;
     }>({ consecutivo: null, nombre_documento: null, cargado: false });
 
+    // Causacion Manager modal states
+    type CausacionRowPreview = {
+        row_num: number;
+        cuenta: string;
+        tipo_movimiento: string;
+        ccosto: string;
+        destino: string;
+        valor: number;
+        detalle: string;
+    };
+    type CausacionFacturaPreview = {
+        numero_factura: string;
+        numedoc: number;
+        rows: CausacionRowPreview[];
+        total_debitos: number;
+        total_creditos: number;
+    };
+    type CausacionPreviewData = {
+        success: boolean;
+        proveedor_nit: string;
+        proveedor_nombre: string | null;
+        fecha_causacion: string;
+        tiene_iva: boolean;
+        porcentaje_retefuente: number;
+        facturas: CausacionFacturaPreview[];
+        total_facturas: number;
+        total_debitos: number;
+        total_creditos: number;
+        balance: number;
+        numedoc_inicial: number;
+        numedoc_final: number;
+    };
+    const [isCausacionModalOpen, setIsCausacionModalOpen] = useState(false);
+    const [loadingCausacionPreview, setLoadingCausacionPreview] = useState(false);
+    const [causacionPreviewData, setCausacionPreviewData] = useState<CausacionPreviewData | null>(null);
+    const [causacionConfig, setCausacionConfig] = useState({
+        tiene_iva: true,
+        porcentaje_retefuente: 0,
+        numedoc: 1290
+    });
+    const [showCausacionTable, setShowCausacionTable] = useState(false);
+
     // Historial modal - previous invoices for same proveedor + oficina
     const [isHistorialModalOpen, setIsHistorialModalOpen] = useState(false);
     const [historialFacturas, setHistorialFacturas] = useState<Factura[]>([]);
@@ -336,6 +378,163 @@ export default function FacturasPage() {
             console.error('Error loading consecutivo from Manager', error);
         } finally {
             setLoadingConsecutivo(false);
+        }
+    };
+
+    // Open Causacion Manager modal
+    const openCausacionModal = async () => {
+        if (selectedFacturaIds.size === 0) return;
+
+        // Get selected facturas
+        const selectedFacturasData = facturas.filter(f => selectedFacturaIds.has(f.id));
+
+        // Validate: all must be from same proveedor
+        const proveedores = new Set(selectedFacturasData.map(f => f.proveedor_id));
+        if (proveedores.size > 1) {
+            alert('Todas las facturas seleccionadas deben ser del mismo proveedor');
+            return;
+        }
+
+        // Check that at least one factura has assigned offices
+        let hasOfficinas = false;
+        let firstContrato: { tiene_iva?: string; tiene_retefuente?: string; retefuente_pct?: number } | null = null;
+
+        for (const factura of selectedFacturasData) {
+            if (factura.oficinas_asignadas && factura.oficinas_asignadas.length > 0) {
+                for (const oa of factura.oficinas_asignadas) {
+                    if (oa.oficina?.cod_oficina && oa.valor) {
+                        hasOfficinas = true;
+                        if (!firstContrato && oa.contrato) {
+                            firstContrato = oa.contrato;
+                        }
+                        break;
+                    }
+                }
+            }
+            if (hasOfficinas && firstContrato) break;
+        }
+
+        if (!hasOfficinas) {
+            alert('Las facturas seleccionadas no tienen oficinas asignadas con código y valor');
+            return;
+        }
+
+        // Pre-fill IVA and Retefuente from contract data
+        let tieneIva = true;
+        let porcentajeRetefuente = 0;
+
+        if (firstContrato) {
+            tieneIva = firstContrato.tiene_iva === 'si';
+            if (firstContrato.tiene_retefuente === 'si' && firstContrato.retefuente_pct) {
+                porcentajeRetefuente = firstContrato.retefuente_pct;
+            }
+        }
+
+        // Reset state
+        setCausacionPreviewData(null);
+        setShowCausacionTable(false);
+        setCausacionConfig({
+            tiene_iva: tieneIva,
+            porcentaje_retefuente: porcentajeRetefuente,
+            numedoc: 1290
+        });
+
+        // Open modal
+        setIsCausacionModalOpen(true);
+
+        // Load consecutivo
+        setLoadingConsecutivo(true);
+        try {
+            const res = await fetch(`${API_URL}/consecutivo-documento/DC07`);
+            if (res.ok) {
+                const data = await res.json();
+                if (data.success && data.data) {
+                    const nuevoConsecutivo = (data.data.consecutivo_actual || 0) + 1;
+                    setConsecutivoManager({
+                        consecutivo: nuevoConsecutivo,
+                        nombre_documento: data.data.nombre_documento,
+                        cargado: true
+                    });
+                    setCausacionConfig(prev => ({
+                        ...prev,
+                        numedoc: nuevoConsecutivo
+                    }));
+                }
+            }
+        } catch (error) {
+            console.error('Error loading consecutivo from Manager', error);
+        } finally {
+            setLoadingConsecutivo(false);
+        }
+    };
+
+    // Load causacion preview from backend
+    const loadCausacionPreview = async () => {
+        setLoadingCausacionPreview(true);
+
+        try {
+            const selectedFacturasData = facturas.filter(f => selectedFacturaIds.has(f.id));
+            const firstFactura = selectedFacturasData[0];
+            const proveedorNit = firstFactura.proveedor?.nit || '';
+            const proveedorNombre = firstFactura.proveedor?.nombre || '';
+
+            // Build facturas array with grouped offices
+            const facturasForRequest: Array<{
+                numero_factura: string;
+                fecha_factura: string | null;
+                oficinas: Array<{ cod_oficina: string; valor: number; nombre_oficina: string }>;
+            }> = [];
+
+            for (const factura of selectedFacturasData) {
+                const oficinas: Array<{ cod_oficina: string; valor: number; nombre_oficina: string }> = [];
+                if (factura.oficinas_asignadas && factura.oficinas_asignadas.length > 0) {
+                    for (const oa of factura.oficinas_asignadas) {
+                        if (oa.oficina?.cod_oficina && oa.valor) {
+                            oficinas.push({
+                                cod_oficina: oa.oficina.cod_oficina,
+                                valor: oa.valor,
+                                nombre_oficina: oa.oficina.nombre || oa.oficina.cod_oficina
+                            });
+                        }
+                    }
+                }
+                if (oficinas.length > 0) {
+                    facturasForRequest.push({
+                        numero_factura: factura.numero_factura || '',
+                        fecha_factura: factura.fecha_factura || null,
+                        oficinas: oficinas
+                    });
+                }
+            }
+
+            const requestBody = {
+                proveedor_nit: proveedorNit,
+                proveedor_nombre: proveedorNombre,
+                tiene_iva: causacionConfig.tiene_iva,
+                porcentaje_retefuente: causacionConfig.porcentaje_retefuente,
+                numedoc: causacionConfig.numedoc,
+                facturas: facturasForRequest
+            };
+
+            const res = await fetch(`${API_URL}/causacion-manager/preview`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestBody)
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                setCausacionPreviewData(data);
+                setShowCausacionTable(true);
+            } else {
+                const error = await res.json();
+                alert(`Error: ${error.detail || 'No se pudo generar el preview'}`);
+            }
+        } catch (error) {
+            console.error('Error loading causacion preview', error);
+            alert('Error al cargar la preview de causación');
+        } finally {
+            setLoadingCausacionPreview(false);
         }
     };
 
@@ -994,7 +1193,7 @@ export default function FacturasPage() {
 
                         {/* Generar Causación en Manager */}
                         <button
-                            onClick={() => alert('Funcionalidad pendiente: Generar Causación en Manager')}
+                            onClick={openCausacionModal}
                             className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
                         >
                             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2173,6 +2372,474 @@ export default function FacturasPage() {
                                 </svg>
                                 Generar Excel
                             </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Causación Manager Modal */}
+            {isCausacionModalOpen && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-2">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-[95vw] max-h-[95vh] overflow-hidden flex flex-col">
+                        {/* Header */}
+                        <div className="p-6 border-b border-gray-100 flex items-center justify-between">
+                            <div>
+                                <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                                    <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                                    </svg>
+                                    Causación en Manager ERP
+                                </h3>
+                                <p className="text-sm text-gray-500 mt-1">
+                                    Revisa la información antes de enviar a Manager
+                                </p>
+                            </div>
+                            <button
+                                onClick={() => setIsCausacionModalOpen(false)}
+                                className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors"
+                            >
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+
+                        {/* Content - scrollable */}
+                        <div className="flex-1 overflow-y-auto p-6">
+                            {/* Step 1: Configuration - only show if not showing table */}
+                            {!showCausacionTable && (
+                                <div className="space-y-6">
+                                    {/* Manager Consecutivo Info */}
+                                    {loadingConsecutivo ? (
+                                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-center gap-3">
+                                            <div className="animate-spin w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full"></div>
+                                            <span className="text-blue-700 text-sm">Consultando consecutivo en Manager...</span>
+                                        </div>
+                                    ) : consecutivoManager.cargado && (
+                                        <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4">
+                                            <div className="flex items-center gap-2 mb-2">
+                                                <svg className="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                </svg>
+                                                <span className="font-semibold text-emerald-700">Extraído de Manager ERP</span>
+                                            </div>
+                                            <p className="text-sm text-emerald-600">
+                                                Siguiente consecutivo disponible: <span className="font-bold text-lg">{consecutivoManager.consecutivo}</span>
+                                            </p>
+                                        </div>
+                                    )}
+
+                                    {/* Numero Documento */}
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                                            Número de Documento (NUMEDOC)
+                                        </label>
+                                        <input
+                                            type="number"
+                                            value={causacionConfig.numedoc}
+                                            onChange={(e) => setCausacionConfig(prev => ({
+                                                ...prev,
+                                                numedoc: parseInt(e.target.value) || 0
+                                            }))}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                                        />
+                                    </div>
+
+                                    {/* Checkboxes for IVA and Retefuente */}
+                                    <div className="flex flex-col gap-3">
+                                        <label className="flex items-center gap-3 cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                checked={causacionConfig.tiene_iva}
+                                                onChange={(e) => setCausacionConfig(prev => ({
+                                                    ...prev,
+                                                    tiene_iva: e.target.checked
+                                                }))}
+                                                className="w-5 h-5 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                                            />
+                                            <div>
+                                                <span className="font-medium text-gray-800">Tiene IVA (19%)</span>
+                                                <p className="text-xs text-gray-500">Cuenta 24081003</p>
+                                            </div>
+                                        </label>
+
+                                        {/* Retefuente selector */}
+                                        <div className="mt-3">
+                                            <span className="font-medium text-gray-800 block mb-2">Retefuente</span>
+                                            <p className="text-xs text-gray-500 mb-2">Cuenta 23652501</p>
+                                            <div className="flex gap-4">
+                                                <label className="flex items-center gap-2 cursor-pointer">
+                                                    <input
+                                                        type="radio"
+                                                        name="causacion_retefuente"
+                                                        value="0"
+                                                        checked={causacionConfig.porcentaje_retefuente === 0}
+                                                        onChange={() => setCausacionConfig(prev => ({
+                                                            ...prev,
+                                                            porcentaje_retefuente: 0
+                                                        }))}
+                                                        className="w-4 h-4 text-purple-600 focus:ring-purple-500"
+                                                    />
+                                                    <span className="text-sm text-gray-700">Sin retefuente</span>
+                                                </label>
+                                                <label className="flex items-center gap-2 cursor-pointer">
+                                                    <input
+                                                        type="radio"
+                                                        name="causacion_retefuente"
+                                                        value="4"
+                                                        checked={causacionConfig.porcentaje_retefuente === 4}
+                                                        onChange={() => setCausacionConfig(prev => ({
+                                                            ...prev,
+                                                            porcentaje_retefuente: 4
+                                                        }))}
+                                                        className="w-4 h-4 text-purple-600 focus:ring-purple-500"
+                                                    />
+                                                    <span className="text-sm text-gray-700">4%</span>
+                                                </label>
+                                                <label className="flex items-center gap-2 cursor-pointer">
+                                                    <input
+                                                        type="radio"
+                                                        name="causacion_retefuente"
+                                                        value="6"
+                                                        checked={causacionConfig.porcentaje_retefuente === 6}
+                                                        onChange={() => setCausacionConfig(prev => ({
+                                                            ...prev,
+                                                            porcentaje_retefuente: 6
+                                                        }))}
+                                                        className="w-4 h-4 text-purple-600 focus:ring-purple-500"
+                                                    />
+                                                    <span className="text-sm text-gray-700">6%</span>
+                                                </label>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Step 2: Preview Table */}
+                            {showCausacionTable && causacionPreviewData && (
+                                <div className="space-y-6">
+                                    {/* Summary Info */}
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                        <div className="bg-purple-50 rounded-lg p-4">
+                                            <div className="text-xs text-purple-600 uppercase font-medium">Proveedor</div>
+                                            <div className="text-lg font-bold text-purple-800 truncate">{causacionPreviewData.proveedor_nombre}</div>
+                                            <div className="text-sm text-purple-600">{causacionPreviewData.proveedor_nit}</div>
+                                        </div>
+                                        <div className="bg-blue-50 rounded-lg p-4">
+                                            <div className="text-xs text-blue-600 uppercase font-medium">Fecha Causación</div>
+                                            <div className="text-lg font-bold text-blue-800">{causacionPreviewData.fecha_causacion}</div>
+                                        </div>
+                                        <div className="bg-green-50 rounded-lg p-4">
+                                            <div className="text-xs text-green-600 uppercase font-medium">NUMEDOC</div>
+                                            <div className="text-lg font-bold text-green-800">
+                                                {causacionPreviewData.numedoc_inicial}
+                                                {causacionPreviewData.numedoc_final !== causacionPreviewData.numedoc_inicial &&
+                                                    ` - ${causacionPreviewData.numedoc_final}`}
+                                            </div>
+                                        </div>
+                                        <div className="bg-gray-50 rounded-lg p-4">
+                                            <div className="text-xs text-gray-600 uppercase font-medium">Facturas</div>
+                                            <div className="text-lg font-bold text-gray-800">{causacionPreviewData.total_facturas}</div>
+                                        </div>
+                                    </div>
+
+                                    {/* Per-factura tables */}
+                                    {causacionPreviewData.facturas.map((factura, idx) => (
+                                        <div key={idx} className="border border-gray-200 rounded-lg overflow-hidden">
+                                            <div className="bg-gray-100 px-4 py-2 flex justify-between items-center">
+                                                <div className="font-medium text-gray-800">
+                                                    Factura: <span className="font-mono">{factura.numero_factura}</span>
+                                                </div>
+                                                <div className="text-sm text-gray-500">
+                                                    NUMEDOC: <span className="font-bold">{factura.numedoc}</span>
+                                                </div>
+                                            </div>
+                                            <div className="overflow-x-auto">
+                                                <table className="min-w-full text-sm">
+                                                    <thead className="bg-gray-50">
+                                                        <tr>
+                                                            <th className="px-3 py-2 text-left font-medium text-gray-600">#</th>
+                                                            <th className="px-3 py-2 text-left font-medium text-gray-600">Cuenta</th>
+                                                            <th className="px-3 py-2 text-left font-medium text-gray-600">Tipo</th>
+                                                            <th className="px-3 py-2 text-left font-medium text-gray-600">C.Costo</th>
+                                                            <th className="px-3 py-2 text-left font-medium text-gray-600">Destino</th>
+                                                            <th className="px-3 py-2 text-right font-medium text-gray-600">Valor</th>
+                                                            <th className="px-3 py-2 text-left font-medium text-gray-600 min-w-[400px]">Detalle</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody className="divide-y divide-gray-100">
+                                                        {factura.rows.map((row, rowIdx) => (
+                                                            <tr key={rowIdx} className={row.tipo_movimiento === 'CREDITO' ? 'bg-green-50' : 'bg-white'}>
+                                                                <td className="px-3 py-2 text-gray-500">{row.row_num}</td>
+                                                                <td className="px-3 py-2 font-mono text-gray-800">{row.cuenta}</td>
+                                                                <td className="px-3 py-2">
+                                                                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${row.tipo_movimiento === 'DEBITO'
+                                                                        ? 'bg-blue-100 text-blue-700'
+                                                                        : 'bg-green-100 text-green-700'
+                                                                        }`}>
+                                                                        {row.tipo_movimiento}
+                                                                    </span>
+                                                                </td>
+                                                                <td className="px-3 py-2 font-mono text-gray-600">{row.ccosto || '-'}</td>
+                                                                <td className="px-3 py-2 font-mono text-gray-600">{row.destino}</td>
+                                                                <td className="px-3 py-2 text-right font-mono font-medium text-gray-800">
+                                                                    ${row.valor.toLocaleString('es-CO', { minimumFractionDigits: 0 })}
+                                                                </td>
+                                                                <td className="px-3 py-2 text-gray-600 whitespace-nowrap">
+                                                                    {row.detalle}
+                                                                </td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                    <tfoot className="bg-gray-100">
+                                                        <tr>
+                                                            <td colSpan={5} className="px-3 py-2 text-right font-medium text-gray-600">
+                                                                Débitos / Créditos:
+                                                            </td>
+                                                            <td className="px-3 py-2 text-right font-mono font-bold text-gray-800">
+                                                                ${factura.total_debitos.toLocaleString('es-CO')} / ${factura.total_creditos.toLocaleString('es-CO')}
+                                                            </td>
+                                                            <td></td>
+                                                        </tr>
+                                                    </tfoot>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    ))}
+
+                                    {/* Grand Total */}
+                                    <div className="bg-purple-100 rounded-lg p-4 flex justify-between items-center">
+                                        <div className="font-medium text-purple-800">Total General</div>
+                                        <div className="text-right">
+                                            <div className="text-sm text-purple-600">
+                                                Débitos: <span className="font-bold">${causacionPreviewData.total_debitos.toLocaleString('es-CO')}</span>
+                                            </div>
+                                            <div className="text-sm text-purple-600">
+                                                Créditos: <span className="font-bold">${causacionPreviewData.total_creditos.toLocaleString('es-CO')}</span>
+                                            </div>
+                                            <div className="text-lg font-bold text-purple-800 mt-1">
+                                                Balance: ${causacionPreviewData.balance.toLocaleString('es-CO')}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Warning */}
+                                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                                        <div className="flex items-start gap-3">
+                                            <svg className="w-5 h-5 text-yellow-600 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                                                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                                            </svg>
+                                            <div>
+                                                <div className="font-medium text-yellow-800">Nota Importante</div>
+                                                <p className="text-sm text-yellow-700 mt-1">
+                                                    La funcionalidad de inserción directa en Manager ERP está pendiente de implementación.
+                                                    Por ahora, puede descargar el archivo Excel usando el botón "Generar Archivo Plano".
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Footer */}
+                        <div className="p-6 border-t border-gray-100 flex justify-between gap-3">
+                            <button
+                                onClick={() => {
+                                    if (showCausacionTable) {
+                                        setShowCausacionTable(false);
+                                        setCausacionPreviewData(null);
+                                    } else {
+                                        setIsCausacionModalOpen(false);
+                                    }
+                                }}
+                                className="px-4 py-2 text-gray-600 hover:text-gray-800 font-medium transition-colors"
+                            >
+                                {showCausacionTable ? 'Volver' : 'Cancelar'}
+                            </button>
+                            <div className="flex gap-3">
+                                {!showCausacionTable ? (
+                                    <button
+                                        onClick={loadCausacionPreview}
+                                        disabled={loadingCausacionPreview}
+                                        className="px-6 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium transition-colors flex items-center gap-2 disabled:opacity-50"
+                                    >
+                                        {loadingCausacionPreview ? (
+                                            <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></div>
+                                        ) : (
+                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                            </svg>
+                                        )}
+                                        {loadingCausacionPreview ? 'Cargando...' : 'Ver Preview'}
+                                    </button>
+                                ) : (
+                                    <button
+                                        onClick={() => {
+                                            // Generate JSON for Postman testing
+                                            if (causacionPreviewData) {
+                                                // Convert fecha to Oracle DATE format
+                                                const fechaPartes = causacionPreviewData.fecha_causacion.split('/');
+                                                const fechaOracle = fechaPartes.length === 3
+                                                    ? `${fechaPartes[0]}-${fechaPartes[1]}-${fechaPartes[2]}`
+                                                    : causacionPreviewData.fecha_causacion;
+
+                                                let regCounter = 0;
+                                                const registros = causacionPreviewData.facturas.flatMap(factura => {
+                                                    regCounter = 0; // Reset for each factura
+                                                    return factura.rows.map(row => {
+                                                        regCounter++;
+                                                        const isCredito = row.tipo_movimiento === "CREDITO";
+                                                        const isBalance = row.cuenta === "23355002"; // Cuenta proveedor
+                                                        const isIVA = row.cuenta === "24081003";
+
+                                                        return {
+                                                            // Primary Keys
+                                                            MCNEMPRESA: "101",
+                                                            MCNCLASE: "0000",
+                                                            MCNVINKEY: ".",
+                                                            MCNTIPODOC: "DC07",
+                                                            MCNNUMEDOC: factura.numedoc,
+                                                            MCNREG: regCounter,
+                                                            MCNFECHA: fechaOracle,
+
+                                                            // Cruce 1 - Solo para línea de balance (crédito proveedor)
+                                                            MCNCLACRU1: isBalance ? "0000" : "",
+                                                            MCNTIPCRU1: isBalance ? "DC07" : "",
+                                                            MCNNUMCRU1: isBalance ? factura.numedoc : 0,
+                                                            MCNCUOCRU1: 0,
+
+                                                            // Sucursal
+                                                            MCNSUCURS: ".",
+
+                                                            // Cuenta contable
+                                                            MCNCUENTA: row.cuenta,
+
+                                                            // Vinculado (NIT proveedor)
+                                                            MCNVINCULA: causacionPreviewData.proveedor_nit,
+                                                            MCNSUCVIN: ".",
+
+                                                            // Centro de costo y destino
+                                                            MCNCCOSTO: row.ccosto || ".",
+                                                            MCNDESTINO: row.destino || ".",
+
+                                                            // Vendedor/Cobrador/Zona
+                                                            MCNVENDE: ".",
+                                                            MCNCOBRA: ".",
+                                                            MCNZONA: ".",
+
+                                                            // Fecha inicio y plazo
+                                                            MCNFECINI: fechaOracle,
+                                                            MCNPLAZO: 0,
+
+                                                            // Valores débito/crédito
+                                                            MCNVALDEBI: isCredito ? 0 : row.valor,
+                                                            MCNVALCRED: isCredito ? row.valor : 0,
+
+                                                            // Tasa e IVA
+                                                            MCNTASA: isIVA ? 19.0 : 0,
+                                                            MCNBASE: isIVA ? row.valor / 0.19 : 0, // Base gravable para IVA
+
+                                                            // Cruce 2
+                                                            MCNCLACRU2: "",
+                                                            MCNTIPCRU2: "",
+                                                            MCNNUMCRU2: 0,
+                                                            MCNCUOCRU2: 0,
+
+                                                            // Saldos
+                                                            MCNSALDODB: 0,
+                                                            MCNSALDOCR: isBalance ? row.valor : 0,
+
+                                                            // Usuario (se llenará en backend)
+                                                            MCNNEWUSER: "WEBAPP",
+                                                            MCNNEWFEC: null, // SYSDATE
+                                                            MCNMODUSER: "WEBAPP",
+                                                            MCNMODFEC: null, // SYSDATE
+
+                                                            // Bodega/Producto
+                                                            MCNBODEGA: ".",
+                                                            MCNPROPADR: ".",
+                                                            MCNPRODUCT: ".",
+
+                                                            // Cantidades
+                                                            MCNCANTI_O: 0,
+                                                            MCNUNI_O: ".",
+                                                            MCNPARCI_O: 0,
+                                                            MCNCANTID: 0,
+                                                            MCNUNIDAD: ".",
+
+                                                            // Precios
+                                                            MCNPRECIOB: 0,
+                                                            MCNFACTOR: 0,
+                                                            MCNDCTO1: 0,
+                                                            MCNDCTO2: 0,
+                                                            MCNDCTO3: 0,
+                                                            MCNDCTO4: 0,
+                                                            MCNIMPOCON: 0,
+                                                            MCNPRCOSVT: 0,
+
+                                                            // IVA tipo
+                                                            MCNIVATIPO: ".",
+                                                            MCNIVAPORC: 0,
+                                                            MNCNIVAINC: 0,
+
+                                                            // Otros
+                                                            MCNCOSTORE: 0,
+                                                            MCNDIMEORI: 0,
+                                                            MCNINDINV: "E",
+                                                            MCNLOTEPRO: "",
+                                                            MCNPRECIOX: 0,
+                                                            MCNREF1: ".",
+                                                            MCNREF2: ".",
+                                                            MCNESTADO: "a",
+
+                                                            // Detalle
+                                                            MCNDETALLE: row.detalle,
+
+                                                            // Final
+                                                            MCNFTE: ".",
+                                                            MCNTPREG: 1
+                                                        };
+                                                    });
+                                                });
+
+                                                const jsonData = {
+                                                    descripcion: "Datos para INSERT en MANAGER.MNGMCN - 66 columnas",
+                                                    instrucciones: "Cada objeto en 'registros' representa una fila para insertar",
+                                                    info: {
+                                                        proveedor_nit: causacionPreviewData.proveedor_nit,
+                                                        proveedor_nombre: causacionPreviewData.proveedor_nombre,
+                                                        fecha_causacion: fechaOracle,
+                                                        numedoc_inicial: causacionPreviewData.numedoc_inicial,
+                                                        numedoc_final: causacionPreviewData.numedoc_final,
+                                                        total_registros: registros.length
+                                                    },
+                                                    registros: registros
+                                                };
+
+                                                const jsonString = JSON.stringify(jsonData, null, 2);
+
+                                                // Copy to clipboard
+                                                navigator.clipboard.writeText(jsonString).then(() => {
+                                                    alert('✅ JSON copiado al portapapeles!\\n\\nPuedes pegarlo en Postman para hacer pruebas.\\n\\nTotal de registros: ' + jsonData.registros.length);
+                                                }).catch(() => {
+                                                    // Fallback: show in prompt
+                                                    console.log('JSON para Postman:', jsonString);
+                                                    alert('JSON generado (revisa la consola del navegador para copiarlo):\n\n' + jsonString.substring(0, 500) + '...');
+                                                });
+                                            }
+                                        }}
+                                        className="px-6 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium transition-colors flex items-center gap-2"
+                                    >
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                        </svg>
+                                        Copiar JSON para Postman
+                                    </button>
+                                )}
+                            </div>
                         </div>
                     </div>
                 </div>
