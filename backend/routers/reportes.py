@@ -498,7 +498,7 @@ async def get_report_filters(db: AsyncSession = Depends(get_db)):
     ]
     
     return {
-        "proveedores": [{"id": p.id, "nit": p.nit, "nombre": p.nombre} for p in proveedores],
+        "proveedores": [{"id": p.id, "nit": p.nit, "nombre": p.nombre, "nombre_comercial": p.nombre_comercial} for p in proveedores],
         "oficinas": [{"id": o.id, "cod_oficina": o.cod_oficina, "nombre": o.nombre, "ciudad": o.ciudad} for o in oficinas],
         "años": años,
         "meses": meses,

@@ -6,6 +6,7 @@ interface Proveedor {
     id: number;
     nit: string;
     nombre: string;
+    nombre_comercial?: string;
 }
 
 interface Oficina {
@@ -270,7 +271,8 @@ function MonthlyBarChart({
     const filteredProveedores = proveedores.filter(p => {
         const search = proveedorSearch.toLowerCase();
         return p.nombre.toLowerCase().includes(search) ||
-            p.nit.toLowerCase().includes(search);
+            p.nit.toLowerCase().includes(search) ||
+            (p.nombre_comercial || '').toLowerCase().includes(search);
     }).slice(0, 10);
 
     // Get selected names for display
@@ -611,8 +613,8 @@ export default function ReportesPage() {
                                 items={filtros.proveedores}
                                 value={proveedorId}
                                 onChange={setProveedorId}
-                                getLabel={p => `${p.nombre} (${p.nit})`}
-                                getSearchText={p => `${p.nombre} ${p.nit}`}
+                                getLabel={p => p.nombre_comercial ? `${p.nombre_comercial} (${p.nit})` : `${p.nombre} (${p.nit})`}
+                                getSearchText={p => `${p.nombre} ${p.nit} ${p.nombre_comercial || ''}`}
                                 placeholder="Buscar proveedor..."
                             />
                         )}
