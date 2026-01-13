@@ -346,13 +346,13 @@ export default function ContractModal({ isOpen, onClose, onSave, contract }: Con
         >
             <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
-                    <FormField label="Proveedor (buscar por nombre o NIT)" required>
+                    <FormField label="Proveedor (buscar por nombre, NIT o nombre comercial)" required>
                         <ServerSearchableSelect<Proveedor>
                             endpoint="proveedores"
                             value={formData.proveedor_id || 0}
                             onChange={(id) => setFormData({ ...formData, proveedor_id: id })}
-                            getLabel={(p) => `${p.nombre} (${p.nit})`}
-                            getSearchText={(p) => `${p.nombre} ${p.nit}`}
+                            getLabel={(p) => p.nombre_comercial ? `${p.nombre_comercial} - ${p.nombre} (${p.nit})` : `${p.nombre} (${p.nit})`}
+                            getSearchText={(p) => `${p.nombre} ${p.nit} ${p.nombre_comercial || ''}`}
                             placeholder="Buscar proveedor..."
                             initialItem={contract?.proveedor}
                         />
