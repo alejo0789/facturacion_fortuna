@@ -87,6 +87,23 @@ export default function Dashboard() {
         fetchContratos(search, page);
     };
 
+    const handleDelete = async (contract: Contrato) => {
+        if (!confirm(`¿Está seguro de eliminar el contrato ${contract.num_contrato || contract.id}?\n\nEsta acción no se puede deshacer.`)) return;
+
+        try {
+            const res = await fetch(`${API_URL}/contratos/${contract.id}`, { method: 'DELETE' });
+            if (res.ok) {
+                fetchContratos(search, page);
+            } else {
+                const error = await res.json();
+                alert(error.detail || 'Error al eliminar el contrato');
+            }
+        } catch (error) {
+            console.error("Failed to delete contract", error);
+            alert('Error de conexión al eliminar el contrato');
+        }
+    };
+
     return (
         <div className="space-y-6">
             {/* Header */}
@@ -203,10 +220,19 @@ export default function Dashboard() {
                                     >
                                         Editar
                                     </button>
+                                    <button
+                                        onClick={() => handleDelete(c)}
+                                        className="flex items-center justify-center gap-1 px-3 py-2 text-sm bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors"
+                                    >
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                        </svg>
+                                        Eliminar
+                                    </button>
                                     {c.archivo_contrato && (
                                         <button
                                             onClick={() => window.open(`${API_URL}/contratos/${c.id}/pdf`, '_blank')}
-                                            className="flex items-center justify-center gap-1 px-3 py-2 text-sm bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors"
+                                            className="flex items-center justify-center gap-1 px-3 py-2 text-sm bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors"
                                         >
                                             <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                                                 <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clipRule="evenodd" />
