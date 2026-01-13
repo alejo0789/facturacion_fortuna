@@ -544,11 +544,12 @@ async def get_report_stats(
             return models.FacturaOficina.oficina_id == oficina_id
         return True  # No filter
     
-    # 1. Total facturado en el año (from FacturaOficina)
-    total_facturado_result = await db.execute(
+    # 1. Total facturado en el año (from FacturaOficina) - SOLO FACTURAS PAGADAS
+    total_facturado_query = (
         select(func.sum(models.FacturaOficina.valor))
         .join(models.Factura)
         .filter(
+            models.Factura.estado == 'PAGADA',  # Solo facturas pagadas
             or_(
                 and_(
                     models.Factura.fecha_factura.isnot(None),
@@ -563,6 +564,16 @@ async def get_report_stats(
             )
         )
     )
+    
+    # Apply oficina filter if specified
+    if oficina_id:
+        total_facturado_query = total_facturado_query.filter(models.FacturaOficina.oficina_id == oficina_id)
+    
+    # Apply proveedor filter if specified
+    if proveedor_id:
+        total_facturado_query = total_facturado_query.filter(models.Factura.proveedor_id == proveedor_id)
+    
+    total_facturado_result = await db.execute(total_facturado_query)
     total_facturado = float(total_facturado_result.scalar() or 0)
     
     # 2. Total de facturas en el año
@@ -623,11 +634,12 @@ async def get_report_stats(
         else:
             mes_end = date(target_year, mes + 1, 1) - timedelta(days=1)
         
-        # Build query with optional oficina filter
+        # Build query with optional oficina filter - SOLO FACTURAS PAGADAS
         mes_query = (
             select(func.sum(models.FacturaOficina.valor))
             .join(models.Factura)
             .filter(
+                models.Factura.estado == 'PAGADA',  # Solo facturas pagadas
                 or_(
                     and_(
                         models.Factura.fecha_factura.isnot(None),
@@ -669,6 +681,7 @@ async def get_report_stats(
         .join(models.Factura, models.Factura.proveedor_id == models.Proveedor.id)
         .join(models.FacturaOficina, models.FacturaOficina.factura_id == models.Factura.id)
         .filter(
+            models.Factura.estado == 'PAGADA',  # Solo facturas pagadas
             or_(
                 and_(
                     models.Factura.fecha_factura.isnot(None),
@@ -700,6 +713,7 @@ async def get_report_stats(
         .join(models.FacturaOficina, models.FacturaOficina.contrato_id == models.Contrato.id)
         .join(models.Factura, models.FacturaOficina.factura_id == models.Factura.id)
         .filter(
+            models.Factura.estado == 'PAGADA',  # Solo facturas pagadas
             or_(
                 and_(
                     models.Factura.fecha_factura.isnot(None),
