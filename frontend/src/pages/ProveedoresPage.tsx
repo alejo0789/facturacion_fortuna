@@ -48,7 +48,8 @@ export default function ProveedoresPage() {
         const term = search.toLowerCase();
         return proveedores.filter(p =>
             p.nit?.toLowerCase().includes(term) ||
-            p.nombre?.toLowerCase().includes(term)
+            p.nombre?.toLowerCase().includes(term) ||
+            p.nombre_comercial?.toLowerCase().includes(term)
         );
     }, [proveedores, search]);
 
@@ -134,7 +135,8 @@ export default function ProveedoresPage() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     nit: formData.nit,
-                    nombre: formData.nombre || 'PENDING_ORACLE_LOOKUP'
+                    nombre: formData.nombre || 'PENDING_ORACLE_LOOKUP',
+                    nombre_comercial: formData.nombre_comercial || null
                 })
             });
 
@@ -176,7 +178,8 @@ export default function ProveedoresPage() {
 
     const columns = [
         { key: 'nit', header: 'NIT' },
-        { key: 'nombre', header: 'Proveedor' },
+        { key: 'nombre', header: 'Nombre Legal' },
+        { key: 'nombre_comercial', header: 'Nombre Comercial' },
     ];
 
     // Determinar si se puede guardar
@@ -327,7 +330,7 @@ export default function ProveedoresPage() {
 
                     {/* Campo Nombre (solo visible cuando se edita o cuando se encontró en Oracle) */}
                     {(editingItem || oracleSearch.status === 'found') && (
-                        <FormField label="Nombre del Proveedor" required>
+                        <FormField label="Nombre del Proveedor (Legal)" required>
                             <input
                                 className={`${inputClassName} ${!editingItem ? 'bg-gray-50' : ''}`}
                                 placeholder="Nombre obtenido de Manager"
@@ -340,6 +343,21 @@ export default function ProveedoresPage() {
                                     Nombre obtenido automáticamente de Manager (VINCULADO)
                                 </p>
                             )}
+                        </FormField>
+                    )}
+
+                    {/* Campo Nombre Comercial (opcional) */}
+                    {(editingItem || oracleSearch.status === 'found') && (
+                        <FormField label="Nombre Comercial (Opcional)">
+                            <input
+                                className={inputClassName}
+                                placeholder="Ej: Claro, Movistar, ETB..."
+                                value={formData.nombre_comercial || ''}
+                                onChange={e => setFormData({ ...formData, nombre_comercial: e.target.value })}
+                            />
+                            <p className="text-xs text-gray-500 mt-1">
+                                Nombre comercial o de marca. Se usará para búsquedas en contratos, facturas y reportes.
+                            </p>
                         </FormField>
                     )}
 

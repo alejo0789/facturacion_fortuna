@@ -2,6 +2,7 @@ export interface Proveedor {
     id: number;
     nit: string;
     nombre: string;
+    nombre_comercial?: string;
 }
 
 export interface Oficina {

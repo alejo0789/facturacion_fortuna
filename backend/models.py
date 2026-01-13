@@ -8,6 +8,7 @@ class Proveedor(Base):
     id = Column(Integer, primary_key=True, index=True)
     nit = Column(String(50), unique=True, nullable=False)
     nombre = Column(String(255), nullable=False)
+    nombre_comercial = Column(String(255), nullable=True)  # Commercial name (optional)
     
     # Relationships
     contratos = relationship("Contrato", back_populates="proveedor")

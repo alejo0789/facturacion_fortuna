@@ -7,6 +7,7 @@ from decimal import Decimal
 class ProveedorBase(BaseModel):
     nit: str
     nombre: str
+    nombre_comercial: Optional[str] = None
 
 class ProveedorCreate(ProveedorBase):
     pass
