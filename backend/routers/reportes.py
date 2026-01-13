@@ -116,7 +116,7 @@ async def get_report_data(
     factura_oficina_query = (
         select(models.FacturaOficina)
         .options(
-            selectinload(models.FacturaOficina.factura),
+            selectinload(models.FacturaOficina.factura).selectinload(models.Factura.proveedor),
             selectinload(models.FacturaOficina.oficina),
             selectinload(models.FacturaOficina.contrato)
         )
@@ -126,7 +126,9 @@ async def get_report_data(
     
     # Apply date filter - use fecha_factura or created_at if fecha_factura is NULL
     # Get the effective date (fecha_factura or created_at date)
+    # SOLO FACTURAS PAGADAS
     fo_filters = [
+        models.Factura.estado == 'PAGADA',  # Solo traer facturas pagadas
         or_(
             and_(
                 models.Factura.fecha_factura.isnot(None),
@@ -156,9 +158,10 @@ async def get_report_data(
     fo_result = await db.execute(factura_oficina_query)
     factura_oficinas = fo_result.scalars().all()
     
-    # Create a lookup: (proveedor_id, oficina_id) -> {month_key: {valor, fecha}}
-    # This groups all invoice values by proveedor+oficina+month
-    valores_por_contrato = {}
+    # Create lookup by (proveedor_id, oficina_id) -> {month_key: {valor, fecha}}
+    # This groups all paid invoice values by proveedor+oficina+month
+    valores_por_proveedor_oficina = {}
+    
     for fo in factura_oficinas:
         if fo.factura:
             # Use fecha_factura if available, otherwise use created_at
@@ -169,26 +172,30 @@ async def get_report_data(
             else:
                 continue  # Skip if no date available
             
+            month_key = f"{factura_fecha.year}-{factura_fecha.month:02d}"
+            valor_fo = float(fo.valor) if fo.valor else 0
+            fecha_str = factura_fecha.isoformat() if hasattr(factura_fecha, 'isoformat') else str(factura_fecha)
+            
+            # Lookup by (proveedor_id, oficina_id)
             proveedor_id_fo = fo.factura.proveedor_id
             oficina_id_fo = fo.oficina_id
-            
             key = (proveedor_id_fo, oficina_id_fo)
-            month_key = f"{factura_fecha.year}-{factura_fecha.month:02d}"
             
-            if key not in valores_por_contrato:
-                valores_por_contrato[key] = {}
+            if key not in valores_por_proveedor_oficina:
+                valores_por_proveedor_oficina[key] = {}
             
-            if month_key not in valores_por_contrato[key]:
-                valores_por_contrato[key][month_key] = {'valor': 0, 'fecha': None, 'facturas': []}
+            if month_key not in valores_por_proveedor_oficina[key]:
+                valores_por_proveedor_oficina[key][month_key] = {'valor': 0, 'fecha': None, 'facturas': []}
             
-            valor_fo = float(fo.valor) if fo.valor else 0
-            valores_por_contrato[key][month_key]['valor'] += valor_fo
-            valores_por_contrato[key][month_key]['fecha'] = factura_fecha.isoformat() if hasattr(factura_fecha, 'isoformat') else str(factura_fecha)
+            valores_por_proveedor_oficina[key][month_key]['valor'] += valor_fo
+            valores_por_proveedor_oficina[key][month_key]['fecha'] = fecha_str
             if fo.factura.numero_factura:
-                valores_por_contrato[key][month_key]['facturas'].append(fo.factura.numero_factura)
+                valores_por_proveedor_oficina[key][month_key]['facturas'].append(fo.factura.numero_factura)
     
-    # Process data - now using the lookup
+    # Process data - use proveedor+oficina to match values
     report_data = []
+    keys_con_contrato = set()  # Track which proveedor+oficina combinations have contracts
+    
     for contrato in contratos:
         row = {
             'nit_proveedor': contrato.proveedor.nit if contrato.proveedor else '',
@@ -202,19 +209,55 @@ async def get_report_data(
             'tipo_plan': contrato.tipo_plan or '',
             'tipo_canal': contrato.tipo_canal or '',
             'valor_mensual': float(contrato.valor_mensual) if contrato.valor_mensual else 0,
+            'observaciones': contrato.observaciones or '',
             'pagos': {}
         }
         
-        # Get invoice values for this contrato's proveedor+oficina combination
+        # Get values by proveedor+oficina combination
         key = (contrato.proveedor_id, contrato.oficina_id)
-        if key in valores_por_contrato:
+        keys_con_contrato.add(key)
+        
+        if key in valores_por_proveedor_oficina:
             row['pagos'] = {
                 mk: {'valor': v['valor'], 'fecha': v['fecha']} 
-                for mk, v in valores_por_contrato[key].items()
+                for mk, v in valores_por_proveedor_oficina[key].items()
             }
-        
 
         report_data.append(row)
+    
+    # Add rows for oficinas with paid invoices but NO contract
+    # This ensures all paid invoices are included in the report
+    for key, pagos_data in valores_por_proveedor_oficina.items():
+        if key not in keys_con_contrato:
+            proveedor_id, oficina_id = key
+            
+            # Get proveedor and oficina info from one of the FacturaOficina entries
+            fo_info = None
+            for fo in factura_oficinas:
+                if fo.factura and fo.factura.proveedor_id == proveedor_id and fo.oficina_id == oficina_id:
+                    fo_info = fo
+                    break
+            
+            if fo_info:
+                row = {
+                    'nit_proveedor': fo_info.factura.proveedor.nit if fo_info.factura and fo_info.factura.proveedor else '',
+                    'nombre_proveedor': fo_info.factura.proveedor.nombre if fo_info.factura and fo_info.factura.proveedor else '',
+                    'cod_oficina': fo_info.oficina.cod_oficina if fo_info.oficina else '',
+                    'nombre_oficina': fo_info.oficina.nombre if fo_info.oficina else '',
+                    'direccion': fo_info.oficina.direccion if fo_info.oficina else '',
+                    'ciudad': fo_info.oficina.ciudad if fo_info.oficina else '',
+                    'tipo': '',
+                    'num_contrato': 'SIN CONTRATO',
+                    'tipo_plan': '',
+                    'tipo_canal': '',
+                    'valor_mensual': 0,
+                    'observaciones': '',
+                    'pagos': {
+                        mk: {'valor': v['valor'], 'fecha': v['fecha']} 
+                        for mk, v in pagos_data.items()
+                    }
+                }
+                report_data.append(row)
     
     return report_data, months
 
@@ -257,7 +300,8 @@ def create_excel_report(data: List[dict], months: List[tuple], titulo: str = "Re
         'Número Contrato',
         'Tipo Plan',
         'Tipo Canal',
-        'Valor Mensual'
+        'Valor Mensual',
+        'Observaciones'
     ]
     
     # Write headers
@@ -312,6 +356,8 @@ def create_excel_report(data: List[dict], months: List[tuple], titulo: str = "Re
         valor_cell.border = thin_border
         valor_cell.number_format = '#,##0'
         col += 1
+        
+        ws.cell(row=row_num, column=col, value=item.get('observaciones', '')).border = thin_border; col += 1
         
         # Dynamic month columns
         for year, month in months:
