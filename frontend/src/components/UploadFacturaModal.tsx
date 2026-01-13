@@ -32,6 +32,7 @@ export default function UploadFacturaModal({ isOpen, onClose, onSuccess }: Uploa
     const [uploading, setUploading] = useState(false);
     const [error, setError] = useState('');
     const [result, setResult] = useState<UploadResult | null>(null);
+    const [isDragging, setIsDragging] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     // Manual form data
@@ -106,6 +107,43 @@ export default function UploadFacturaModal({ isOpen, onClose, onSuccess }: Uploa
         setResult(null);
 
         if (file) {
+            if (!file.name.toLowerCase().endsWith('.pdf')) {
+                setError('Solo se permiten archivos PDF');
+                setSelectedFile(null);
+                return;
+            }
+            setSelectedFile(file);
+        }
+    };
+
+    // Drag and Drop handlers
+    const handleDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragging(true);
+    };
+
+    const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragging(false);
+    };
+
+    const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        e.stopPropagation();
+    };
+
+    const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragging(false);
+        setError('');
+        setResult(null);
+
+        const files = e.dataTransfer.files;
+        if (files && files.length > 0) {
+            const file = files[0];
             if (!file.name.toLowerCase().endsWith('.pdf')) {
                 setError('Solo se permiten archivos PDF');
                 setSelectedFile(null);
@@ -260,8 +298,8 @@ export default function UploadFacturaModal({ isOpen, onClose, onSuccess }: Uploa
                         type="button"
                         onClick={() => { setMode('pdf'); setError(''); setResult(null); }}
                         className={`flex-1 py-3 px-4 text-sm font-medium transition-colors ${mode === 'pdf'
-                                ? 'bg-gradient-to-r from-red-600 to-red-700 text-white'
-                                : 'bg-slate-700/50 text-slate-300 hover:bg-slate-700'
+                            ? 'bg-gradient-to-r from-red-600 to-red-700 text-white'
+                            : 'bg-slate-700/50 text-slate-300 hover:bg-slate-700'
                             }`}
                     >
                         <div className="flex items-center justify-center gap-2">
@@ -275,8 +313,8 @@ export default function UploadFacturaModal({ isOpen, onClose, onSuccess }: Uploa
                         type="button"
                         onClick={() => { setMode('manual'); setError(''); setResult(null); }}
                         className={`flex-1 py-3 px-4 text-sm font-medium transition-colors ${mode === 'manual'
-                                ? 'bg-gradient-to-r from-red-600 to-red-700 text-white'
-                                : 'bg-slate-700/50 text-slate-300 hover:bg-slate-700'
+                            ? 'bg-gradient-to-r from-red-600 to-red-700 text-white'
+                            : 'bg-slate-700/50 text-slate-300 hover:bg-slate-700'
                             }`}
                     >
                         <div className="flex items-center justify-center gap-2">
@@ -386,7 +424,16 @@ export default function UploadFacturaModal({ isOpen, onClose, onSuccess }: Uploa
 
                 {/* PDF Upload Mode */}
                 {mode === 'pdf' && !uploading && !result && (
-                    <div className="border-2 border-dashed border-slate-600 rounded-xl p-8 text-center hover:border-red-500 transition-colors">
+                    <div
+                        className={`border-2 border-dashed rounded-xl p-8 text-center transition-all duration-200 ${isDragging
+                                ? 'border-green-400 bg-green-500/10 scale-[1.02]'
+                                : 'border-slate-600 hover:border-red-500'
+                            }`}
+                        onDragEnter={handleDragEnter}
+                        onDragLeave={handleDragLeave}
+                        onDragOver={handleDragOver}
+                        onDrop={handleDrop}
+                    >
                         <input
                             ref={fileInputRef}
                             type="file"
@@ -395,7 +442,17 @@ export default function UploadFacturaModal({ isOpen, onClose, onSuccess }: Uploa
                             className="hidden"
                         />
 
-                        {selectedFile ? (
+                        {isDragging ? (
+                            <div className="space-y-3 py-4">
+                                <div className="flex items-center justify-center">
+                                    <svg className="w-16 h-16 text-green-400 animate-bounce" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3-3m0 0l3 3m-3-3v12" />
+                                    </svg>
+                                </div>
+                                <p className="text-green-400 font-medium text-lg">¡Suelta el archivo aquí!</p>
+                                <p className="text-slate-400 text-sm">Solo archivos PDF</p>
+                            </div>
+                        ) : selectedFile ? (
                             <div className="space-y-3">
                                 <div className="flex items-center justify-center gap-3">
                                     <svg className="w-12 h-12 text-red-400" fill="currentColor" viewBox="0 0 20 20">
