@@ -27,8 +27,11 @@ export interface Contrato {
     titular_cc_nit?: string;
     linea?: string;
     num_contrato?: string;
+    referencia_contrato?: string;
     fecha_inicio?: string;
     fecha_fin?: string;
+    fecha_instalacion?: string;
+    fecha_retiro?: string;
     estado?: string;
     observaciones?: string;
 

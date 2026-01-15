@@ -288,7 +288,7 @@ def create_excel_report(data: List[dict], months: List[tuple], titulo: str = "Re
     
     currency_font = Font(bold=True)
     
-    # Static headers
+    # Static headers (without Observaciones - it will be added at the end)
     static_headers = [
         'NIT Proveedor',
         'Nombre Proveedor',
@@ -300,8 +300,7 @@ def create_excel_report(data: List[dict], months: List[tuple], titulo: str = "Re
         'Número Contrato',
         'Tipo Plan',
         'Tipo Canal',
-        'Valor Mensual',
-        'Observaciones'
+        'Valor Mensual'
     ]
     
     # Write headers
@@ -335,6 +334,13 @@ def create_excel_report(data: List[dict], months: List[tuple], titulo: str = "Re
         cell.border = thin_border
         col += 1
     
+    # Observaciones header (last column)
+    cell = ws.cell(row=1, column=col, value="Observaciones")
+    cell.font = header_font
+    cell.fill = header_fill
+    cell.alignment = header_alignment
+    cell.border = thin_border
+    
     # Write data rows
     row_num = 2
     for item in data:
@@ -357,8 +363,6 @@ def create_excel_report(data: List[dict], months: List[tuple], titulo: str = "Re
         valor_cell.number_format = '#,##0'
         col += 1
         
-        ws.cell(row=row_num, column=col, value=item.get('observaciones', '')).border = thin_border; col += 1
-        
         # Dynamic month columns
         for year, month in months:
             # Use same string key format as data
@@ -379,6 +383,9 @@ def create_excel_report(data: List[dict], months: List[tuple], titulo: str = "Re
             fecha_cell = ws.cell(row=row_num, column=col, value=fecha if fecha else '')
             fecha_cell.border = thin_border
             col += 1
+        
+        # Observaciones (last column)
+        ws.cell(row=row_num, column=col, value=item.get('observaciones', '')).border = thin_border
         
         row_num += 1
     

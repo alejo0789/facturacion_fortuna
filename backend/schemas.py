@@ -43,8 +43,11 @@ class ContratoBase(BaseModel):
     titular_cc_nit: Optional[str] = None
     linea: Optional[str] = None
     num_contrato: Optional[str] = None
+    referencia_contrato: Optional[str] = None
     fecha_inicio: Optional[date] = None
     fecha_fin: Optional[date] = None
+    fecha_instalacion: Optional[date] = None
+    fecha_retiro: Optional[date] = None
     estado: Optional[str] = None
     observaciones: Optional[str] = None
     dude: Optional[str] = None

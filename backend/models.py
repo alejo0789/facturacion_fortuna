@@ -41,8 +41,11 @@ class Contrato(Base):
     # Details
     linea = Column(String(100))
     num_contrato = Column(String(100))
+    referencia_contrato = Column(String(100))  # Additional contract reference
     fecha_inicio = Column(Date)
     fecha_fin = Column(Date)
+    fecha_instalacion = Column(Date)  # Installation date
+    fecha_retiro = Column(Date)  # Removal/retirement date
     estado = Column(String(50))
     observaciones = Column(Text)
     

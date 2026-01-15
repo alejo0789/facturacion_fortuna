@@ -372,7 +372,7 @@ export default function ContractModal({ isOpen, onClose, onSave, contract }: Con
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
-                    <FormField label="Número de Contrato">
+                    <FormField label="Número de Contrato (Ref Pago)">
                         <input
                             className={inputClassName}
                             placeholder="Ej: CONT-001"
@@ -381,12 +381,52 @@ export default function ContractModal({ isOpen, onClose, onSave, contract }: Con
                         />
                     </FormField>
 
+                    <FormField label="Referencia Contrato">
+                        <input
+                            className={inputClassName}
+                            placeholder="Ej: REF-2024-001"
+                            value={formData.referencia_contrato || ''}
+                            onChange={e => setFormData({ ...formData, referencia_contrato: e.target.value })}
+                        />
+                    </FormField>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
                     <FormField label="Nombre del Titular">
                         <input
                             className={inputClassName}
                             placeholder="Ej: LA FORTUNA S.A"
                             value={formData.titular_nombre || ''}
                             onChange={e => setFormData({ ...formData, titular_nombre: e.target.value })}
+                        />
+                    </FormField>
+
+                    <FormField label="CC/NIT Titular">
+                        <input
+                            className={inputClassName}
+                            placeholder="Ej: 900123456"
+                            value={formData.titular_cc_nit || ''}
+                            onChange={e => setFormData({ ...formData, titular_cc_nit: e.target.value })}
+                        />
+                    </FormField>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                    <FormField label="Fecha de Instalación">
+                        <input
+                            type="date"
+                            className={inputClassName}
+                            value={formData.fecha_instalacion || ''}
+                            onChange={e => setFormData({ ...formData, fecha_instalacion: e.target.value })}
+                        />
+                    </FormField>
+
+                    <FormField label="Fecha de Retiro">
+                        <input
+                            type="date"
+                            className={inputClassName}
+                            value={formData.fecha_retiro || ''}
+                            onChange={e => setFormData({ ...formData, fecha_retiro: e.target.value })}
                         />
                     </FormField>
                 </div>
