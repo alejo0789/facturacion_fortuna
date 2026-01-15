@@ -32,6 +32,13 @@ PUBLIC_ROUTES = [
     "/redoc"
 ]
 
+# Patrones de rutas públicas (regex)
+import re
+PUBLIC_PATTERNS = [
+    re.compile(r"^/api/facturas/\d+/ver$"),  # Ver PDFs de facturas
+    re.compile(r"^/api/contratos/\d+/pdf$"),  # Ver PDFs de contratos
+]
+
 class APIKeyMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
@@ -39,10 +46,16 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         # Log de todas las peticiones
         logger.info(f"📥 {request.method} {path}")
         
-        # Permitir rutas públicas
+        # Permitir rutas públicas exactas
         if path in PUBLIC_ROUTES:
             logger.info(f"✅ Ruta pública permitida: {path}")
             return await call_next(request)
+        
+        # Permitir rutas que coincidan con patrones públicos
+        for pattern in PUBLIC_PATTERNS:
+            if pattern.match(path):
+                logger.info(f"✅ Ruta pública (patrón) permitida: {path}")
+                return await call_next(request)
         
         # Verificar API Key en header
         api_key = request.headers.get("X-API-Key")
