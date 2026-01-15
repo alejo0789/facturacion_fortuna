@@ -14,7 +14,7 @@ function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   return (
-    <BrowserRouter>
+    <BrowserRouter basename="/facturacion_ia">
       <div className="min-h-screen bg-slate-50 flex">
         <Sidebar
           collapsed={sidebarCollapsed}

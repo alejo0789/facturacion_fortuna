@@ -15,13 +15,19 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Supplier Service API", lifespan=lifespan)
 
-# CORS
+# CORS - Configuración para desarrollo y producción
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Allow all for dev
+    allow_origins=[
+        "http://localhost:5173",
+        "http://192.168.2.91:5173",
+        "https://saman.lafortuna.com.co",
+        "http://saman.lafortuna.com.co"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"]
 )
 
 app.include_router(contracts.router, prefix="/api", tags=["contratos"])
