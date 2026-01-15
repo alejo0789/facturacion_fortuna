@@ -4,6 +4,7 @@ import uvicorn
 from contextlib import asynccontextmanager
 from database import engine, Base
 from routers import contracts, payments, facturas, consolidado, reportes, oficinas_oracle, archivo_plano
+from middleware.auth import APIKeyMiddleware
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -15,7 +16,13 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Supplier Service API", lifespan=lifespan)
 
-# CORS - Configuración para desarrollo y producción
+# IMPORTANTE: Los middlewares se ejecutan en orden INVERSO
+# El último agregado se ejecuta primero
+
+# API Key Authentication Middleware (se ejecuta DESPUÉS de CORS)
+app.add_middleware(APIKeyMiddleware)
+
+# CORS - Configuración para desarrollo y producción (se ejecuta PRIMERO)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
