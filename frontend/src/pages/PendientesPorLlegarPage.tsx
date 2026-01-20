@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { Contrato, Oficina } from '../types';
+import { formatCOP } from '../utils/format';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
@@ -77,14 +78,7 @@ export default function PendientesPorLlegarPage() {
         return matchesSearch && matchesOficina;
     });
 
-    const formatCurrency = (value: number | string | undefined) => {
-        if (value === undefined || value === null) return '-';
-        return new Intl.NumberFormat('es-CO', {
-            style: 'currency',
-            currency: 'COP',
-            maximumFractionDigits: 0
-        }).format(Number(value));
-    };
+
 
     return (
         <div className="space-y-6">
@@ -219,7 +213,7 @@ export default function PendientesPorLlegarPage() {
                                         {c.num_contrato || '-'}
                                     </td>
                                     <td className="px-6 py-4 text-emerald-600 font-semibold">
-                                        {formatCurrency(c.valor_mensual)}
+                                        {formatCOP(c.valor_mensual)}
                                     </td>
                                     <td className="px-6 py-4">
                                         <span className="px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs font-medium">

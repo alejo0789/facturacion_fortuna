@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import type { Contrato } from '../types';
 import ContractModal from '../components/ContractModal';
+import { formatCOP } from '../utils/format';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
@@ -206,7 +207,7 @@ export default function Dashboard() {
                                         <div>
                                             <span className="block text-gray-400 text-xs uppercase">Valor Mensual</span>
                                             <span className="text-lg font-bold text-gray-900">
-                                                ${c.valor_mensual?.toLocaleString() || '0'}
+                                                {formatCOP(c.valor_mensual)}
                                             </span>
                                         </div>
                                     </div>

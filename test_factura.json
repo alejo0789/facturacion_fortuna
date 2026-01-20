@@ -1,0 +1,16 @@
+{
+    "proveedor_nit": "901751613",
+    "numero_factura": "ISC14683",
+    "cufe": "96e822d2bd12b287efc542eb610d3cac9cfc63e28350efe3af775091b23196a286551c6b174bee8e3d5f936840b4c3f7",
+    "fecha_factura": "2025-09-01",
+    "fecha_vencimiento": "2025-09-01",
+    "valor": 142800,
+    "url_factura": "file://192.168.2.20/Facturas/ diciembre/23/71a2e88d-cabc-4ae6-b362-4b906040feb7.pdf",
+    "observaciones": "Factura de internet oficina",
+    "oficinas": [
+        {
+            "cod_oficina": "3001",
+            "valor": 142800
+        }
+    ]
+}

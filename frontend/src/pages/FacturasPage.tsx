@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import type { Factura, Oficina, Proveedor, OficinaConContrato } from '../types';
 import Modal, { FormField, inputClassName } from '../components/Modal';
 import UploadFacturaModal from '../components/UploadFacturaModal';
+import { formatCOP } from '../utils/format';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
@@ -1737,7 +1738,7 @@ export default function FacturasPage() {
                                                     </div>
                                                     {oc.valor_mensual && (
                                                         <div className="text-xs text-blue-600 font-medium">
-                                                            ${oc.valor_mensual.toLocaleString()}/mes
+                                                            {formatCOP(oc.valor_mensual)}/mes
                                                         </div>
                                                     )}
                                                 </div>
