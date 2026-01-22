@@ -1,0 +1,2393 @@
+{
+    "updatedAt": "2026-01-21T20:12:17.407Z",
+    "createdAt": "2025-12-03T21:08:01.084Z",
+    "id": "XtbJG0fxGuuWIz36",
+    "name": "Recepción y guardado de documentos",
+    "description": null,
+    "active": true,
+    "isArchived": false,
+    "nodes": [
+        {
+            "parameters": {},
+            "type": "n8n-nodes-base.manualTrigger",
+            "typeVersion": 1,
+            "position": [
+                -4752,
+                -1344
+            ],
+            "id": "3e183cda-6c58-4d31-bca2-b034cafc0738",
+            "name": "When clicking ‘Execute workflow’"
+        },
+        {
+            "parameters": {
+                "operation": "upload",
+                "path": "=/Facturas/temp/{{ $binary.data.fileName }}",
+                "options": {}
+            },
+            "type": "n8n-nodes-base.ftp",
+            "typeVersion": 1,
+            "position": [
+                -4384,
+                -1056
+            ],
+            "id": "14d9076e-ee18-4496-96bd-881385176690",
+            "name": "FTP3",
+            "credentials": {
+                "ftp": {
+                    "id": "lBwKj9KGrvYC6dyl",
+                    "name": "FTP account"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "jsCode": "const newItems = [];\n\n// Usamos un loop con índice (i) para saber cuál es el item original\nfor (let i = 0; i < items.length; i++) {\n  const item = items[i];\n\n  // Si el item tiene datos binarios\n  if (item.binary) {\n    // Recorremos cada adjunto\n    for (const key of Object.keys(item.binary)) {\n      newItems.push({\n        json: item.json, \n        binary: {\n          data: item.binary[key] \n        },\n        // ESTA ES LA SOLUCIÓN:\n        // Le decimos a n8n: \"Este nuevo item pertenece al item número 'i' de la entrada\"\n        pairedItem: { \n          item: i \n        }\n      });\n    }\n  }\n}\n\nreturn newItems;\n\nreturn newItems;"
+            },
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                -4752,
+                -1056
+            ],
+            "id": "4cc6d7db-3421-4fae-93d5-26c7cd32cb8d",
+            "name": "Code in JavaScript",
+            "executeOnce": true
+        },
+        {
+            "parameters": {
+                "content": "## Recepción de archivos \n**Se descargan todos los adjuntos y se realiza un guardado en el servidor  ftp carpeta Facturas/temp\n",
+                "height": 320,
+                "width": 1312
+            },
+            "type": "n8n-nodes-base.stickyNote",
+            "position": [
+                -5040,
+                -1184
+            ],
+            "typeVersion": 1,
+            "id": "8e63fdca-ffb3-4307-887e-320999e9a61a",
+            "name": "Sticky Note"
+        },
+        {
+            "parameters": {
+                "toRecipients": "={{ $('entrey_email').first().json.from.emailAddress.address }}",
+                "subject": "recepcion de factura Acertemos",
+                "bodyContent": "Hola, hemos recibido tu factura con exito.\n\neste es un mensaje autómatico",
+                "additionalFields": {}
+            },
+            "type": "n8n-nodes-base.microsoftOutlook",
+            "typeVersion": 2,
+            "position": [
+                -4176,
+                -1056
+            ],
+            "id": "5eed044f-f6ce-46ba-b125-a833d5ad9b05",
+            "name": "Send a message",
+            "webhookId": "081e11db-9985-43b3-9adb-f1d1d1802905",
+            "executeOnce": true,
+            "credentials": {
+                "microsoftOutlookOAuth2Api": {
+                    "id": "dD5pGvlU00N513gT",
+                    "name": "Microsoft Outlook account"
+                }
+            },
+            "onError": "continueRegularOutput"
+        },
+        {
+            "parameters": {
+                "pollTimes": {
+                    "item": [
+                        {
+                            "mode": "everyMinute"
+                        }
+                    ]
+                },
+                "output": "raw",
+                "filters": {
+                    "hasAttachments": true
+                },
+                "options": {
+                    "downloadAttachments": true
+                }
+            },
+            "type": "n8n-nodes-base.microsoftOutlookTrigger",
+            "typeVersion": 1,
+            "position": [
+                -4944,
+                -1056
+            ],
+            "id": "eca349f6-ea23-4cd4-997c-0ccd5010ecc6",
+            "name": "entrey_email",
+            "credentials": {
+                "microsoftOutlookOAuth2Api": {
+                    "id": "dD5pGvlU00N513gT",
+                    "name": "Microsoft Outlook account"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "operation": "getAll",
+                "returnAll": true,
+                "output": "raw",
+                "filtersUI": {
+                    "values": {
+                        "filters": {
+                            "receivedAfter": "={{ $now.setZone('America/Bogota').startOf('day').plus({hours: 14, minutes: 55}).toISO() }}"
+                        }
+                    }
+                },
+                "options": {
+                    "attachmentsPrefix": "data",
+                    "downloadAttachments": true
+                }
+            },
+            "type": "n8n-nodes-base.microsoftOutlook",
+            "typeVersion": 2,
+            "position": [
+                -1200,
+                -1376
+            ],
+            "id": "35c35acf-0985-4610-a150-f9789997532c",
+            "name": "Emails_today",
+            "webhookId": "f7f7e254-52d4-43c4-be81-5eaa5d6da259",
+            "credentials": {
+                "microsoftOutlookOAuth2Api": {
+                    "id": "dD5pGvlU00N513gT",
+                    "name": "Microsoft Outlook account"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "rules": {
+                    "values": [
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": true,
+                                    "leftValue": "",
+                                    "typeValidation": "strict",
+                                    "version": 2
+                                },
+                                "conditions": [
+                                    {
+                                        "leftValue": "={{ $binary.data.fileExtension.toLowerCase() }}",
+                                        "rightValue": "zip",
+                                        "operator": {
+                                            "type": "string",
+                                            "operation": "equals"
+                                        },
+                                        "id": "055864da-625a-4010-a83e-5cf321c8dec6"
+                                    }
+                                ],
+                                "combinator": "and"
+                            }
+                        },
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": true,
+                                    "leftValue": "",
+                                    "typeValidation": "strict",
+                                    "version": 2
+                                },
+                                "conditions": [
+                                    {
+                                        "id": "2ba164c2-ce55-4a2a-9540-07c7b5c7aeac",
+                                        "leftValue": "={{ $binary.data.fileExtension.toLowerCase() }}",
+                                        "rightValue": "pdf",
+                                        "operator": {
+                                            "type": "string",
+                                            "operation": "equals"
+                                        }
+                                    }
+                                ],
+                                "combinator": "and"
+                            },
+                            "renameOutput": true,
+                            "outputKey": "data_zip"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.switch",
+            "typeVersion": 3.3,
+            "position": [
+                -464,
+                -1376
+            ],
+            "id": "efec1280-30b2-4d23-b1fd-bcc8f4abc880",
+            "name": "Switch",
+            "executeOnce": false
+        },
+        {
+            "parameters": {
+                "jsCode": "const newItems = [];\n\n// Recorremos cada correo recibido\nfor (const item of $input.all()) {\n  if (item.binary) {\n    // Recorremos cada archivo adjunto dentro del correo (data, data0, data1...)\n    for (const key of Object.keys(item.binary)) {\n      newItems.push({\n        // Mantenemos los datos JSON del correo (asunto, fecha, etc.)\n        json: item.json,\n        binary: {\n          // IMPORTANTE: Aquí renombramos cualquier \"data0, data1\" a siempre \"data\"\n          data: item.binary[key] \n        }\n      });\n    }\n  }\n}\n\nreturn newItems;"
+            },
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                -784,
+                -1376
+            ],
+            "id": "6456a2b4-40d5-4ff6-9533-b9a333e00a50",
+            "name": "Code in JavaScript1",
+            "executeOnce": true
+        },
+        {
+            "parameters": {
+                "operation": "upload",
+                "path": "=/Facturas/temp/{{ $binary.data.fileName }}",
+                "options": {}
+            },
+            "type": "n8n-nodes-base.ftp",
+            "typeVersion": 1,
+            "position": [
+                -192,
+                -1392
+            ],
+            "id": "76e5bad3-f30b-41e0-98da-6030000f8a80",
+            "name": "FTP4",
+            "credentials": {
+                "ftp": {
+                    "id": "lBwKj9KGrvYC6dyl",
+                    "name": "FTP account"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "content": "Ejecucion manual",
+                "height": 368,
+                "width": 1312
+            },
+            "type": "n8n-nodes-base.stickyNote",
+            "position": [
+                -1216,
+                -1552
+            ],
+            "typeVersion": 1,
+            "id": "e8c2bc37-9c0d-4071-baa5-c08f96453ea2",
+            "name": "Sticky Note1"
+        },
+        {
+            "parameters": {
+                "operation": "getAll",
+                "returnAll": true,
+                "output": "raw",
+                "filtersUI": {
+                    "values": {
+                        "filters": {
+                            "receivedAfter": "={{ $now.setZone('America/Bogota').minus({ days: 5 }).startOf('day').toISO() }}"
+                        }
+                    }
+                },
+                "options": {
+                    "attachmentsPrefix": "data",
+                    "downloadAttachments": true
+                }
+            },
+            "type": "n8n-nodes-base.microsoftOutlook",
+            "typeVersion": 2,
+            "position": [
+                -1536,
+                -1360
+            ],
+            "id": "72553c30-6f55-4651-b0a7-2bedbbb55a83",
+            "name": "Emails_yesterday1",
+            "webhookId": "f7f7e254-52d4-43c4-be81-5eaa5d6da259",
+            "credentials": {
+                "microsoftOutlookOAuth2Api": {
+                    "id": "dD5pGvlU00N513gT",
+                    "name": "Microsoft Outlook account"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "rules": {
+                    "values": [
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": true,
+                                    "leftValue": "",
+                                    "typeValidation": "strict",
+                                    "version": 2
+                                },
+                                "conditions": [
+                                    {
+                                        "leftValue": "={{ $binary.data.fileExtension.toLowerCase() }}",
+                                        "rightValue": "zip",
+                                        "operator": {
+                                            "type": "string",
+                                            "operation": "equals"
+                                        },
+                                        "id": "055864da-625a-4010-a83e-5cf321c8dec6"
+                                    }
+                                ],
+                                "combinator": "and"
+                            }
+                        },
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": true,
+                                    "leftValue": "",
+                                    "typeValidation": "strict",
+                                    "version": 2
+                                },
+                                "conditions": [
+                                    {
+                                        "id": "2ba164c2-ce55-4a2a-9540-07c7b5c7aeac",
+                                        "leftValue": "={{ $binary.data.fileExtension.toLowerCase() }}",
+                                        "rightValue": "pdf",
+                                        "operator": {
+                                            "type": "string",
+                                            "operation": "equals"
+                                        }
+                                    }
+                                ],
+                                "combinator": "and"
+                            },
+                            "renameOutput": true,
+                            "outputKey": "data_zip"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.switch",
+            "typeVersion": 3.3,
+            "position": [
+                -4576,
+                -1056
+            ],
+            "id": "4e7076b1-d13e-4fd6-90c5-49e307cd59cb",
+            "name": "Switch3",
+            "executeOnce": false
+        },
+        {
+            "parameters": {
+                "operation": "list",
+                "path": "/Facturas/temp",
+                "options": {}
+            },
+            "type": "n8n-nodes-base.ftp",
+            "typeVersion": 1,
+            "position": [
+                -3904,
+                -1056
+            ],
+            "id": "ab1ca43e-6d81-4744-b382-82734217b9eb",
+            "name": "FTP13",
+            "credentials": {
+                "ftp": {
+                    "id": "lBwKj9KGrvYC6dyl",
+                    "name": "FTP account"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "operation": "rename",
+                "oldPath": "=/Facturas/temp/{{ $('FTP16').item.json.name }}",
+                "newPath": "=/Facturas/{{ $('obtener_fecha').item.json.mes }}/{{ $('obtener_fecha').item.json.dia }}/{{ $('FTP16').item.json.name }}",
+                "options": {
+                    "createDirectories": true
+                }
+            },
+            "type": "n8n-nodes-base.ftp",
+            "typeVersion": 1,
+            "position": [
+                -1104,
+                -1072
+            ],
+            "id": "7e479f0a-8cf9-4b8f-b3d6-eda36955a4f0",
+            "name": "FTP14",
+            "credentials": {
+                "ftp": {
+                    "id": "lBwKj9KGrvYC6dyl",
+                    "name": "FTP account"
+                }
+            },
+            "onError": "continueRegularOutput"
+        },
+        {
+            "parameters": {
+                "path": "=/Facturas/temp/{{ $('FTP13').item.json.name }}",
+                "options": {}
+            },
+            "type": "n8n-nodes-base.ftp",
+            "typeVersion": 1,
+            "position": [
+                -3440,
+                -1056
+            ],
+            "id": "9f278ee8-c466-4a5d-a573-0dfa62f95284",
+            "name": "FTP15",
+            "credentials": {
+                "ftp": {
+                    "id": "lBwKj9KGrvYC6dyl",
+                    "name": "FTP account"
+                }
+            }
+        },
+        {
+            "parameters": {},
+            "type": "n8n-nodes-base.compression",
+            "typeVersion": 1.1,
+            "position": [
+                -2912,
+                -912
+            ],
+            "id": "94e6843f-0182-4b7c-9d23-001494f8e5d3",
+            "name": "Compression2"
+        },
+        {
+            "parameters": {
+                "jsCode": "const output = [];\n\n// Referenciar directamente a Compression2\nconst compressionItems = $('Compression2').all();\n\nfor (const item of compressionItems) {\n  // recorremos todos los binarios del item\n  for (const key of Object.keys(item.binary || {})) {\n    const bin = item.binary[key];\n    const fileName = bin.fileName?.toLowerCase() || '';\n\n    // detectamos PDFs por mimeType o extensión\n    if (\n      bin.mimeType === 'application/pdf' ||\n      fileName.endsWith('.pdf')\n    ) {\n      output.push({\n        json: { fileName: bin.fileName || 'archivo.pdf' },\n        binary: { data: bin },\n      });\n    }\n  }\n}\n\nreturn output;\n"
+            },
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                -2768,
+                -912
+            ],
+            "id": "f9d4436d-3aa5-4379-bf7f-33a07fb6c8e8",
+            "name": "Code2",
+            "executeOnce": true,
+            "onError": "continueRegularOutput"
+        },
+        {
+            "parameters": {
+                "operation": "upload",
+                "path": "=/Facturas/temp/{{$binary.data.fileName }}.pdf",
+                "options": {}
+            },
+            "type": "n8n-nodes-base.ftp",
+            "typeVersion": 1,
+            "position": [
+                -2608,
+                -896
+            ],
+            "id": "6ce36926-05ac-456b-86b2-fd1dd12139ab",
+            "name": "FTP18",
+            "credentials": {
+                "ftp": {
+                    "id": "lBwKj9KGrvYC6dyl",
+                    "name": "FTP account"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "rules": {
+                    "values": [
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": true,
+                                    "leftValue": "",
+                                    "typeValidation": "strict",
+                                    "version": 2
+                                },
+                                "conditions": [
+                                    {
+                                        "leftValue": "={{ $binary.data.fileExtension.toLowerCase() }}",
+                                        "rightValue": "zip",
+                                        "operator": {
+                                            "type": "string",
+                                            "operation": "equals"
+                                        },
+                                        "id": "cc374e0d-aadf-4902-929f-0e2ead297c85"
+                                    }
+                                ],
+                                "combinator": "and"
+                            }
+                        },
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": true,
+                                    "leftValue": "",
+                                    "typeValidation": "strict",
+                                    "version": 2
+                                },
+                                "conditions": [
+                                    {
+                                        "id": "1b1c149b-ae40-48a7-9357-fd8defe9530a",
+                                        "leftValue": "={{ $binary.data.fileExtension.toLowerCase() }}",
+                                        "rightValue": "pdf",
+                                        "operator": {
+                                            "type": "string",
+                                            "operation": "equals",
+                                            "name": "filter.operator.equals"
+                                        }
+                                    }
+                                ],
+                                "combinator": "and"
+                            }
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.switch",
+            "typeVersion": 3.3,
+            "position": [
+                -3168,
+                -1056
+            ],
+            "id": "215828e3-4e2b-4a83-bd87-9ba7dcbb3485",
+            "name": "Switch4"
+        },
+        {
+            "parameters": {
+                "mode": "runOnceForEachItem",
+                "jsCode": "const fecha = new Date();\n\nconst mesTexto = fecha.toLocaleString('es-CO', { month: 'long' });\nconst dia = fecha.getDate();\nconst anio = fecha.getFullYear(); // Agregamos esta línea\n\nreturn {\n  mes: mesTexto,\n  dia,\n  anio // Lo agregamos al objeto de retorno\n};"
+            },
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                -3648,
+                -1056
+            ],
+            "id": "0676f314-b69f-4da5-b703-698619cb2df9",
+            "name": "obtener_fecha"
+        },
+        {
+            "parameters": {},
+            "type": "n8n-nodes-base.merge",
+            "typeVersion": 3.2,
+            "position": [
+                -1936,
+                -1024
+            ],
+            "id": "af1002ed-2ae4-4d64-9602-503283b3136d",
+            "name": "Merge1",
+            "executeOnce": false
+        },
+        {
+            "parameters": {
+                "modelId": {
+                    "__rl": true,
+                    "value": "gpt-4.1-mini",
+                    "mode": "list",
+                    "cachedResultName": "GPT-4.1-MINI"
+                },
+                "responses": {
+                    "values": [
+                        {
+                            "content": "=Eres un excelente asistente experto en extraer información de PDFs y llenar una base de datos sql con la información requerida usando la herramienta add_information.\n\n===========================\n📄 PDF\nFilename:\n{{ $binary.data.fileName }}\n\n===========================\n\nHerramientas disponibles:\n- add_information\n- get_information\n\nObjetivo:\n1. Extraer la información del PDF.\n2. Identificar\n\"proveedor_nit\",\n\"numero_factura\"\n\"cufe\"\n\"fecha_factura\"\n\"fecha_vencimiento\"\n\"valor total\"\n3. Obtener información adicional de los proveedores, y contratos y oficinas que tiene el proveedor utilizndo la herrmaienta get information .\n4. tratar de identificar la oficina que mejor corresponda por campos como la direccion de la oficina si la factura no tiene una referencia de pago o numero de contrato que los vincule. \n5. ENTREGAR un JSON FINAL con esta estructura:\n\nCAMPOS QUE DEBES EXTRAER DEL PDF:\n\n\n*nit proveedor*\nDeberas extarer el nit del proveedor y dejarlo sin comas ni puntos y simpre completo.\nnunca podra ser 817007005-2 ya q ese es es mi nit.\nel nit podra estar como imagen en el encabezado, siempre busca el nit del proveedor.\nsiempre sera sin el digito d everificacion por ejemplo  891502163-1 nit es 891502163 \n\nEmtel = 891502163\n\n*Numero de factura:\nlo encuentas como numero factura, factura venta, factura. Nota:\nten cuidado de no confundir con otro numero, siempre es el numero de factura, facura venta. deberas traer el numero completo en algunos casos apare asi 1FVI 21348 el numero de factura es : 1FVI21348. \n\n**Fecha de Factura**\n   - Extraer la fecha que fue emitida la factura.\n   - Siempre devolverla en formato YYYY-MM-DD.\n   - Nunca puede ser mayor a la fecha actual: {{ $now }}\n\n\"fecha_vencimiento\"\nEs la fecha de pago \nSiempre devolverla en formato YYYY-MM-DD.\nsi puede o no ser mayor a la fecha actual\n----------------------------\nReferencia de pago.: es difernete al numero de factura,\n\neste es el numero que viene como suscripcion, referencia pago, numero contrato.\n-------------------------------------------------\n📌 REGLA ESPECIAL solo PARA los proveedores TIGO, MOVISTAR, COMCEL (CLARO)\n-------------------------------------------------\n**Numero de factura = referencia de pago**, no el número de factura del PDF. opcional si es una cuenta de cobro.\n\nEjemplo:\n- Referencia de pago: 878237873  \n- Número factura PDF: M2323  \n\n\nDebes usar SOLO:\nNumero de factura = 878237873\n\nNOTa MANDATORIA:\nNunca usar codigos de barras\n\n\n-------------------------------------------------\n📌 VALOR TOTAL\n-------------------------------------------------\n- Extraer el valor total con IVA.\n- Puede estar como “total”, “valor”, “precio”, “valor total”.\n- Entregarlo SIN puntos, SIN comas, SIN signos peso.\n  Ejemplo:\n  $123.456  →  123456\n\n-------------------------------------------------\n📌 Codigo de Suscripcion\n-------------------------------------------------\nReferencia pago = suscripcion\n\n-------------------------------\n📌 Direccion\nes la direccion de la factura\n-------------------------------------------------\nReferencia pago = suscripcion\n-------------------------------------------------\n📌 USO DE LA HERRAMIENTA get_information\n-------------------------------------------------\ntu le enviras el nit del proveedor y te va devolver los numeros de contratos disponibles, num_contrato, codigo oficina, nombre oficina, direccion.\n\n--------------------------\nIdentificacion de contrato:\n\nsi solo hay un solo contrato, ya identificaste el num_contrato.\nEn caso de haber mas oficinas, valida si la referencia de pago es igual al num_contrato si es igual ya encontraste el num_contrato.\nEn caso de que hayan varios contratos y no tengas una referencia de pago, mira la direccion y trata de identificar por la direccion de la factura.\ntrata de identificar la oficina que mejor corresponda por campos como la direccion de la oficina, por las observaiones si la factura no tiene una referencia de pago o numero de contrato que los vincule, si tien referencia d epago numero de contrato utilizalo.\nsi las identificas guarda:\n \"oficina_id1\": cod_oficna\n  \"contrato_id1\":num_contrato\n\nsi encuentras varias oficinas \nidentificalas todas\n \"oficina_id1\": cod_oficna\n  \"contrato_id1\":num_contrato\n\n \"oficina_id2\": cod_oficna\n  \"contrato_id2\":num_contrato\n\n----------------------------------------\nINSTRUCCIONES PARA EL USO DE LA HERRAMIENTA add_information:\n\n\nCuando identifiques datos de una factura, DEBES ejecutar la herramienta add_information utilizando estrictamente el siguiente esquema JSON. No añadas texto adicional, solo envía el JSON con estos campos:\n\nproveedor_nit: (String) NIT del proveedor sin puntos ni guiones.\n\noficina_id: (Integer) ID de la oficina.\n\nnumero_factura: (String) El número alfanumérico de la factura.\n\ncufe: (String) Código único de factura electrónica.\n\nfecha_factura: (String) Formato AAAA-MM-DD.\n\nfecha_vencimiento: (String) Formato AAAA-MM-DD.\n\nvalor: (Number) Valor total sin símbolos de moneda ni miles.\n\nurl_factura: (String) Siempre debe ser el path proporcionado: file://192.168.2.20/Facturas/ diciembre/23/71a2e88d-cabc-4ae6-b362-4b906040feb7.pdf\n\nobservaciones: (String) Breve descripción o dejar vacío si no hay.\n\noficinas: (array) [  {\"cod_oficina\": oficina_id1, \"valor\": valor }],\n\nal finalizar tu respuesta debera ser un json tipo \n\n{\n  \"success\": true,\n  \"factura_id\": 123,\n  \"factura\": {\n    \"id\": 123,\n    \"numero_factura\": \"FAC-001\",\n    \"proveedor_nombre\": \"Proveedor XYZ\",\n    \"proveedor_nit\": \"900123456\",\n    \"valor\": 1500000\n  }\n} o si hay error {\n  \"success\": false,\n  \"error\": \"No se pudo extraer información del PDF erro no XXX informacion adicional..... \"\n}"
+                        },
+                        {
+                            "type": "file",
+                            "fileType": "base64",
+                            "fileName": "data"
+                        }
+                    ]
+                },
+                "builtInTools": {},
+                "options": {}
+            },
+            "type": "@n8n/n8n-nodes-langchain.openAi",
+            "typeVersion": 2,
+            "position": [
+                -1584,
+                -960
+            ],
+            "id": "e78f8dea-82af-4ea8-85f6-fb7dc307eccb",
+            "name": "Message a model1",
+            "credentials": {
+                "openAiApi": {
+                    "id": "Y1SSWu05zhIDWuc3",
+                    "name": "OpenAi account"
+                }
+            },
+            "onError": "continueRegularOutput"
+        },
+        {
+            "parameters": {
+                "options": {}
+            },
+            "type": "n8n-nodes-base.splitInBatches",
+            "typeVersion": 3,
+            "position": [
+                -1760,
+                -1056
+            ],
+            "id": "fbb355e5-fe53-45e6-a605-f69ddfabd254",
+            "name": "Loop Over Items1"
+        },
+        {
+            "parameters": {
+                "toRecipients": "=ingenieroiaacertemos.com",
+                "subject": "recepcion de factura Acertemos",
+                "bodyContent": "Hola, proceso completado con exito\n\neste es un mensaje autómatico",
+                "additionalFields": {}
+            },
+            "type": "n8n-nodes-base.microsoftOutlook",
+            "typeVersion": 2,
+            "position": [
+                192,
+                -1488
+            ],
+            "id": "1c324729-d518-4730-b9d4-7ee05718dcd2",
+            "name": "Send a message1",
+            "webhookId": "081e11db-9985-43b3-9adb-f1d1d1802905",
+            "executeOnce": true,
+            "credentials": {
+                "microsoftOutlookOAuth2Api": {
+                    "id": "dD5pGvlU00N513gT",
+                    "name": "Microsoft Outlook account"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "toolDescription": "Call this tool to add information from the factura",
+                "method": "POST",
+                "url": "http://192.168.2.91:8000/api/facturas/crear-con-oficina",
+                "sendHeaders": true,
+                "parametersHeaders": {
+                    "values": [
+                        {
+                            "name": "X-API-Key",
+                            "valueProvider": "fieldValue",
+                            "value": "fortuna_2026_secret_api"
+                        }
+                    ]
+                },
+                "sendBody": true,
+                "parametersBody": {
+                    "values": [
+                        {
+                            "name": "proveedor_nit"
+                        },
+                        {
+                            "name": "numero_factura",
+                            "valueProvider": "modelOptional"
+                        },
+                        {
+                            "name": "cufe",
+                            "valueProvider": "modelOptional"
+                        },
+                        {
+                            "name": "fecha_factura",
+                            "valueProvider": "modelOptional"
+                        },
+                        {
+                            "name": "fecha_vencimiento",
+                            "valueProvider": "modelOptional"
+                        },
+                        {
+                            "name": "valor"
+                        },
+                        {
+                            "name": "url_factura",
+                            "valueProvider": "fieldValue",
+                            "value": "=file://192.168.2.20//Facturas/{{ $('obtener_fecha').item.json.mes }}/{{ $('obtener_fecha').item.json.dia }}/{{ $('FTP13').item.json.name }}"
+                        },
+                        {
+                            "name": "observaciones",
+                            "valueProvider": "modelOptional"
+                        },
+                        {
+                            "name": "oficinas",
+                            "valueProvider": "modelOptional"
+                        }
+                    ]
+                },
+                "optimizeResponse": true,
+                "dataField": "data",
+                "fieldsToInclude": "selected",
+                "fields": "markdown"
+            },
+            "id": "bb0f9dd0-34f1-4cfc-a962-22f79f64b778",
+            "name": "add_information",
+            "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+            "position": [
+                -1248,
+                -688
+            ],
+            "typeVersion": 1
+        },
+        {
+            "parameters": {
+                "httpMethod": "POST",
+                "path": "d15fc127-671d-4b24-8221-bac74a6f4648",
+                "responseMode": "responseNode",
+                "options": {}
+            },
+            "type": "n8n-nodes-base.webhook",
+            "typeVersion": 2.1,
+            "position": [
+                -4112,
+                -800
+            ],
+            "id": "aa24a0e4-c664-474b-81bf-88e82beebc4d",
+            "name": "Webhook",
+            "webhookId": "d15fc127-671d-4b24-8221-bac74a6f4648"
+        },
+        {
+            "parameters": {
+                "respondWith": "json",
+                "responseBody": "={{ $('Message a model1').item.json.output[0].content[0].text }}",
+                "options": {}
+            },
+            "type": "n8n-nodes-base.respondToWebhook",
+            "typeVersion": 1.4,
+            "position": [
+                -896,
+                -1072
+            ],
+            "id": "fe0cac20-e206-46ec-900a-7b2748e31b4b",
+            "name": "Respond to Webhook"
+        },
+        {
+            "parameters": {
+                "operation": "list",
+                "path": "/Facturas/temp",
+                "options": {}
+            },
+            "type": "n8n-nodes-base.ftp",
+            "typeVersion": 1,
+            "position": [
+                -1280,
+                -1072
+            ],
+            "id": "54f12796-35ed-469f-ad94-0fce6137a431",
+            "name": "FTP16",
+            "credentials": {
+                "ftp": {
+                    "id": "lBwKj9KGrvYC6dyl",
+                    "name": "FTP account"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "url": "=http://192.168.2.91:8000/api/reportes/contratos-por-nit/{{ $fromAI('nit', ``, 'string') }}",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "X-API-Key",
+                            "value": "fortuna_2026_secret_api"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.httpRequestTool",
+            "typeVersion": 4.3,
+            "position": [
+                -1600,
+                -688
+            ],
+            "id": "8f8d6757-b5b9-4947-a751-db73439f0063",
+            "name": "get_information1"
+        },
+        {
+            "parameters": {
+                "url": "=http://192.168.2.91:8000/api/reportes/contratos-por-nit/{{ $fromAI('nit', ``, 'string') }}",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "X-API-Key",
+                            "value": "fortuna_2026_secret_api"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.httpRequestTool",
+            "typeVersion": 4.3,
+            "position": [
+                -1984,
+                -512
+            ],
+            "id": "dfc255b5-2422-4e67-91cd-db86ff11bd8d",
+            "name": "get_information"
+        },
+        {
+            "parameters": {
+                "operation": "delete",
+                "path": "=/Facturas/temp/{{ $('FTP13').item.json.name }}",
+                "options": {}
+            },
+            "type": "n8n-nodes-base.ftp",
+            "typeVersion": 1,
+            "position": [
+                -2416,
+                -896
+            ],
+            "id": "8f60fb94-2cb8-413d-96a8-c47fc22a7de7",
+            "name": "FTP",
+            "credentials": {
+                "ftp": {
+                    "id": "lBwKj9KGrvYC6dyl",
+                    "name": "FTP account"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "operation": "list",
+                "path": "/Facturas/temp",
+                "options": {}
+            },
+            "type": "n8n-nodes-base.ftp",
+            "typeVersion": 1,
+            "position": [
+                -2224,
+                -896
+            ],
+            "id": "40d12650-0c67-4f62-86ae-19724bfc9535",
+            "name": "FTP17",
+            "credentials": {
+                "ftp": {
+                    "id": "lBwKj9KGrvYC6dyl",
+                    "name": "FTP account"
+                }
+            }
+        }
+    ],
+    "connections": {
+        "When clicking ‘Execute workflow’": {
+            "main": [
+                []
+            ]
+        },
+        "FTP3": {
+            "main": [
+                [
+                    {
+                        "node": "Send a message",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Code in JavaScript": {
+            "main": [
+                [
+                    {
+                        "node": "Switch3",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "entrey_email": {
+            "main": [
+                [
+                    {
+                        "node": "Code in JavaScript",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Emails_today": {
+            "main": [
+                [
+                    {
+                        "node": "Code in JavaScript1",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Code in JavaScript1": {
+            "main": [
+                [
+                    {
+                        "node": "Switch",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Switch": {
+            "main": [
+                [
+                    {
+                        "node": "FTP4",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "FTP4",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Emails_yesterday1": {
+            "main": [
+                []
+            ]
+        },
+        "Switch3": {
+            "main": [
+                [
+                    {
+                        "node": "FTP3",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "FTP3",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "FTP13": {
+            "main": [
+                [
+                    {
+                        "node": "obtener_fecha",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "FTP14": {
+            "main": [
+                [
+                    {
+                        "node": "Respond to Webhook",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Send a message": {
+            "main": [
+                [
+                    {
+                        "node": "FTP13",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Compression2": {
+            "main": [
+                [
+                    {
+                        "node": "FTP",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Code2": {
+            "main": [
+                [
+                    {
+                        "node": "FTP18",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "FTP18": {
+            "main": [
+                [
+                    {
+                        "node": "Merge1",
+                        "type": "main",
+                        "index": 1
+                    }
+                ]
+            ]
+        },
+        "Switch4": {
+            "main": [
+                [
+                    {
+                        "node": "Compression2",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Merge1",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "FTP15": {
+            "main": [
+                [
+                    {
+                        "node": "Switch4",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "obtener_fecha": {
+            "main": [
+                [
+                    {
+                        "node": "FTP15",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Merge1": {
+            "main": [
+                [
+                    {
+                        "node": "Loop Over Items1",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Message a model1": {
+            "main": [
+                [
+                    {
+                        "node": "Loop Over Items1",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Loop Over Items1": {
+            "main": [
+                [
+                    {
+                        "node": "FTP16",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Message a model1",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "add_information": {
+            "ai_tool": [
+                [
+                    {
+                        "node": "Message a model1",
+                        "type": "ai_tool",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Webhook": {
+            "main": [
+                [
+                    {
+                        "node": "FTP13",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "FTP16": {
+            "main": [
+                [
+                    {
+                        "node": "FTP14",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "get_information": {
+            "ai_tool": [
+                []
+            ]
+        },
+        "get_information1": {
+            "ai_tool": [
+                [
+                    {
+                        "node": "Message a model1",
+                        "type": "ai_tool",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "FTP": {
+            "main": [
+                [
+                    {
+                        "node": "Code2",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "FTP17": {
+            "main": [
+                [
+                    {
+                        "node": "Merge1",
+                        "type": "main",
+                        "index": 1
+                    }
+                ]
+            ]
+        }
+    },
+    "settings": {
+        "executionOrder": "v1"
+    },
+    "staticData": {
+        "node:Schedule Trigger": {
+            "recurrenceRules": []
+        },
+        "node:Schedule Trigger1": {
+            "recurrenceRules": []
+        },
+        "node:entrey_email": {
+            "lastTimeChecked": "2026-01-21T15:12:24.126-05:00"
+        }
+    },
+    "meta": {
+        "templateCredsSetupCompleted": true
+    },
+    "pinData": {},
+    "versionId": "e1330f34-b0ae-4090-9227-74acf65dcce8",
+    "activeVersionId": "e1330f34-b0ae-4090-9227-74acf65dcce8",
+    "versionCounter": 737,
+    "triggerCount": 2,
+    "activeVersion": {
+        "updatedAt": "2026-01-21T20:12:17.401Z",
+        "createdAt": "2026-01-21T20:12:17.401Z",
+        "versionId": "e1330f34-b0ae-4090-9227-74acf65dcce8",
+        "workflowId": "XtbJG0fxGuuWIz36",
+        "nodes": [
+            {
+                "parameters": {},
+                "type": "n8n-nodes-base.manualTrigger",
+                "typeVersion": 1,
+                "position": [
+                    -4752,
+                    -1344
+                ],
+                "id": "3e183cda-6c58-4d31-bca2-b034cafc0738",
+                "name": "When clicking ‘Execute workflow’"
+            },
+            {
+                "parameters": {
+                    "operation": "upload",
+                    "path": "=/Facturas/temp/{{ $binary.data.fileName }}",
+                    "options": {}
+                },
+                "type": "n8n-nodes-base.ftp",
+                "typeVersion": 1,
+                "position": [
+                    -4384,
+                    -1056
+                ],
+                "id": "14d9076e-ee18-4496-96bd-881385176690",
+                "name": "FTP3",
+                "credentials": {
+                    "ftp": {
+                        "id": "lBwKj9KGrvYC6dyl",
+                        "name": "FTP account"
+                    }
+                }
+            },
+            {
+                "parameters": {
+                    "jsCode": "const newItems = [];\n\n// Usamos un loop con índice (i) para saber cuál es el item original\nfor (let i = 0; i < items.length; i++) {\n  const item = items[i];\n\n  // Si el item tiene datos binarios\n  if (item.binary) {\n    // Recorremos cada adjunto\n    for (const key of Object.keys(item.binary)) {\n      newItems.push({\n        json: item.json, \n        binary: {\n          data: item.binary[key] \n        },\n        // ESTA ES LA SOLUCIÓN:\n        // Le decimos a n8n: \"Este nuevo item pertenece al item número 'i' de la entrada\"\n        pairedItem: { \n          item: i \n        }\n      });\n    }\n  }\n}\n\nreturn newItems;\n\nreturn newItems;"
+                },
+                "type": "n8n-nodes-base.code",
+                "typeVersion": 2,
+                "position": [
+                    -4752,
+                    -1056
+                ],
+                "id": "4cc6d7db-3421-4fae-93d5-26c7cd32cb8d",
+                "name": "Code in JavaScript",
+                "executeOnce": true
+            },
+            {
+                "parameters": {
+                    "content": "## Recepción de archivos \n**Se descargan todos los adjuntos y se realiza un guardado en el servidor  ftp carpeta Facturas/temp\n",
+                    "height": 320,
+                    "width": 1312
+                },
+                "type": "n8n-nodes-base.stickyNote",
+                "position": [
+                    -5040,
+                    -1184
+                ],
+                "typeVersion": 1,
+                "id": "8e63fdca-ffb3-4307-887e-320999e9a61a",
+                "name": "Sticky Note"
+            },
+            {
+                "parameters": {
+                    "toRecipients": "={{ $('entrey_email').first().json.from.emailAddress.address }}",
+                    "subject": "recepcion de factura Acertemos",
+                    "bodyContent": "Hola, hemos recibido tu factura con exito.\n\neste es un mensaje autómatico",
+                    "additionalFields": {}
+                },
+                "type": "n8n-nodes-base.microsoftOutlook",
+                "typeVersion": 2,
+                "position": [
+                    -4176,
+                    -1056
+                ],
+                "id": "5eed044f-f6ce-46ba-b125-a833d5ad9b05",
+                "name": "Send a message",
+                "webhookId": "081e11db-9985-43b3-9adb-f1d1d1802905",
+                "executeOnce": true,
+                "credentials": {
+                    "microsoftOutlookOAuth2Api": {
+                        "id": "dD5pGvlU00N513gT",
+                        "name": "Microsoft Outlook account"
+                    }
+                },
+                "onError": "continueRegularOutput"
+            },
+            {
+                "parameters": {
+                    "pollTimes": {
+                        "item": [
+                            {
+                                "mode": "everyMinute"
+                            }
+                        ]
+                    },
+                    "output": "raw",
+                    "filters": {
+                        "hasAttachments": true
+                    },
+                    "options": {
+                        "downloadAttachments": true
+                    }
+                },
+                "type": "n8n-nodes-base.microsoftOutlookTrigger",
+                "typeVersion": 1,
+                "position": [
+                    -4944,
+                    -1056
+                ],
+                "id": "eca349f6-ea23-4cd4-997c-0ccd5010ecc6",
+                "name": "entrey_email",
+                "credentials": {
+                    "microsoftOutlookOAuth2Api": {
+                        "id": "dD5pGvlU00N513gT",
+                        "name": "Microsoft Outlook account"
+                    }
+                }
+            },
+            {
+                "parameters": {
+                    "operation": "getAll",
+                    "returnAll": true,
+                    "output": "raw",
+                    "filtersUI": {
+                        "values": {
+                            "filters": {
+                                "receivedAfter": "={{ $now.setZone('America/Bogota').startOf('day').plus({hours: 14, minutes: 55}).toISO() }}"
+                            }
+                        }
+                    },
+                    "options": {
+                        "attachmentsPrefix": "data",
+                        "downloadAttachments": true
+                    }
+                },
+                "type": "n8n-nodes-base.microsoftOutlook",
+                "typeVersion": 2,
+                "position": [
+                    -1200,
+                    -1376
+                ],
+                "id": "35c35acf-0985-4610-a150-f9789997532c",
+                "name": "Emails_today",
+                "webhookId": "f7f7e254-52d4-43c4-be81-5eaa5d6da259",
+                "credentials": {
+                    "microsoftOutlookOAuth2Api": {
+                        "id": "dD5pGvlU00N513gT",
+                        "name": "Microsoft Outlook account"
+                    }
+                }
+            },
+            {
+                "parameters": {
+                    "rules": {
+                        "values": [
+                            {
+                                "conditions": {
+                                    "options": {
+                                        "caseSensitive": true,
+                                        "leftValue": "",
+                                        "typeValidation": "strict",
+                                        "version": 2
+                                    },
+                                    "conditions": [
+                                        {
+                                            "leftValue": "={{ $binary.data.fileExtension.toLowerCase() }}",
+                                            "rightValue": "zip",
+                                            "operator": {
+                                                "type": "string",
+                                                "operation": "equals"
+                                            },
+                                            "id": "055864da-625a-4010-a83e-5cf321c8dec6"
+                                        }
+                                    ],
+                                    "combinator": "and"
+                                }
+                            },
+                            {
+                                "conditions": {
+                                    "options": {
+                                        "caseSensitive": true,
+                                        "leftValue": "",
+                                        "typeValidation": "strict",
+                                        "version": 2
+                                    },
+                                    "conditions": [
+                                        {
+                                            "id": "2ba164c2-ce55-4a2a-9540-07c7b5c7aeac",
+                                            "leftValue": "={{ $binary.data.fileExtension.toLowerCase() }}",
+                                            "rightValue": "pdf",
+                                            "operator": {
+                                                "type": "string",
+                                                "operation": "equals"
+                                            }
+                                        }
+                                    ],
+                                    "combinator": "and"
+                                },
+                                "renameOutput": true,
+                                "outputKey": "data_zip"
+                            }
+                        ]
+                    },
+                    "options": {}
+                },
+                "type": "n8n-nodes-base.switch",
+                "typeVersion": 3.3,
+                "position": [
+                    -464,
+                    -1376
+                ],
+                "id": "efec1280-30b2-4d23-b1fd-bcc8f4abc880",
+                "name": "Switch",
+                "executeOnce": false
+            },
+            {
+                "parameters": {
+                    "jsCode": "const newItems = [];\n\n// Recorremos cada correo recibido\nfor (const item of $input.all()) {\n  if (item.binary) {\n    // Recorremos cada archivo adjunto dentro del correo (data, data0, data1...)\n    for (const key of Object.keys(item.binary)) {\n      newItems.push({\n        // Mantenemos los datos JSON del correo (asunto, fecha, etc.)\n        json: item.json,\n        binary: {\n          // IMPORTANTE: Aquí renombramos cualquier \"data0, data1\" a siempre \"data\"\n          data: item.binary[key] \n        }\n      });\n    }\n  }\n}\n\nreturn newItems;"
+                },
+                "type": "n8n-nodes-base.code",
+                "typeVersion": 2,
+                "position": [
+                    -784,
+                    -1376
+                ],
+                "id": "6456a2b4-40d5-4ff6-9533-b9a333e00a50",
+                "name": "Code in JavaScript1",
+                "executeOnce": true
+            },
+            {
+                "parameters": {
+                    "operation": "upload",
+                    "path": "=/Facturas/temp/{{ $binary.data.fileName }}",
+                    "options": {}
+                },
+                "type": "n8n-nodes-base.ftp",
+                "typeVersion": 1,
+                "position": [
+                    -192,
+                    -1392
+                ],
+                "id": "76e5bad3-f30b-41e0-98da-6030000f8a80",
+                "name": "FTP4",
+                "credentials": {
+                    "ftp": {
+                        "id": "lBwKj9KGrvYC6dyl",
+                        "name": "FTP account"
+                    }
+                }
+            },
+            {
+                "parameters": {
+                    "content": "Ejecucion manual",
+                    "height": 368,
+                    "width": 1312
+                },
+                "type": "n8n-nodes-base.stickyNote",
+                "position": [
+                    -1216,
+                    -1552
+                ],
+                "typeVersion": 1,
+                "id": "e8c2bc37-9c0d-4071-baa5-c08f96453ea2",
+                "name": "Sticky Note1"
+            },
+            {
+                "parameters": {
+                    "operation": "getAll",
+                    "returnAll": true,
+                    "output": "raw",
+                    "filtersUI": {
+                        "values": {
+                            "filters": {
+                                "receivedAfter": "={{ $now.setZone('America/Bogota').minus({ days: 5 }).startOf('day').toISO() }}"
+                            }
+                        }
+                    },
+                    "options": {
+                        "attachmentsPrefix": "data",
+                        "downloadAttachments": true
+                    }
+                },
+                "type": "n8n-nodes-base.microsoftOutlook",
+                "typeVersion": 2,
+                "position": [
+                    -1536,
+                    -1360
+                ],
+                "id": "72553c30-6f55-4651-b0a7-2bedbbb55a83",
+                "name": "Emails_yesterday1",
+                "webhookId": "f7f7e254-52d4-43c4-be81-5eaa5d6da259",
+                "credentials": {
+                    "microsoftOutlookOAuth2Api": {
+                        "id": "dD5pGvlU00N513gT",
+                        "name": "Microsoft Outlook account"
+                    }
+                }
+            },
+            {
+                "parameters": {
+                    "rules": {
+                        "values": [
+                            {
+                                "conditions": {
+                                    "options": {
+                                        "caseSensitive": true,
+                                        "leftValue": "",
+                                        "typeValidation": "strict",
+                                        "version": 2
+                                    },
+                                    "conditions": [
+                                        {
+                                            "leftValue": "={{ $binary.data.fileExtension.toLowerCase() }}",
+                                            "rightValue": "zip",
+                                            "operator": {
+                                                "type": "string",
+                                                "operation": "equals"
+                                            },
+                                            "id": "055864da-625a-4010-a83e-5cf321c8dec6"
+                                        }
+                                    ],
+                                    "combinator": "and"
+                                }
+                            },
+                            {
+                                "conditions": {
+                                    "options": {
+                                        "caseSensitive": true,
+                                        "leftValue": "",
+                                        "typeValidation": "strict",
+                                        "version": 2
+                                    },
+                                    "conditions": [
+                                        {
+                                            "id": "2ba164c2-ce55-4a2a-9540-07c7b5c7aeac",
+                                            "leftValue": "={{ $binary.data.fileExtension.toLowerCase() }}",
+                                            "rightValue": "pdf",
+                                            "operator": {
+                                                "type": "string",
+                                                "operation": "equals"
+                                            }
+                                        }
+                                    ],
+                                    "combinator": "and"
+                                },
+                                "renameOutput": true,
+                                "outputKey": "data_zip"
+                            }
+                        ]
+                    },
+                    "options": {}
+                },
+                "type": "n8n-nodes-base.switch",
+                "typeVersion": 3.3,
+                "position": [
+                    -4576,
+                    -1056
+                ],
+                "id": "4e7076b1-d13e-4fd6-90c5-49e307cd59cb",
+                "name": "Switch3",
+                "executeOnce": false
+            },
+            {
+                "parameters": {
+                    "operation": "list",
+                    "path": "/Facturas/temp",
+                    "options": {}
+                },
+                "type": "n8n-nodes-base.ftp",
+                "typeVersion": 1,
+                "position": [
+                    -3904,
+                    -1056
+                ],
+                "id": "ab1ca43e-6d81-4744-b382-82734217b9eb",
+                "name": "FTP13",
+                "credentials": {
+                    "ftp": {
+                        "id": "lBwKj9KGrvYC6dyl",
+                        "name": "FTP account"
+                    }
+                }
+            },
+            {
+                "parameters": {
+                    "operation": "rename",
+                    "oldPath": "=/Facturas/temp/{{ $('FTP16').item.json.name }}",
+                    "newPath": "=/Facturas/{{ $('obtener_fecha').item.json.mes }}/{{ $('obtener_fecha').item.json.dia }}/{{ $('FTP16').item.json.name }}",
+                    "options": {
+                        "createDirectories": true
+                    }
+                },
+                "type": "n8n-nodes-base.ftp",
+                "typeVersion": 1,
+                "position": [
+                    -1104,
+                    -1072
+                ],
+                "id": "7e479f0a-8cf9-4b8f-b3d6-eda36955a4f0",
+                "name": "FTP14",
+                "credentials": {
+                    "ftp": {
+                        "id": "lBwKj9KGrvYC6dyl",
+                        "name": "FTP account"
+                    }
+                },
+                "onError": "continueRegularOutput"
+            },
+            {
+                "parameters": {
+                    "path": "=/Facturas/temp/{{ $('FTP13').item.json.name }}",
+                    "options": {}
+                },
+                "type": "n8n-nodes-base.ftp",
+                "typeVersion": 1,
+                "position": [
+                    -3440,
+                    -1056
+                ],
+                "id": "9f278ee8-c466-4a5d-a573-0dfa62f95284",
+                "name": "FTP15",
+                "credentials": {
+                    "ftp": {
+                        "id": "lBwKj9KGrvYC6dyl",
+                        "name": "FTP account"
+                    }
+                }
+            },
+            {
+                "parameters": {},
+                "type": "n8n-nodes-base.compression",
+                "typeVersion": 1.1,
+                "position": [
+                    -2912,
+                    -912
+                ],
+                "id": "94e6843f-0182-4b7c-9d23-001494f8e5d3",
+                "name": "Compression2"
+            },
+            {
+                "parameters": {
+                    "jsCode": "const output = [];\n\n// Referenciar directamente a Compression2\nconst compressionItems = $('Compression2').all();\n\nfor (const item of compressionItems) {\n  // recorremos todos los binarios del item\n  for (const key of Object.keys(item.binary || {})) {\n    const bin = item.binary[key];\n    const fileName = bin.fileName?.toLowerCase() || '';\n\n    // detectamos PDFs por mimeType o extensión\n    if (\n      bin.mimeType === 'application/pdf' ||\n      fileName.endsWith('.pdf')\n    ) {\n      output.push({\n        json: { fileName: bin.fileName || 'archivo.pdf' },\n        binary: { data: bin },\n      });\n    }\n  }\n}\n\nreturn output;\n"
+                },
+                "type": "n8n-nodes-base.code",
+                "typeVersion": 2,
+                "position": [
+                    -2768,
+                    -912
+                ],
+                "id": "f9d4436d-3aa5-4379-bf7f-33a07fb6c8e8",
+                "name": "Code2",
+                "executeOnce": true,
+                "onError": "continueRegularOutput"
+            },
+            {
+                "parameters": {
+                    "operation": "upload",
+                    "path": "=/Facturas/temp/{{$binary.data.fileName }}.pdf",
+                    "options": {}
+                },
+                "type": "n8n-nodes-base.ftp",
+                "typeVersion": 1,
+                "position": [
+                    -2608,
+                    -896
+                ],
+                "id": "6ce36926-05ac-456b-86b2-fd1dd12139ab",
+                "name": "FTP18",
+                "credentials": {
+                    "ftp": {
+                        "id": "lBwKj9KGrvYC6dyl",
+                        "name": "FTP account"
+                    }
+                }
+            },
+            {
+                "parameters": {
+                    "rules": {
+                        "values": [
+                            {
+                                "conditions": {
+                                    "options": {
+                                        "caseSensitive": true,
+                                        "leftValue": "",
+                                        "typeValidation": "strict",
+                                        "version": 2
+                                    },
+                                    "conditions": [
+                                        {
+                                            "leftValue": "={{ $binary.data.fileExtension.toLowerCase() }}",
+                                            "rightValue": "zip",
+                                            "operator": {
+                                                "type": "string",
+                                                "operation": "equals"
+                                            },
+                                            "id": "cc374e0d-aadf-4902-929f-0e2ead297c85"
+                                        }
+                                    ],
+                                    "combinator": "and"
+                                }
+                            },
+                            {
+                                "conditions": {
+                                    "options": {
+                                        "caseSensitive": true,
+                                        "leftValue": "",
+                                        "typeValidation": "strict",
+                                        "version": 2
+                                    },
+                                    "conditions": [
+                                        {
+                                            "id": "1b1c149b-ae40-48a7-9357-fd8defe9530a",
+                                            "leftValue": "={{ $binary.data.fileExtension.toLowerCase() }}",
+                                            "rightValue": "pdf",
+                                            "operator": {
+                                                "type": "string",
+                                                "operation": "equals",
+                                                "name": "filter.operator.equals"
+                                            }
+                                        }
+                                    ],
+                                    "combinator": "and"
+                                }
+                            }
+                        ]
+                    },
+                    "options": {}
+                },
+                "type": "n8n-nodes-base.switch",
+                "typeVersion": 3.3,
+                "position": [
+                    -3168,
+                    -1056
+                ],
+                "id": "215828e3-4e2b-4a83-bd87-9ba7dcbb3485",
+                "name": "Switch4"
+            },
+            {
+                "parameters": {
+                    "mode": "runOnceForEachItem",
+                    "jsCode": "const fecha = new Date();\n\nconst mesTexto = fecha.toLocaleString('es-CO', { month: 'long' });\nconst dia = fecha.getDate();\nconst anio = fecha.getFullYear(); // Agregamos esta línea\n\nreturn {\n  mes: mesTexto,\n  dia,\n  anio // Lo agregamos al objeto de retorno\n};"
+                },
+                "type": "n8n-nodes-base.code",
+                "typeVersion": 2,
+                "position": [
+                    -3648,
+                    -1056
+                ],
+                "id": "0676f314-b69f-4da5-b703-698619cb2df9",
+                "name": "obtener_fecha"
+            },
+            {
+                "parameters": {},
+                "type": "n8n-nodes-base.merge",
+                "typeVersion": 3.2,
+                "position": [
+                    -1936,
+                    -1024
+                ],
+                "id": "af1002ed-2ae4-4d64-9602-503283b3136d",
+                "name": "Merge1",
+                "executeOnce": false
+            },
+            {
+                "parameters": {
+                    "modelId": {
+                        "__rl": true,
+                        "value": "gpt-4.1-mini",
+                        "mode": "list",
+                        "cachedResultName": "GPT-4.1-MINI"
+                    },
+                    "responses": {
+                        "values": [
+                            {
+                                "content": "=Eres un excelente asistente experto en extraer información de PDFs y llenar una base de datos sql con la información requerida usando la herramienta add_information.\n\n===========================\n📄 PDF\nFilename:\n{{ $binary.data.fileName }}\n\n===========================\n\nHerramientas disponibles:\n- add_information\n- get_information\n\nObjetivo:\n1. Extraer la información del PDF.\n2. Identificar\n\"proveedor_nit\",\n\"numero_factura\"\n\"cufe\"\n\"fecha_factura\"\n\"fecha_vencimiento\"\n\"valor total\"\n3. Obtener información adicional de los proveedores, y contratos y oficinas que tiene el proveedor utilizndo la herrmaienta get information .\n4. tratar de identificar la oficina que mejor corresponda por campos como la direccion de la oficina si la factura no tiene una referencia de pago o numero de contrato que los vincule. \n5. ENTREGAR un JSON FINAL con esta estructura:\n\nCAMPOS QUE DEBES EXTRAER DEL PDF:\n\n\n*nit proveedor*\nDeberas extarer el nit del proveedor y dejarlo sin comas ni puntos y simpre completo.\nnunca podra ser 817007005-2 ya q ese es es mi nit.\nel nit podra estar como imagen en el encabezado, siempre busca el nit del proveedor.\nsiempre sera sin el digito d everificacion por ejemplo  891502163-1 nit es 891502163 \n\nEmtel = 891502163\n\n*Numero de factura:\nlo encuentas como numero factura, factura venta, factura. Nota:\nten cuidado de no confundir con otro numero, siempre es el numero de factura, facura venta. deberas traer el numero completo en algunos casos apare asi 1FVI 21348 el numero de factura es : 1FVI21348. \n\n**Fecha de Factura**\n   - Extraer la fecha que fue emitida la factura.\n   - Siempre devolverla en formato YYYY-MM-DD.\n   - Nunca puede ser mayor a la fecha actual: {{ $now }}\n\n\"fecha_vencimiento\"\nEs la fecha de pago \nSiempre devolverla en formato YYYY-MM-DD.\nsi puede o no ser mayor a la fecha actual\n----------------------------\nReferencia de pago.: es difernete al numero de factura,\n\neste es el numero que viene como suscripcion, referencia pago, numero contrato.\n-------------------------------------------------\n📌 REGLA ESPECIAL solo PARA los proveedores TIGO, MOVISTAR, COMCEL (CLARO)\n-------------------------------------------------\n**Numero de factura = referencia de pago**, no el número de factura del PDF. opcional si es una cuenta de cobro.\n\nEjemplo:\n- Referencia de pago: 878237873  \n- Número factura PDF: M2323  \n\n\nDebes usar SOLO:\nNumero de factura = 878237873\n\nNOTa MANDATORIA:\nNunca usar codigos de barras\n\n\n-------------------------------------------------\n📌 VALOR TOTAL\n-------------------------------------------------\n- Extraer el valor total con IVA.\n- Puede estar como “total”, “valor”, “precio”, “valor total”.\n- Entregarlo SIN puntos, SIN comas, SIN signos peso.\n  Ejemplo:\n  $123.456  →  123456\n\n-------------------------------------------------\n📌 Codigo de Suscripcion\n-------------------------------------------------\nReferencia pago = suscripcion\n\n-------------------------------\n📌 Direccion\nes la direccion de la factura\n-------------------------------------------------\nReferencia pago = suscripcion\n-------------------------------------------------\n📌 USO DE LA HERRAMIENTA get_information\n-------------------------------------------------\ntu le enviras el nit del proveedor y te va devolver los numeros de contratos disponibles, num_contrato, codigo oficina, nombre oficina, direccion.\n\n--------------------------\nIdentificacion de contrato:\n\nsi solo hay un solo contrato, ya identificaste el num_contrato.\nEn caso de haber mas oficinas, valida si la referencia de pago es igual al num_contrato si es igual ya encontraste el num_contrato.\nEn caso de que hayan varios contratos y no tengas una referencia de pago, mira la direccion y trata de identificar por la direccion de la factura.\ntrata de identificar la oficina que mejor corresponda por campos como la direccion de la oficina, por las observaiones si la factura no tiene una referencia de pago o numero de contrato que los vincule, si tien referencia d epago numero de contrato utilizalo.\nsi las identificas guarda:\n \"oficina_id1\": cod_oficna\n  \"contrato_id1\":num_contrato\n\nsi encuentras varias oficinas \nidentificalas todas\n \"oficina_id1\": cod_oficna\n  \"contrato_id1\":num_contrato\n\n \"oficina_id2\": cod_oficna\n  \"contrato_id2\":num_contrato\n\n----------------------------------------\nINSTRUCCIONES PARA EL USO DE LA HERRAMIENTA add_information:\n\n\nCuando identifiques datos de una factura, DEBES ejecutar la herramienta add_information utilizando estrictamente el siguiente esquema JSON. No añadas texto adicional, solo envía el JSON con estos campos:\n\nproveedor_nit: (String) NIT del proveedor sin puntos ni guiones.\n\noficina_id: (Integer) ID de la oficina.\n\nnumero_factura: (String) El número alfanumérico de la factura.\n\ncufe: (String) Código único de factura electrónica.\n\nfecha_factura: (String) Formato AAAA-MM-DD.\n\nfecha_vencimiento: (String) Formato AAAA-MM-DD.\n\nvalor: (Number) Valor total sin símbolos de moneda ni miles.\n\nurl_factura: (String) Siempre debe ser el path proporcionado: file://192.168.2.20/Facturas/ diciembre/23/71a2e88d-cabc-4ae6-b362-4b906040feb7.pdf\n\nobservaciones: (String) Breve descripción o dejar vacío si no hay.\n\noficinas: (array) [  {\"cod_oficina\": oficina_id1, \"valor\": valor }],\n\nal finalizar tu respuesta debera ser un json tipo \n\n{\n  \"success\": true,\n  \"factura_id\": 123,\n  \"factura\": {\n    \"id\": 123,\n    \"numero_factura\": \"FAC-001\",\n    \"proveedor_nombre\": \"Proveedor XYZ\",\n    \"proveedor_nit\": \"900123456\",\n    \"valor\": 1500000\n  }\n} o si hay error {\n  \"success\": false,\n  \"error\": \"No se pudo extraer información del PDF erro no XXX informacion adicional..... \"\n}"
+                            },
+                            {
+                                "type": "file",
+                                "fileType": "base64",
+                                "fileName": "data"
+                            }
+                        ]
+                    },
+                    "builtInTools": {},
+                    "options": {}
+                },
+                "type": "@n8n/n8n-nodes-langchain.openAi",
+                "typeVersion": 2,
+                "position": [
+                    -1584,
+                    -960
+                ],
+                "id": "e78f8dea-82af-4ea8-85f6-fb7dc307eccb",
+                "name": "Message a model1",
+                "credentials": {
+                    "openAiApi": {
+                        "id": "Y1SSWu05zhIDWuc3",
+                        "name": "OpenAi account"
+                    }
+                },
+                "onError": "continueRegularOutput"
+            },
+            {
+                "parameters": {
+                    "options": {}
+                },
+                "type": "n8n-nodes-base.splitInBatches",
+                "typeVersion": 3,
+                "position": [
+                    -1760,
+                    -1056
+                ],
+                "id": "fbb355e5-fe53-45e6-a605-f69ddfabd254",
+                "name": "Loop Over Items1"
+            },
+            {
+                "parameters": {
+                    "toRecipients": "=ingenieroiaacertemos.com",
+                    "subject": "recepcion de factura Acertemos",
+                    "bodyContent": "Hola, proceso completado con exito\n\neste es un mensaje autómatico",
+                    "additionalFields": {}
+                },
+                "type": "n8n-nodes-base.microsoftOutlook",
+                "typeVersion": 2,
+                "position": [
+                    192,
+                    -1488
+                ],
+                "id": "1c324729-d518-4730-b9d4-7ee05718dcd2",
+                "name": "Send a message1",
+                "webhookId": "081e11db-9985-43b3-9adb-f1d1d1802905",
+                "executeOnce": true,
+                "credentials": {
+                    "microsoftOutlookOAuth2Api": {
+                        "id": "dD5pGvlU00N513gT",
+                        "name": "Microsoft Outlook account"
+                    }
+                }
+            },
+            {
+                "parameters": {
+                    "toolDescription": "Call this tool to add information from the factura",
+                    "method": "POST",
+                    "url": "http://192.168.2.91:8000/api/facturas/crear-con-oficina",
+                    "sendHeaders": true,
+                    "parametersHeaders": {
+                        "values": [
+                            {
+                                "name": "X-API-Key",
+                                "valueProvider": "fieldValue",
+                                "value": "fortuna_2026_secret_api"
+                            }
+                        ]
+                    },
+                    "sendBody": true,
+                    "parametersBody": {
+                        "values": [
+                            {
+                                "name": "proveedor_nit"
+                            },
+                            {
+                                "name": "numero_factura",
+                                "valueProvider": "modelOptional"
+                            },
+                            {
+                                "name": "cufe",
+                                "valueProvider": "modelOptional"
+                            },
+                            {
+                                "name": "fecha_factura",
+                                "valueProvider": "modelOptional"
+                            },
+                            {
+                                "name": "fecha_vencimiento",
+                                "valueProvider": "modelOptional"
+                            },
+                            {
+                                "name": "valor"
+                            },
+                            {
+                                "name": "url_factura",
+                                "valueProvider": "fieldValue",
+                                "value": "=file://192.168.2.20//Facturas/{{ $('obtener_fecha').item.json.mes }}/{{ $('obtener_fecha').item.json.dia }}/{{ $('FTP13').item.json.name }}"
+                            },
+                            {
+                                "name": "observaciones",
+                                "valueProvider": "modelOptional"
+                            },
+                            {
+                                "name": "oficinas",
+                                "valueProvider": "modelOptional"
+                            }
+                        ]
+                    },
+                    "optimizeResponse": true,
+                    "dataField": "data",
+                    "fieldsToInclude": "selected",
+                    "fields": "markdown"
+                },
+                "id": "bb0f9dd0-34f1-4cfc-a962-22f79f64b778",
+                "name": "add_information",
+                "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+                "position": [
+                    -1248,
+                    -688
+                ],
+                "typeVersion": 1
+            },
+            {
+                "parameters": {
+                    "httpMethod": "POST",
+                    "path": "d15fc127-671d-4b24-8221-bac74a6f4648",
+                    "responseMode": "responseNode",
+                    "options": {}
+                },
+                "type": "n8n-nodes-base.webhook",
+                "typeVersion": 2.1,
+                "position": [
+                    -4112,
+                    -800
+                ],
+                "id": "aa24a0e4-c664-474b-81bf-88e82beebc4d",
+                "name": "Webhook",
+                "webhookId": "d15fc127-671d-4b24-8221-bac74a6f4648"
+            },
+            {
+                "parameters": {
+                    "respondWith": "json",
+                    "responseBody": "={{ $('Message a model1').item.json.output[0].content[0].text }}",
+                    "options": {}
+                },
+                "type": "n8n-nodes-base.respondToWebhook",
+                "typeVersion": 1.4,
+                "position": [
+                    -896,
+                    -1072
+                ],
+                "id": "fe0cac20-e206-46ec-900a-7b2748e31b4b",
+                "name": "Respond to Webhook"
+            },
+            {
+                "parameters": {
+                    "operation": "list",
+                    "path": "/Facturas/temp",
+                    "options": {}
+                },
+                "type": "n8n-nodes-base.ftp",
+                "typeVersion": 1,
+                "position": [
+                    -1280,
+                    -1072
+                ],
+                "id": "54f12796-35ed-469f-ad94-0fce6137a431",
+                "name": "FTP16",
+                "credentials": {
+                    "ftp": {
+                        "id": "lBwKj9KGrvYC6dyl",
+                        "name": "FTP account"
+                    }
+                }
+            },
+            {
+                "parameters": {
+                    "url": "=http://192.168.2.91:8000/api/reportes/contratos-por-nit/{{ $fromAI('nit', ``, 'string') }}",
+                    "sendHeaders": true,
+                    "headerParameters": {
+                        "parameters": [
+                            {
+                                "name": "X-API-Key",
+                                "value": "fortuna_2026_secret_api"
+                            }
+                        ]
+                    },
+                    "options": {}
+                },
+                "type": "n8n-nodes-base.httpRequestTool",
+                "typeVersion": 4.3,
+                "position": [
+                    -1600,
+                    -688
+                ],
+                "id": "8f8d6757-b5b9-4947-a751-db73439f0063",
+                "name": "get_information1"
+            },
+            {
+                "parameters": {
+                    "url": "=http://192.168.2.91:8000/api/reportes/contratos-por-nit/{{ $fromAI('nit', ``, 'string') }}",
+                    "sendHeaders": true,
+                    "headerParameters": {
+                        "parameters": [
+                            {
+                                "name": "X-API-Key",
+                                "value": "fortuna_2026_secret_api"
+                            }
+                        ]
+                    },
+                    "options": {}
+                },
+                "type": "n8n-nodes-base.httpRequestTool",
+                "typeVersion": 4.3,
+                "position": [
+                    -1984,
+                    -512
+                ],
+                "id": "dfc255b5-2422-4e67-91cd-db86ff11bd8d",
+                "name": "get_information"
+            },
+            {
+                "parameters": {
+                    "operation": "delete",
+                    "path": "=/Facturas/temp/{{ $('FTP13').item.json.name }}",
+                    "options": {}
+                },
+                "type": "n8n-nodes-base.ftp",
+                "typeVersion": 1,
+                "position": [
+                    -2416,
+                    -896
+                ],
+                "id": "8f60fb94-2cb8-413d-96a8-c47fc22a7de7",
+                "name": "FTP",
+                "credentials": {
+                    "ftp": {
+                        "id": "lBwKj9KGrvYC6dyl",
+                        "name": "FTP account"
+                    }
+                }
+            },
+            {
+                "parameters": {
+                    "operation": "list",
+                    "path": "/Facturas/temp",
+                    "options": {}
+                },
+                "type": "n8n-nodes-base.ftp",
+                "typeVersion": 1,
+                "position": [
+                    -2224,
+                    -896
+                ],
+                "id": "40d12650-0c67-4f62-86ae-19724bfc9535",
+                "name": "FTP17",
+                "credentials": {
+                    "ftp": {
+                        "id": "lBwKj9KGrvYC6dyl",
+                        "name": "FTP account"
+                    }
+                }
+            }
+        ],
+        "connections": {
+            "When clicking ‘Execute workflow’": {
+                "main": [
+                    []
+                ]
+            },
+            "FTP3": {
+                "main": [
+                    [
+                        {
+                            "node": "Send a message",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "Code in JavaScript": {
+                "main": [
+                    [
+                        {
+                            "node": "Switch3",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "entrey_email": {
+                "main": [
+                    [
+                        {
+                            "node": "Code in JavaScript",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "Emails_today": {
+                "main": [
+                    [
+                        {
+                            "node": "Code in JavaScript1",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "Code in JavaScript1": {
+                "main": [
+                    [
+                        {
+                            "node": "Switch",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "Switch": {
+                "main": [
+                    [
+                        {
+                            "node": "FTP4",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ],
+                    [
+                        {
+                            "node": "FTP4",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "Emails_yesterday1": {
+                "main": [
+                    []
+                ]
+            },
+            "Switch3": {
+                "main": [
+                    [
+                        {
+                            "node": "FTP3",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ],
+                    [
+                        {
+                            "node": "FTP3",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "FTP13": {
+                "main": [
+                    [
+                        {
+                            "node": "obtener_fecha",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "FTP14": {
+                "main": [
+                    [
+                        {
+                            "node": "Respond to Webhook",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "Send a message": {
+                "main": [
+                    [
+                        {
+                            "node": "FTP13",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "Compression2": {
+                "main": [
+                    [
+                        {
+                            "node": "FTP",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "Code2": {
+                "main": [
+                    [
+                        {
+                            "node": "FTP18",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "FTP18": {
+                "main": [
+                    [
+                        {
+                            "node": "Merge1",
+                            "type": "main",
+                            "index": 1
+                        }
+                    ]
+                ]
+            },
+            "Switch4": {
+                "main": [
+                    [
+                        {
+                            "node": "Compression2",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ],
+                    [
+                        {
+                            "node": "Merge1",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "FTP15": {
+                "main": [
+                    [
+                        {
+                            "node": "Switch4",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "obtener_fecha": {
+                "main": [
+                    [
+                        {
+                            "node": "FTP15",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "Merge1": {
+                "main": [
+                    [
+                        {
+                            "node": "Loop Over Items1",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "Message a model1": {
+                "main": [
+                    [
+                        {
+                            "node": "Loop Over Items1",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "Loop Over Items1": {
+                "main": [
+                    [
+                        {
+                            "node": "FTP16",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ],
+                    [
+                        {
+                            "node": "Message a model1",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "add_information": {
+                "ai_tool": [
+                    [
+                        {
+                            "node": "Message a model1",
+                            "type": "ai_tool",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "Webhook": {
+                "main": [
+                    [
+                        {
+                            "node": "FTP13",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "FTP16": {
+                "main": [
+                    [
+                        {
+                            "node": "FTP14",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "get_information": {
+                "ai_tool": [
+                    []
+                ]
+            },
+            "get_information1": {
+                "ai_tool": [
+                    [
+                        {
+                            "node": "Message a model1",
+                            "type": "ai_tool",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "FTP": {
+                "main": [
+                    [
+                        {
+                            "node": "Code2",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "FTP17": {
+                "main": [
+                    [
+                        {
+                            "node": "Merge1",
+                            "type": "main",
+                            "index": 1
+                        }
+                    ]
+                ]
+            }
+        },
+        "authors": "alejandro carvajal",
+        "name": null,
+        "description": null,
+        "autosaved": false,
+        "workflowPublishHistory": [
+            {
+                "createdAt": "2026-01-21T20:12:24.633Z",
+                "id": 32,
+                "workflowId": "XtbJG0fxGuuWIz36",
+                "versionId": "e1330f34-b0ae-4090-9227-74acf65dcce8",
+                "event": "activated",
+                "userId": "de8d0752-fee5-467a-bd27-8e8af92a6c23"
+            }
+        ]
+    }
+}

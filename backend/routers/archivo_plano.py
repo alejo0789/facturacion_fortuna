@@ -12,6 +12,9 @@ import os
 import httpx
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, Alignment
+from dotenv import load_dotenv
+
+load_dotenv()
 
 router = APIRouter()
 
@@ -75,12 +78,15 @@ async def get_centro_costo(cod_oficina: str) -> str:
     Call Oracle API to get centro de costo for an office.
     Returns the codigo_ccosto or empty string if not found.
     """
+    api_key = os.getenv("API_KEY", "")
+    
     codigo_busqueda = extract_codigo_for_oracle(cod_oficina)
     
     try:
         async with httpx.AsyncClient() as client:
             response = await client.get(
                 f"http://localhost:8000/api/oficinas-oracle/{codigo_busqueda}",
+                headers={"X-API-Key": api_key},
                 timeout=10.0
             )
             
