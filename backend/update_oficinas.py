@@ -81,8 +81,11 @@ async def update_oficinas():
             
             inserted_count = 0
             
+            # Contadores para generar codigos internos unicos
+            counters = {'001': 1, '010': 1}
+            
             for idx, row in oficinas_filtradas.iterrows():
-                cod_oficina = str(row['COD. OFI']).strip()
+                original_cod = str(row['COD. OFI']).strip()
                 nombre = str(row['NOMBRE OFICINA']).strip() if pd.notna(row['NOMBRE OFICINA']) else None
                 # Nota: La columna tiene un espacio al final en el Excel
                 tipo_sitio = str(row['TIPO SITIO DE VENTA ']).strip() if pd.notna(row['TIPO SITIO DE VENTA ']) else None
@@ -90,6 +93,13 @@ async def update_oficinas():
                 ciudad = str(row['CIUDAD / MUNICIPIO']).strip() if pd.notna(row['CIUDAD / MUNICIPIO']) else None
                 zona = str(row['Zona']).strip() if pd.notna(row['Zona']) else None
                 
+                # Generar codigo interno unico: 001 -> 001_INT_1, 001_INT_2, etc.
+                if original_cod in counters:
+                    cod_oficina = f"{original_cod}_INT_{counters[original_cod]}"
+                    counters[original_cod] += 1
+                else:
+                    cod_oficina = original_cod
+
                 # Insertar siempre como nueva oficina (permite duplicados de cod_oficina)
                 insert_query = text("""
                     INSERT INTO oficinas (cod_oficina, nombre, tipo_sitio, direccion, ciudad, zona)
@@ -103,7 +113,7 @@ async def update_oficinas():
                     "ciudad": ciudad,
                     "zona": zona
                 })
-                print(f"  [NEW] Insertada oficina: {cod_oficina} - {nombre}")
+                print(f"  [NEW] Insertada oficina: {cod_oficina} (Original: {original_cod}) - {nombre}")
                 inserted_count += 1
             
             # Commit de todas las operaciones
@@ -125,7 +135,7 @@ async def update_oficinas():
             verify_query = text("""
                 SELECT id, cod_oficina, nombre, tipo_sitio, ciudad, zona 
                 FROM oficinas 
-                WHERE cod_oficina IN ('001', '010')
+                WHERE cod_oficina IN ('001', '010') OR cod_oficina LIKE '001_INT_%' OR cod_oficina LIKE '010_INT_%'
                 ORDER BY cod_oficina
             """)
             result = await session.execute(verify_query)

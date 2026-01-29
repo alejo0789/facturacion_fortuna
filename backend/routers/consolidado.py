@@ -26,6 +26,15 @@ MESES_ES = {
     7: 'JUL', 8: 'AGO', 9: 'SEP', 10: 'OCT', 11: 'NOV', 12: 'DIC'
 }
 
+def clean_oficina_code(cod_oficina: str) -> str:
+    """
+    Remove internal suffix from office code if present.
+    Example: '001_INT_1' -> '001'
+    """
+    if cod_oficina and "_INT_" in cod_oficina:
+        return cod_oficina.split("_INT_")[0]
+    return cod_oficina
+
 
 class ConsolidadoRequest(BaseModel):
     factura_ids: List[int]
@@ -86,7 +95,7 @@ async def generar_consolidado(
         oficinas_info = []
         for oa in (factura.oficinas_asignadas or []):
             if oa.oficina:
-                cod = oa.oficina.cod_oficina or ''
+                cod = clean_oficina_code(oa.oficina.cod_oficina) or ''
                 nombre = oa.oficina.nombre or ''
                 oficinas_info.append(f"{cod}, {nombre}")
         

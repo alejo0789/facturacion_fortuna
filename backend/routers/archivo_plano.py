@@ -50,6 +50,16 @@ class ArchivoPlanoRequest(BaseModel):
 
 # --- Helper Functions ---
 
+def clean_oficina_code(cod_oficina: str) -> str:
+    """
+    Remove internal suffix from office code if present.
+    Example: '001_INT_1' -> '001'
+    """
+    if "_INT_" in cod_oficina:
+        return cod_oficina.split("_INT_")[0]
+    return cod_oficina
+
+
 def extract_codigo_for_oracle(cod_oficina: str) -> str:
     """
     Extract digits to search Oracle based on cod_oficina length:
@@ -58,7 +68,8 @@ def extract_codigo_for_oracle(cod_oficina: str) -> str:
     - 5 digits -> first 2
     - 4 digits -> first 1
     """
-    cod = cod_oficina.strip()
+    # Clean internal code first
+    cod = clean_oficina_code(cod_oficina.strip())
     length = len(cod)
     
     if length >= 7:
@@ -80,7 +91,14 @@ async def get_centro_costo(cod_oficina: str) -> str:
     """
     api_key = os.getenv("API_KEY", "")
     
+    # helper uses clean_oficina_code internally
     codigo_busqueda = extract_codigo_for_oracle(cod_oficina)
+    
+    # HARDCODED RULES for specific offices per user request
+    if codigo_busqueda == "001":
+        return "0401"
+    if codigo_busqueda == "010":
+        return "02"
     
     try:
         async with httpx.AsyncClient() as client:
@@ -241,7 +259,7 @@ async def generate_rows_for_oficina(
     
     # Format values
     vinculado = format_value(proveedor_nit)
-    destino = format_value(oficina.cod_oficina)
+    destino = format_value(clean_oficina_code(oficina.cod_oficina))
     
     # Build DETALLE: FACT {num} SERVICIO DE INTERNET {oficina} MES {mes}
     nombre_oficina = oficina.nombre_oficina or oficina.cod_oficina
@@ -671,7 +689,7 @@ async def preview_causacion_manager(request: CausacionManagerPreviewRequest):
         for oficina in factura.oficinas:
             ccosto_raw = await get_centro_costo(oficina.cod_oficina)
             ccosto = ccosto_raw if ccosto_raw else ""
-            destino = oficina.cod_oficina
+            destino = clean_oficina_code(oficina.cod_oficina)
             nombre_oficina = oficina.nombre_oficina or oficina.cod_oficina
             mes_factura = get_month_name_spanish(factura.fecha_factura) if factura.fecha_factura else ""
             detalle = f"FACT {factura.numero_factura or ''} SERVICIO DE INTERNET {nombre_oficina} MES {mes_factura}"
@@ -723,7 +741,7 @@ async def preview_causacion_manager(request: CausacionManagerPreviewRequest):
             last_oficina = factura.oficinas[-1]
             last_ccosto_raw = await get_centro_costo(last_oficina.cod_oficina)
             last_ccosto = last_ccosto_raw if last_ccosto_raw else ""
-            last_destino = last_oficina.cod_oficina
+            last_destino = clean_oficina_code(last_oficina.cod_oficina)
             last_nombre = last_oficina.nombre_oficina or last_oficina.cod_oficina
             last_mes = get_month_name_spanish(factura.fecha_factura) if factura.fecha_factura else ""
             last_detalle = f"FACT {factura.numero_factura or ''} SERVICIO DE INTERNET {last_nombre} MES {last_mes}"
