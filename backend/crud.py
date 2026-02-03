@@ -533,3 +533,57 @@ async def get_contratos_pendientes_por_llegar(db: AsyncSession, year: int, month
     
     result = await db.execute(query)
     return result.scalars().all()
+
+
+# --- ProveedorFeedback CRUD (Knowledge Base for Agent) ---
+
+async def create_proveedor_feedback(db: AsyncSession, feedback: schemas.ProveedorFeedbackCreate):
+    """Create a new feedback entry for a provider"""
+    db_item = models.ProveedorFeedback(**feedback.model_dump())
+    db.add(db_item)
+    await db.commit()
+    await db.refresh(db_item)
+    
+    # Return with proveedor loaded
+    result = await db.execute(
+        select(models.ProveedorFeedback)
+        .options(selectinload(models.ProveedorFeedback.proveedor))
+        .filter(models.ProveedorFeedback.id == db_item.id)
+    )
+    return result.scalars().first()
+
+
+async def get_feedback_by_proveedor_nit(db: AsyncSession, nit: str, limit: int = 50):
+    """Get all feedback for a provider by NIT (for N8N agent)"""
+    result = await db.execute(
+        select(models.ProveedorFeedback)
+        .join(models.Proveedor)
+        .options(selectinload(models.ProveedorFeedback.proveedor))
+        .filter(models.Proveedor.nit == nit)
+        .order_by(models.ProveedorFeedback.created_at.desc())
+        .limit(limit)
+    )
+    return result.scalars().all()
+
+
+async def get_feedback_by_factura(db: AsyncSession, factura_id: int):
+    """Get feedback for a specific invoice"""
+    result = await db.execute(
+        select(models.ProveedorFeedback)
+        .options(selectinload(models.ProveedorFeedback.proveedor))
+        .filter(models.ProveedorFeedback.factura_id == factura_id)
+        .order_by(models.ProveedorFeedback.created_at.desc())
+    )
+    return result.scalars().all()
+
+
+async def get_all_feedback(db: AsyncSession, skip: int = 0, limit: int = 100):
+    """Get all feedback entries"""
+    result = await db.execute(
+        select(models.ProveedorFeedback)
+        .options(selectinload(models.ProveedorFeedback.proveedor))
+        .order_by(models.ProveedorFeedback.created_at.desc())
+        .offset(skip)
+        .limit(limit)
+    )
+    return result.scalars().all()

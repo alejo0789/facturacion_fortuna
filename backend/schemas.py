@@ -222,3 +222,25 @@ class Factura(FacturaBase):
     class Config:
         from_attributes = True
 
+
+# --- ProveedorFeedback Schemas (Knowledge Base for Agent) ---
+
+class ProveedorFeedbackCreate(BaseModel):
+    """Create feedback for a provider (knowledge base)"""
+    proveedor_id: int
+    factura_id: Optional[int] = None
+    descripcion: str
+    created_by: Optional[str] = "user_system"
+
+class ProveedorFeedback(BaseModel):
+    """Feedback response schema"""
+    id: int
+    proveedor_id: int
+    factura_id: Optional[int] = None
+    descripcion: str
+    created_at: Optional[datetime] = None
+    created_by: Optional[str] = None
+    proveedor: Optional[Proveedor] = None
+    
+    class Config:
+        from_attributes = True

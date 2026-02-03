@@ -172,6 +172,12 @@ export default function FacturasPage() {
     // Upload factura modal
     const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
 
+    // Feedback modal (Knowledge Base for AI Agent)
+    const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
+    const [feedbackFactura, setFeedbackFactura] = useState<Factura | null>(null);
+    const [feedbackText, setFeedbackText] = useState('');
+    const [savingFeedback, setSavingFeedback] = useState(false);
+
     // Load historical invoices for a proveedor + oficina
     const loadHistorialFacturas = async (
         proveedorId: number,
@@ -197,6 +203,45 @@ export default function FacturasPage() {
             console.error("Failed to load historial", error);
         } finally {
             setLoadingHistorial(false);
+        }
+    };
+
+    // Open feedback modal for a factura
+    const openFeedbackModal = (factura: Factura) => {
+        setFeedbackFactura(factura);
+        setFeedbackText('');
+        setIsFeedbackModalOpen(true);
+    };
+
+    // Save feedback to backend
+    const saveFeedback = async () => {
+        if (!feedbackFactura || !feedbackText.trim()) return;
+
+        setSavingFeedback(true);
+        try {
+            const res = await fetch(`${API_URL}/feedback/`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    proveedor_id: feedbackFactura.proveedor_id,
+                    factura_id: feedbackFactura.id,
+                    descripcion: feedbackText.trim()
+                })
+            });
+
+            if (res.ok) {
+                setIsFeedbackModalOpen(false);
+                setFeedbackText('');
+                setFeedbackFactura(null);
+                alert('Retroalimentación guardada correctamente');
+            } else {
+                alert('Error al guardar la retroalimentación');
+            }
+        } catch (error) {
+            console.error('Error saving feedback', error);
+            alert('Error al guardar la retroalimentación');
+        } finally {
+            setSavingFeedback(false);
         }
     };
 
@@ -1554,6 +1599,18 @@ export default function FacturasPage() {
                                         </svg>
                                         Eliminar
                                     </button>
+
+                                    {/* AI Feedback Button (Star) */}
+                                    <button
+                                        onClick={() => openFeedbackModal(f)}
+                                        className="flex items-center justify-center gap-1 px-3 py-2 text-sm bg-yellow-50 text-yellow-600 rounded-lg hover:bg-yellow-100 transition-colors"
+                                        title="Retroalimentación para IA"
+                                    >
+                                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                                        </svg>
+                                        IA
+                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -2883,6 +2940,78 @@ export default function FacturasPage() {
                     fetchStats();
                 }}
             />
+
+            {/* Feedback Modal (Knowledge Base for AI) */}
+            {isFeedbackModalOpen && feedbackFactura && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
+                        <div className="bg-gradient-to-r from-yellow-500 to-amber-500 px-6 py-4">
+                            <div className="flex items-center gap-3">
+                                <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                    <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                                </svg>
+                                <h3 className="text-lg font-bold text-white">Retroalimentación para IA</h3>
+                            </div>
+                        </div>
+
+                        <div className="p-6">
+                            <div className="mb-4 p-3 bg-gray-50 rounded-lg">
+                                <div className="text-sm text-gray-600">
+                                    <span className="font-semibold">Proveedor:</span> {feedbackFactura.proveedor?.nombre}
+                                </div>
+                                <div className="text-sm text-gray-600">
+                                    <span className="font-semibold">NIT:</span> {feedbackFactura.proveedor?.nit}
+                                </div>
+                                <div className="text-sm text-gray-600">
+                                    <span className="font-semibold">Factura:</span> {feedbackFactura.numero_factura || 'Sin número'}
+                                </div>
+                            </div>
+
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                ¿Qué debería saber el agente para la próxima vez?
+                            </label>
+                            <textarea
+                                value={feedbackText}
+                                onChange={(e) => setFeedbackText(e.target.value)}
+                                placeholder="Ej: Esta factura estaba duplicada, siempre revisar si ya existe antes de crear..."
+                                className="w-full h-32 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 resize-none"
+                            />
+
+                            <div className="flex justify-end gap-3 mt-6">
+                                <button
+                                    onClick={() => {
+                                        setIsFeedbackModalOpen(false);
+                                        setFeedbackText('');
+                                        setFeedbackFactura(null);
+                                    }}
+                                    className="px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors"
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    onClick={saveFeedback}
+                                    disabled={!feedbackText.trim() || savingFeedback}
+                                    className="px-6 py-2 bg-yellow-500 hover:bg-yellow-600 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                                >
+                                    {savingFeedback ? (
+                                        <>
+                                            <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></div>
+                                            Guardando...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                            </svg>
+                                            Guardar
+                                        </>
+                                    )}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

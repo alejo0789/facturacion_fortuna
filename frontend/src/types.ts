@@ -106,3 +106,14 @@ export interface OficinaConContrato {
     valor_mensual?: number;
 }
 
+
+// Feedback for Knowledge Base (Agent learning)
+export interface ProveedorFeedback {
+    id: number;
+    proveedor_id: number;
+    factura_id?: number;
+    descripcion: string;
+    created_at?: string;
+    created_by?: string;
+    proveedor?: Proveedor;
+}

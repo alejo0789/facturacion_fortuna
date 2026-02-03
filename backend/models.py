@@ -177,3 +177,29 @@ class FacturaUpload(Base):
     
     # Relationship
     factura = relationship("Factura")
+
+
+class ProveedorFeedback(Base):
+    """
+    Knowledge base for agent feedback.
+    Stores user feedback about processed invoices, classified by provider NIT.
+    The N8N agent can query this before processing new invoices.
+    """
+    __tablename__ = "proveedor_feedback"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    
+    # Relations
+    proveedor_id = Column(Integer, ForeignKey("proveedores.id"), nullable=False)
+    factura_id = Column(Integer, ForeignKey("facturas.id"), nullable=True)  # Optional link to specific invoice
+    
+    # Feedback content
+    descripcion = Column(Text, nullable=False)  # Free-form feedback from user
+    
+    # Audit
+    created_at = Column(DateTime, server_default=func.now())
+    created_by = Column(String(100), default="user_system")
+    
+    # Relationships
+    proveedor = relationship("Proveedor")
+    factura = relationship("Factura")
