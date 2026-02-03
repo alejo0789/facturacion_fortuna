@@ -107,8 +107,9 @@ export default function UploadFacturaModal({ isOpen, onClose, onSuccess }: Uploa
         setResult(null);
 
         if (file) {
-            if (!file.name.toLowerCase().endsWith('.pdf')) {
-                setError('Solo se permiten archivos PDF');
+            const fileName = file.name.toLowerCase();
+            if (!fileName.endsWith('.pdf') && !fileName.endsWith('.zip')) {
+                setError('Solo se permiten archivos PDF o ZIP');
                 setSelectedFile(null);
                 return;
             }
@@ -144,8 +145,9 @@ export default function UploadFacturaModal({ isOpen, onClose, onSuccess }: Uploa
         const files = e.dataTransfer.files;
         if (files && files.length > 0) {
             const file = files[0];
-            if (!file.name.toLowerCase().endsWith('.pdf')) {
-                setError('Solo se permiten archivos PDF');
+            const fileName = file.name.toLowerCase();
+            if (!fileName.endsWith('.pdf') && !fileName.endsWith('.zip')) {
+                setError('Solo se permiten archivos PDF o ZIP');
                 setSelectedFile(null);
                 return;
             }
@@ -174,13 +176,32 @@ export default function UploadFacturaModal({ isOpen, onClose, onSuccess }: Uploa
             const formDataObj = new FormData();
             formDataObj.append('file', selectedFile);
 
-            const res = await fetch(`${API_URL}/facturas/upload-pdf`, {
+            // Determine endpoint based on file type
+            const isZip = selectedFile.name.toLowerCase().endsWith('.zip');
+            const endpoint = isZip ? `${API_URL}/facturas/upload-zip` : `${API_URL}/facturas/upload-pdf`;
+
+            const res = await fetch(endpoint, {
                 method: 'POST',
                 body: formDataObj
             });
 
-            const data: UploadResult = await res.json();
-            setResult(data);
+            const data = await res.json();
+
+            // Handle ZIP response differently
+            if (isZip) {
+                setResult({
+                    ok: data.ok,
+                    message: data.message,
+                    factura: data.successful > 0 ? {
+                        id: 0,
+                        numero_factura: `${data.successful} facturas procesadas`,
+                        valor: undefined,
+                        estado: data.failed > 0 ? 'Con errores' : 'Completado'
+                    } : undefined
+                });
+            } else {
+                setResult(data);
+            }
 
             if (data.ok) {
                 setTimeout(() => {
@@ -426,8 +447,8 @@ export default function UploadFacturaModal({ isOpen, onClose, onSuccess }: Uploa
                 {mode === 'pdf' && !uploading && !result && (
                     <div
                         className={`border-2 border-dashed rounded-xl p-8 text-center transition-all duration-200 ${isDragging
-                                ? 'border-green-400 bg-green-500/10 scale-[1.02]'
-                                : 'border-slate-600 hover:border-red-500'
+                            ? 'border-green-400 bg-green-500/10 scale-[1.02]'
+                            : 'border-slate-600 hover:border-red-500'
                             }`}
                         onDragEnter={handleDragEnter}
                         onDragLeave={handleDragLeave}
@@ -437,7 +458,7 @@ export default function UploadFacturaModal({ isOpen, onClose, onSuccess }: Uploa
                         <input
                             ref={fileInputRef}
                             type="file"
-                            accept=".pdf,application/pdf"
+                            accept=".pdf,.zip,application/pdf,application/zip"
                             onChange={handleFileChange}
                             className="hidden"
                         />
@@ -450,7 +471,7 @@ export default function UploadFacturaModal({ isOpen, onClose, onSuccess }: Uploa
                                     </svg>
                                 </div>
                                 <p className="text-green-400 font-medium text-lg">¡Suelta el archivo aquí!</p>
-                                <p className="text-slate-400 text-sm">Solo archivos PDF</p>
+                                <p className="text-slate-400 text-sm">Archivos PDF o ZIP</p>
                             </div>
                         ) : selectedFile ? (
                             <div className="space-y-3">
@@ -487,9 +508,9 @@ export default function UploadFacturaModal({ isOpen, onClose, onSuccess }: Uploa
                                     </svg>
                                 </div>
                                 <p className="text-slate-300">
-                                    <span className="text-red-400 font-medium">Click para seleccionar</span> o arrastra un archivo PDF
+                                    <span className="text-red-400 font-medium">Click para seleccionar</span> o arrastra un archivo
                                 </p>
-                                <p className="text-slate-500 text-sm">Solo archivos PDF</p>
+                                <p className="text-slate-500 text-sm">Archivos PDF o ZIP (con PDFs)</p>
                             </button>
                         )}
                     </div>

@@ -18,6 +18,8 @@ from datetime import datetime, date
 import os
 import httpx
 import uuid
+import zipfile
+import tempfile
 import schemas, crud
 from database import get_db
 
@@ -993,6 +995,152 @@ async def upload_factura_pdf(
             "file_url": url_factura,
             "filename": safe_filename
         }
+
+
+@router.post("/facturas/upload-zip")
+async def upload_factura_zip(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Upload a ZIP file containing multiple PDF invoices for OCR processing.
+    
+    Each PDF in the ZIP will be:
+    1. Extracted to the upload folder
+    2. Processed by n8n via webhook
+    
+    Returns a summary of processed files.
+    """
+    # Validate file type
+    if not file.filename.lower().endswith('.zip'):
+        raise HTTPException(status_code=400, detail="Solo se permiten archivos ZIP")
+    
+    results = []
+    errors = []
+    
+    # Save ZIP to temp location and extract
+    try:
+        # Read ZIP content
+        zip_content = await file.read()
+        
+        # Create a temporary file for the ZIP
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as tmp_zip:
+            tmp_zip.write(zip_content)
+            tmp_zip_path = tmp_zip.name
+        
+        # Extract PDFs from ZIP
+        with zipfile.ZipFile(tmp_zip_path, 'r') as zip_ref:
+            pdf_files = [f for f in zip_ref.namelist() if f.lower().endswith('.pdf') and not f.startswith('__MACOSX')]
+            
+            if not pdf_files:
+                os.unlink(tmp_zip_path)
+                raise HTTPException(status_code=400, detail="El archivo ZIP no contiene archivos PDF")
+            
+            for pdf_name in pdf_files:
+                try:
+                    # Extract PDF content
+                    pdf_content = zip_ref.read(pdf_name)
+                    
+                    # Generate unique filename
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    unique_id = str(uuid.uuid4())[:8]
+                    # Get just the filename without directory path
+                    original_filename = os.path.basename(pdf_name)
+                    safe_filename = f"{timestamp}_{unique_id}_{original_filename}"
+                    
+                    # Save PDF to upload folder
+                    file_path = os.path.join(INVOICE_UPLOAD_PATH, safe_filename)
+                    url_factura = f"file://192.168.2.20/Facturas/temp/{safe_filename}"
+                    
+                    # Ensure directory exists
+                    if not os.path.exists(INVOICE_UPLOAD_PATH):
+                        os.makedirs(INVOICE_UPLOAD_PATH, exist_ok=True)
+                    
+                    with open(file_path, "wb") as f:
+                        f.write(pdf_content)
+                    
+                    # Call webhook for this PDF
+                    try:
+                        async with httpx.AsyncClient(timeout=120.0) as client:
+                            webhook_data = {
+                                "event": "invoice_uploaded",
+                                "file_path": file_path,
+                                "file_url": url_factura,
+                                "filename": safe_filename,
+                                "original_filename": original_filename,
+                                "uploaded_at": datetime.now().isoformat(),
+                                "from_zip": True,
+                                "zip_filename": file.filename
+                            }
+                            
+                            response = await client.post(WEBHOOK_URL, json=webhook_data)
+                            
+                            if response.status_code in [200, 201, 202]:
+                                try:
+                                    n8n_result = response.json()
+                                    if n8n_result.get("success"):
+                                        results.append({
+                                            "filename": original_filename,
+                                            "status": "success",
+                                            "factura_id": n8n_result.get("factura_id"),
+                                            "message": "Procesado correctamente"
+                                        })
+                                    else:
+                                        errors.append({
+                                            "filename": original_filename,
+                                            "status": "error",
+                                            "message": n8n_result.get("error", "Error en n8n")
+                                        })
+                                except:
+                                    results.append({
+                                        "filename": original_filename,
+                                        "status": "success",
+                                        "message": "Archivo guardado (respuesta no JSON)"
+                                    })
+                            else:
+                                errors.append({
+                                    "filename": original_filename,
+                                    "status": "error",
+                                    "message": f"Error n8n: HTTP {response.status_code}"
+                                })
+                                
+                    except httpx.TimeoutException:
+                        errors.append({
+                            "filename": original_filename,
+                            "status": "timeout",
+                            "message": "Timeout procesando PDF"
+                        })
+                    except Exception as webhook_err:
+                        errors.append({
+                            "filename": original_filename,
+                            "status": "error",
+                            "message": f"Error webhook: {str(webhook_err)}"
+                        })
+                        
+                except Exception as pdf_err:
+                    errors.append({
+                        "filename": pdf_name,
+                        "status": "error",
+                        "message": f"Error extrayendo PDF: {str(pdf_err)}"
+                    })
+        
+        # Clean up temp ZIP
+        os.unlink(tmp_zip_path)
+        
+        return {
+            "ok": len(errors) == 0,
+            "message": f"Procesados {len(results)} de {len(pdf_files)} archivos PDF",
+            "total_pdfs": len(pdf_files),
+            "successful": len(results),
+            "failed": len(errors),
+            "results": results,
+            "errors": errors
+        }
+        
+    except zipfile.BadZipFile:
+        raise HTTPException(status_code=400, detail="El archivo ZIP está corrupto o no es válido")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error procesando ZIP: {str(e)}")
 
 
 @router.get("/facturas/upload-status/{upload_id}")
