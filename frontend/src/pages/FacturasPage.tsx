@@ -494,7 +494,8 @@ export default function FacturasPage() {
                             oficinas.push({
                                 cod_oficina: oa.oficina.cod_oficina,
                                 valor: oa.valor,
-                                nombre_oficina: oa.oficina.nombre || oa.oficina.cod_oficina
+                                nombre_oficina: oa.oficina.nombre || oa.oficina.cod_oficina,
+                                num_contrato: oa.contrato?.num_contrato
                             });
                         }
                     }
@@ -565,7 +566,8 @@ export default function FacturasPage() {
                             oficinas.push({
                                 cod_oficina: oa.oficina.cod_oficina,
                                 valor: oa.valor,
-                                nombre_oficina: oa.oficina.nombre || oa.oficina.cod_oficina
+                                nombre_oficina: oa.oficina.nombre || oa.oficina.cod_oficina,
+                                num_contrato: oa.contrato?.num_contrato
                             });
                         }
                     }
