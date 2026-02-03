@@ -271,15 +271,15 @@ async def generate_rows_for_oficina(
     # Calculate base value (without IVA if applicable)
     # If tiene_iva: valor includes IVA, so base = valor / 1.19
     if tiene_iva:
-        valor_base = round(valor / 1.19, 0)
-        valor_iva = round(valor - valor_base, 0)
+        valor_base = round(valor / 1.19, 2)
+        valor_iva = round(valor - valor_base, 2)
     else:
         valor_base = valor
         valor_iva = 0
     
     # Split base value 70%/30%
-    valor_70 = round(valor_base * 0.70, 0)
-    valor_30 = round(valor_base * 0.30, 0)
+    valor_70 = round(valor_base * 0.70, 2)
+    valor_30 = round(valor_base * 0.30, 2)
     
     # Row 1: Account 61350513 - 70% (VALDEBI)
     rows.append(create_flat_file_row(
@@ -349,7 +349,7 @@ def create_final_summary_rows(
     vinculado = last_office_info["vinculado"]
     
     # Calculate retefuente based on percentage (0%, 4%, or 6%) - SOBRE VALOR BASE SIN IVA
-    valor_retefuente = round(total_valor_base * (porcentaje_retefuente / 100), 0) if porcentaje_retefuente > 0 else 0
+    valor_retefuente = round(total_valor_base * (porcentaje_retefuente / 100), 2) if porcentaje_retefuente > 0 else 0
     
     # Calculate balance: total debitos + IVA - retefuente
     valor_balance = total_debitos + total_iva - valor_retefuente
@@ -698,14 +698,14 @@ async def preview_causacion_manager(request: CausacionManagerPreviewRequest):
             
             # Calculate base value
             if request.tiene_iva:
-                valor_base = round(valor / 1.19, 0)
-                valor_iva = round(valor - valor_base, 0)
+                valor_base = round(valor / 1.19, 2)
+                valor_iva = round(valor - valor_base, 2)
             else:
                 valor_base = valor
                 valor_iva = 0
             
-            valor_70 = round(valor_base * 0.70, 0)
-            valor_30 = round(valor_base * 0.30, 0)
+            valor_70 = round(valor_base * 0.70, 2)
+            valor_30 = round(valor_base * 0.30, 2)
             
             # Row 1: Account 61350513 - 70% DEBITO
             rows_preview.append(CausacionRowPreview(
@@ -761,7 +761,7 @@ async def preview_causacion_manager(request: CausacionManagerPreviewRequest):
             factura_debitos += factura_iva
         
         # Retefuente row (CREDITO) - SOBRE VALOR BASE SIN IVA
-        valor_retefuente = round(factura_valor_base * (request.porcentaje_retefuente / 100), 0) if request.porcentaje_retefuente > 0 else 0
+        valor_retefuente = round(factura_valor_base * (request.porcentaje_retefuente / 100), 2) if request.porcentaje_retefuente > 0 else 0
         if valor_retefuente > 0:
             rows_preview.append(CausacionRowPreview(
                 row_num=row_counter,
@@ -937,14 +937,14 @@ async def insertar_causacion_manager(request: CausacionInsertRequest):
                 
                 # Calculate base value
                 if request.tiene_iva:
-                    valor_base = round(valor / 1.19, 0)
-                    valor_iva = round(valor - valor_base, 0)
+                    valor_base = round(valor / 1.19, 2)
+                    valor_iva = round(valor - valor_base, 2)
                 else:
                     valor_base = valor
                     valor_iva = 0
                 
-                valor_70 = round(valor_base * 0.70, 0)
-                valor_30 = round(valor_base * 0.30, 0)
+                valor_70 = round(valor_base * 0.70, 2)
+                valor_30 = round(valor_base * 0.30, 2)
                 
                 factura_valor_base += valor_base
                 factura_iva += valor_iva
@@ -1068,7 +1068,7 @@ async def insertar_causacion_manager(request: CausacionInsertRequest):
                 total_mngmcn += 1
             
             # Row: Retefuente (CREDITO) - Account 23652501
-            valor_retefuente = round(factura_valor_base * (request.porcentaje_retefuente / 100), 0) if request.porcentaje_retefuente > 0 else 0
+            valor_retefuente = round(factura_valor_base * (request.porcentaje_retefuente / 100), 2) if request.porcentaje_retefuente > 0 else 0
             if valor_retefuente > 0:
                 reg_counter += 1
                 cursor.execute("""
