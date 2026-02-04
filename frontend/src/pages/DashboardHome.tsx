@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import {
     AreaChart,
     Area,
@@ -11,6 +11,9 @@ import {
     Bar,
     Legend
 } from 'recharts';
+import { useAuth } from '../contexts/AuthContext';
+import { apiGet } from '../utils/apiClient';
+import type { Categoria } from '../types/auth';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
@@ -131,6 +134,12 @@ export default function DashboardHome() {
     const [oficinaSearch, setOficinaSearch] = useState('');
     const [showOficinaDropdown, setShowOficinaDropdown] = useState(false);
 
+    // Auth and category filter
+    const { isSuperAdmin } = useAuth();
+    const [categorias, setCategorias] = useState<Categoria[]>([]);
+    const [filterCategoriaId, setFilterCategoriaId] = useState<number | null>(null);
+    const [userCategoria, setUserCategoria] = useState<Categoria | null>(null);
+
     // Calcular métricas mensuales
     const getCurrentMonthData = () => {
         if (!estadisticas?.facturacion_mensual) return { current: 0, previous: 0, trend: 0 };
@@ -167,6 +176,32 @@ export default function DashboardHome() {
             .catch(err => console.error('Error loading oficinas:', err));
     }, []);
 
+    // Load categories
+    const loadCategorias = useCallback(async () => {
+        try {
+            if (isSuperAdmin) {
+                const data = await apiGet<Categoria[]>('/categorias/');
+                setCategorias(data);
+            } else {
+                const data = await apiGet<Categoria[]>('/categorias/mis-categorias');
+                setCategorias(data);
+                if (data.length === 1) {
+                    setFilterCategoriaId(data[0].id);
+                    setUserCategoria(data[0]);
+                } else if (data.length > 0) {
+                    setUserCategoria(data[0]);
+                    setFilterCategoriaId(data[0].id);
+                }
+            }
+        } catch (error) {
+            console.error('Error loading categories', error);
+        }
+    }, [isSuperAdmin]);
+
+    useEffect(() => {
+        loadCategorias();
+    }, [loadCategorias]);
+
     useEffect(() => {
         const fetchData = async () => {
             setLoading(true);
@@ -175,12 +210,19 @@ export default function DashboardHome() {
                 if (selectedOficina) {
                     statsUrl += `&oficina_id=${selectedOficina}`;
                 }
+                if (filterCategoriaId) {
+                    statsUrl += `&categoria_id=${filterCategoriaId}`;
+                }
                 const statsRes = await fetch(statsUrl);
                 if (statsRes.ok) {
                     setEstadisticas(await statsRes.json());
                 }
 
-                const invoicesRes = await fetch(`${API_URL}/facturas/?limit=5&skip=0`);
+                let invoicesUrl = `${API_URL}/facturas/?limit=5&skip=0`;
+                if (filterCategoriaId) {
+                    invoicesUrl += `&categoria_id=${filterCategoriaId}`;
+                }
+                const invoicesRes = await fetch(invoicesUrl);
                 if (invoicesRes.ok) {
                     const invoices = await invoicesRes.json();
                     setRecentInvoices(invoices.map((inv: {
@@ -207,7 +249,7 @@ export default function DashboardHome() {
             }
         };
         fetchData();
-    }, [selectedYear, selectedOficina]);
+    }, [selectedYear, selectedOficina, filterCategoriaId]);
 
     if (loading) {
         return (
@@ -308,6 +350,34 @@ export default function DashboardHome() {
                             <option key={year} value={year}>{year}</option>
                         ))}
                     </select>
+
+                    {/* Category Filter */}
+                    {isSuperAdmin ? (
+                        <select
+                            className="rounded-xl border-0 bg-white px-4 py-3 text-sm font-medium text-slate-700 shadow-lg ring-1 ring-slate-200 focus:ring-2 focus:ring-indigo-500"
+                            value={filterCategoriaId ?? ''}
+                            onChange={(e) => setFilterCategoriaId(e.target.value ? parseInt(e.target.value) : null)}
+                        >
+                            <option value="">Todas las categorías</option>
+                            {categorias.map(cat => (
+                                <option key={cat.id} value={cat.id}>
+                                    {cat.nombre}
+                                </option>
+                            ))}
+                        </select>
+                    ) : (
+                        userCategoria && (
+                            <div className="flex items-center gap-2 px-4 py-3 bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-200 rounded-xl">
+                                <div
+                                    className="w-3 h-3 rounded-full"
+                                    style={{ backgroundColor: userCategoria.color || '#6366f1' }}
+                                />
+                                <span className="text-sm font-medium text-indigo-700">
+                                    {userCategoria.nombre}
+                                </span>
+                            </div>
+                        )
+                    )}
                 </div>
             </div>
 

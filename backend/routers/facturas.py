@@ -8,7 +8,7 @@ Key features:
 4. View invoice via URL or network share
 5. Upload invoice PDF manually
 """
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form, Header
 from fastapi.responses import RedirectResponse, FileResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
@@ -400,10 +400,13 @@ async def list_facturas(
     search: Optional[str] = None,
     estado: Optional[str] = None,
     proveedor_id: Optional[int] = None,
+    categoria_id: Optional[int] = Query(None, description="Filtrar por categoría"),
     oficina_id: Optional[int] = Query(None, description="Filtrar por oficina asignada"),
     fecha_desde: Optional[str] = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     fecha_hasta: Optional[str] = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
     solo_pendientes: bool = Query(False, description="Solo mostrar facturas sin contrato asignado"),
+    x_user_id: Optional[int] = Header(None, alias="X-User-Id"),
+    x_user_rol_id: Optional[int] = Header(None, alias="X-User-Rol-Id"),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -412,17 +415,36 @@ async def list_facturas(
     - search: Search by proveedor name/NIT, oficina name, factura number, or CUFE
     - estado: Filter by estado (PENDIENTE, ASIGNADA, PAGADA)
     - proveedor_id: Filter by proveedor
+    - categoria_id: Filter by category (role-based access control)
     - oficina_id: Filter by oficina (includes oficinas_asignadas)
     - fecha_desde: Filter invoices from this date
     - fecha_hasta: Filter invoices until this date
     - solo_pendientes: Only show facturas without assigned contrato
+    
+    If X-User-Id and X-User-Rol-Id headers are provided, results will be filtered
+    to only show facturas from categories accessible to that role (unless super admin).
     """
+    # Check if user is super admin
+    from routers.categorias import is_super_admin, get_user_categoria_ids
+    
+    # If not super admin, get allowed categories for this role
+    allowed_categoria_ids = None
+    if x_user_id and not is_super_admin(x_user_id):
+        if x_user_rol_id:
+            allowed_categoria_ids = await get_user_categoria_ids(x_user_rol_id, db)
+            # If categoria_id is specified, verify user has access
+            if categoria_id and categoria_id not in allowed_categoria_ids:
+                # Return empty - user doesn't have access to this category
+                return []
+    
     return await crud.get_facturas(
         db, skip=skip, limit=limit, search=search, 
         estado=estado, proveedor_id=proveedor_id, 
         solo_pendientes=solo_pendientes,
         fecha_desde=fecha_desde, fecha_hasta=fecha_hasta,
-        oficina_id=oficina_id
+        oficina_id=oficina_id,
+        categoria_id=categoria_id,
+        allowed_categoria_ids=allowed_categoria_ids
     )
 
 

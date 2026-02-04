@@ -1,5 +1,6 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import { useState } from 'react';
+import { useAuth } from '../contexts/AuthContext';
 
 interface SidebarProps {
     collapsed: boolean;
@@ -75,9 +76,77 @@ const navItems = [
     },
 ];
 
+// Admin items - only shown to super admins
+const adminItems = [
+    {
+        to: '/admin/categorias',
+        label: 'Categorías',
+        description: 'Administrar categorías',
+        icon: (
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+            </svg>
+        ),
+        color: 'from-cyan-500 to-cyan-600'
+    },
+];
+
 export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
     const location = useLocation();
     const [hoveredItem, setHoveredItem] = useState<string | null>(null);
+    const { user, isSuperAdmin, isAuthenticated, rolNombre } = useAuth();
+
+    // Get user display name
+    const userName = user
+        ? `${user.primer_nombre || ''} ${user.primer_apellido || ''}`.trim() || 'Usuario'
+        : 'Usuario';
+    const userRole = rolNombre || (isSuperAdmin ? 'Super Admin' : 'Usuario');
+
+    const renderNavItem = (item: typeof navItems[0]) => {
+        const isActive = location.pathname === item.to;
+        const isHovered = hoveredItem === item.to;
+
+        return (
+            <li key={item.to}>
+                <NavLink
+                    to={item.to}
+                    onMouseEnter={() => setHoveredItem(item.to)}
+                    onMouseLeave={() => setHoveredItem(null)}
+                    className={`group relative flex items-center gap-2 px-2 py-2 rounded-lg transition-all duration-200 overflow-hidden
+                        ${isActive
+                            ? `bg-gradient-to-r ${item.color} text-white shadow-lg`
+                            : 'text-slate-300 hover:text-white hover:bg-slate-800/80'
+                        }`
+                    }
+                    title={collapsed ? item.label : undefined}
+                >
+                    {/* Icon container */}
+                    <div className={`relative z-10 w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 transition-all
+                        ${isActive
+                            ? 'bg-white/20'
+                            : 'bg-slate-800 group-hover:bg-slate-700 border border-slate-700 group-hover:border-slate-600'
+                        }`}
+                    >
+                        {item.icon}
+                    </div>
+
+                    {/* Text content - hidden when collapsed */}
+                    {!collapsed && (
+                        <div className="relative z-10 flex-1 min-w-0">
+                            <div className={`font-medium text-sm truncate ${isActive ? 'text-white' : ''}`}>
+                                {item.label}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Hover glow effect */}
+                    {!isActive && isHovered && (
+                        <div className={`absolute inset-0 bg-gradient-to-r ${item.color} opacity-10 rounded-lg`} />
+                    )}
+                </NavLink>
+            </li>
+        );
+    };
 
     return (
         <aside className={`min-h-screen fixed left-0 top-0 bg-gradient-to-b from-slate-900 via-slate-900 to-slate-800 border-r border-slate-700/50 shadow-2xl transition-all duration-300 z-50 ${collapsed ? 'w-16' : 'w-64'}`}>
@@ -113,71 +182,48 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                     </div>
                 )}
                 <ul className="space-y-1">
-                    {navItems.map(item => {
-                        const isActive = location.pathname === item.to;
-                        const isHovered = hoveredItem === item.to;
-
-                        return (
-                            <li key={item.to}>
-                                <NavLink
-                                    to={item.to}
-                                    onMouseEnter={() => setHoveredItem(item.to)}
-                                    onMouseLeave={() => setHoveredItem(null)}
-                                    className={`group relative flex items-center gap-2 px-2 py-2 rounded-lg transition-all duration-200 overflow-hidden
-                                        ${isActive
-                                            ? `bg-gradient-to-r ${item.color} text-white shadow-lg`
-                                            : 'text-slate-300 hover:text-white hover:bg-slate-800/80'
-                                        }`
-                                    }
-                                    title={collapsed ? item.label : undefined}
-                                >
-                                    {/* Icon container */}
-                                    <div className={`relative z-10 w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 transition-all
-                                        ${isActive
-                                            ? 'bg-white/20'
-                                            : 'bg-slate-800 group-hover:bg-slate-700 border border-slate-700 group-hover:border-slate-600'
-                                        }`}
-                                    >
-                                        {item.icon}
-                                    </div>
-
-                                    {/* Text content - hidden when collapsed */}
-                                    {!collapsed && (
-                                        <div className="relative z-10 flex-1 min-w-0">
-                                            <div className={`font-medium text-sm truncate ${isActive ? 'text-white' : ''}`}>
-                                                {item.label}
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {/* Hover glow effect */}
-                                    {!isActive && isHovered && (
-                                        <div className={`absolute inset-0 bg-gradient-to-r ${item.color} opacity-10 rounded-lg`} />
-                                    )}
-                                </NavLink>
-                            </li>
-                        );
-                    })}
+                    {navItems.map(renderNavItem)}
                 </ul>
+
+                {/* Admin Section - Only for Super Admins */}
+                {isSuperAdmin && (
+                    <>
+                        {!collapsed && (
+                            <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mt-4 mb-2 px-2">
+                                Administración
+                            </div>
+                        )}
+                        <ul className="space-y-1">
+                            {adminItems.map(renderNavItem)}
+                        </ul>
+                    </>
+                )}
             </nav>
 
-            {/* Bottom Section */}
+            {/* Bottom Section - User Info */}
             {!collapsed && (
                 <div className="absolute bottom-0 left-0 right-0 p-2 border-t border-slate-700/50 bg-slate-900/50">
                     <div className="flex items-center gap-2 px-2 py-1">
                         <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center">
-                            <svg className="w-4 h-4 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                            </svg>
+                            {isSuperAdmin ? (
+                                <svg className="w-4 h-4 text-amber-400" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                                </svg>
+                            ) : (
+                                <svg className="w-4 h-4 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                                </svg>
+                            )}
                         </div>
-                        <div className="flex-1">
-                            <div className="text-xs font-medium text-white">Admin</div>
-                            <div className="text-[10px] text-slate-500">Activo</div>
+                        <div className="flex-1 min-w-0">
+                            <div className="text-xs font-medium text-white truncate">{userName}</div>
+                            <div className="text-[10px] text-slate-500 truncate">{userRole}</div>
                         </div>
-                        <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                        <div className={`w-2 h-2 rounded-full ${isAuthenticated ? 'bg-green-500' : 'bg-slate-500'} animate-pulse`} />
                     </div>
                 </div>
             )}
         </aside>
     );
 }
+

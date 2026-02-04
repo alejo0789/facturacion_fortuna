@@ -77,15 +77,23 @@ async def create_oficina(db: AsyncSession, oficina: schemas.OficinaCreate):
 async def get_contrato(db: AsyncSession, contrato_id: int):
     result = await db.execute(
         select(models.Contrato)
-        .options(selectinload(models.Contrato.proveedor), selectinload(models.Contrato.oficina))
+        .options(
+            selectinload(models.Contrato.proveedor),
+            selectinload(models.Contrato.oficina),
+            selectinload(models.Contrato.categoria)
+        )
         .filter(models.Contrato.id == contrato_id)
     )
     return result.scalars().first()
 
-async def get_contratos(db: AsyncSession, skip: int = 0, limit: int = 100, search: Optional[str] = None):
+async def get_contratos(db: AsyncSession, skip: int = 0, limit: int = 100, search: Optional[str] = None, categoria_id: Optional[int] = None):
     query = (
         select(models.Contrato)
-        .options(selectinload(models.Contrato.proveedor), selectinload(models.Contrato.oficina))
+        .options(
+            selectinload(models.Contrato.proveedor),
+            selectinload(models.Contrato.oficina),
+            selectinload(models.Contrato.categoria)
+        )
         .outerjoin(models.Proveedor)
         .outerjoin(models.Oficina)
     )
@@ -104,6 +112,9 @@ async def get_contratos(db: AsyncSession, skip: int = 0, limit: int = 100, searc
             )
         )
     
+    if categoria_id:
+        query = query.filter(models.Contrato.categoria_id == categoria_id)
+    
     result = await db.execute(query.offset(skip).limit(limit))
     return result.scalars().all()
 
@@ -119,7 +130,10 @@ async def get_contratos_by_proveedor(db: AsyncSession, proveedor_id: int):
     """Get all contracts for a specific proveedor with oficina info loaded"""
     result = await db.execute(
         select(models.Contrato)
-        .options(selectinload(models.Contrato.oficina))
+        .options(
+            selectinload(models.Contrato.oficina),
+            selectinload(models.Contrato.categoria)
+        )
         .filter(models.Contrato.proveedor_id == proveedor_id)
         .order_by(models.Contrato.estado.desc())  # ACTIVO first
     )
@@ -206,6 +220,7 @@ async def get_factura(db: AsyncSession, factura_id: int):
         select(models.Factura)
         .options(
             selectinload(models.Factura.proveedor),
+            selectinload(models.Factura.categoria),
             selectinload(models.Factura.oficina),
             selectinload(models.Factura.contrato),
             selectinload(models.Factura.oficinas_asignadas).selectinload(models.FacturaOficina.oficina),
@@ -219,12 +234,14 @@ async def get_facturas(db: AsyncSession, skip: int = 0, limit: int = 100,
                        search: Optional[str] = None, estado: Optional[str] = None,
                        proveedor_id: Optional[int] = None, solo_pendientes: bool = False,
                        fecha_desde: Optional[str] = None, fecha_hasta: Optional[str] = None,
-                       oficina_id: Optional[int] = None):
-    """Get facturas with optional filters including date range and oficina"""
+                       oficina_id: Optional[int] = None, categoria_id: Optional[int] = None,
+                       allowed_categoria_ids: Optional[List[int]] = None):
+    """Get facturas with optional filters including date range, oficina, and category"""
     query = (
         select(models.Factura)
         .options(
             selectinload(models.Factura.proveedor),
+            selectinload(models.Factura.categoria),
             selectinload(models.Factura.oficina),
             selectinload(models.Factura.contrato),
             selectinload(models.Factura.oficinas_asignadas).selectinload(models.FacturaOficina.oficina),
@@ -254,6 +271,18 @@ async def get_facturas(db: AsyncSession, skip: int = 0, limit: int = 100,
     
     if solo_pendientes:
         query = query.filter(models.Factura.contrato_id.is_(None))
+    
+    # Category filter - specific category
+    if categoria_id:
+        query = query.filter(models.Factura.categoria_id == categoria_id)
+    
+    # Role-based category restriction - only show facturas from allowed categories
+    if allowed_categoria_ids is not None:
+        if len(allowed_categoria_ids) > 0:
+            query = query.filter(models.Factura.categoria_id.in_(allowed_categoria_ids))
+        else:
+            # User has no categories assigned, return empty
+            return []
     
     # Date filters - filter by created_at (when invoice was received)
     if fecha_desde:

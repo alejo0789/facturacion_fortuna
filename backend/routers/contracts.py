@@ -26,13 +26,15 @@ def sanitize_folder_name(name: str) -> str:
 async def search_contratos(
     skip: int = 0, 
     limit: int = 100, 
-    search: Optional[str] = None, 
+    search: Optional[str] = None,
+    categoria_id: Optional[int] = None,
     db: AsyncSession = Depends(get_db)
 ):
     """
     Search contracts by Provider Name, Office Name, or Contract Number.
+    Optionally filter by categoria_id.
     """
-    return await crud.get_contratos(db, skip=skip, limit=limit, search=search)
+    return await crud.get_contratos(db, skip=skip, limit=limit, search=search, categoria_id=categoria_id)
 
 @router.get("/contratos/{contrato_id}", response_model=schemas.Contrato)
 async def read_contrato(contrato_id: int, db: AsyncSession = Depends(get_db)):

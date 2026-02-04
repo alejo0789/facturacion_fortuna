@@ -2,6 +2,9 @@ import { useEffect, useState, useCallback } from 'react';
 import type { Contrato } from '../types';
 import ContractModal from '../components/ContractModal';
 import { formatCOP } from '../utils/format';
+import { useAuth } from '../contexts/AuthContext';
+import { apiGet } from '../utils/apiClient';
+import type { Categoria } from '../types/auth';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
@@ -14,6 +17,12 @@ export default function Dashboard() {
     const [page, setPage] = useState(1);
     const [hasMore, setHasMore] = useState(true);
     const ITEMS_PER_PAGE = 20;
+
+    // Auth and category filter
+    const { isSuperAdmin } = useAuth();
+    const [categorias, setCategorias] = useState<Categoria[]>([]);
+    const [filterCategoriaId, setFilterCategoriaId] = useState<number | null>(null);
+    const [userCategoria, setUserCategoria] = useState<Categoria | null>(null);
 
     // Server-side search with debouncing
     const fetchContratos = useCallback(async (searchQuery: string, pageNum: number) => {
@@ -28,6 +37,9 @@ export default function Dashboard() {
             if (searchQuery.trim()) {
                 params.append('search', searchQuery.trim());
             }
+            if (filterCategoriaId) {
+                params.append('categoria_id', filterCategoriaId.toString());
+            }
 
             const res = await fetch(`${API_URL}/contratos/?${params}`);
             if (res.ok) {
@@ -40,7 +52,7 @@ export default function Dashboard() {
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [filterCategoriaId]);
 
     // Debounced search effect - only when search changes
     useEffect(() => {
@@ -50,7 +62,7 @@ export default function Dashboard() {
         }, 300); // Wait 300ms after user stops typing
 
         return () => clearTimeout(timer);
-    }, [search]); // Only depend on search, not fetchContratos
+    }, [search, filterCategoriaId]); // Re-fetch when search or category changes
 
     // Fetch when page changes (but not on initial mount or search change)
     const [isInitialMount, setIsInitialMount] = useState(true);
@@ -105,6 +117,32 @@ export default function Dashboard() {
         }
     };
 
+    // Load categories
+    const loadCategorias = useCallback(async () => {
+        try {
+            if (isSuperAdmin) {
+                const data = await apiGet<Categoria[]>('/categorias/');
+                setCategorias(data);
+            } else {
+                const data = await apiGet<Categoria[]>('/categorias/mis-categorias');
+                setCategorias(data);
+                if (data.length === 1) {
+                    setFilterCategoriaId(data[0].id);
+                    setUserCategoria(data[0]);
+                } else if (data.length > 0) {
+                    setUserCategoria(data[0]);
+                    setFilterCategoriaId(data[0].id);
+                }
+            }
+        } catch (error) {
+            console.error('Error loading categories', error);
+        }
+    }, [isSuperAdmin]);
+
+    useEffect(() => {
+        loadCategorias();
+    }, [loadCategorias]);
+
     return (
         <div className="space-y-6">
             {/* Header */}
@@ -134,6 +172,36 @@ export default function Dashboard() {
                     <div className="absolute right-4 top-3.5">
                         <div className="animate-spin h-5 w-5 border-2 border-blue-500 border-t-transparent rounded-full"></div>
                     </div>
+                )}
+            </div>
+
+            {/* Category Filter */}
+            <div className="flex items-center gap-4">
+                {isSuperAdmin ? (
+                    <select
+                        className="px-4 py-2 bg-white border border-gray-200 rounded-xl shadow-sm focus:ring-2 focus:ring-blue-500"
+                        value={filterCategoriaId ?? ''}
+                        onChange={(e) => setFilterCategoriaId(e.target.value ? parseInt(e.target.value) : null)}
+                    >
+                        <option value="">Todas las categorías</option>
+                        {categorias.map(cat => (
+                            <option key={cat.id} value={cat.id}>
+                                {cat.nombre}
+                            </option>
+                        ))}
+                    </select>
+                ) : (
+                    userCategoria && (
+                        <div className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-200 rounded-xl">
+                            <div
+                                className="w-3 h-3 rounded-full"
+                                style={{ backgroundColor: userCategoria.color || '#6366f1' }}
+                            />
+                            <span className="text-sm font-medium text-indigo-700">
+                                {userCategoria.nombre}
+                            </span>
+                        </div>
+                    )
                 )}
             </div>
 

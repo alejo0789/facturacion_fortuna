@@ -3,6 +3,57 @@ from typing import Optional, List
 from datetime import date, datetime
 from decimal import Decimal
 
+
+# --- Categoria Schemas (Role-based access) ---
+class CategoriaRolBase(BaseModel):
+    rol_id: int
+    rol_nombre: str
+
+class CategoriaRolCreate(CategoriaRolBase):
+    pass
+
+class CategoriaRol(CategoriaRolBase):
+    id: int
+    categoria_id: int
+    created_at: Optional[datetime] = None
+    
+    class Config:
+        from_attributes = True
+
+class CategoriaBase(BaseModel):
+    nombre: str
+    descripcion: Optional[str] = None
+    color: Optional[str] = '#6366f1'
+    activa: Optional[bool] = True
+
+class CategoriaCreate(CategoriaBase):
+    pass
+
+class CategoriaUpdate(BaseModel):
+    nombre: Optional[str] = None
+    descripcion: Optional[str] = None
+    color: Optional[str] = None
+    activa: Optional[bool] = None
+
+class Categoria(CategoriaBase):
+    id: int
+    created_at: Optional[datetime] = None
+    created_by: Optional[str] = None
+    roles: List[CategoriaRol] = []
+    
+    class Config:
+        from_attributes = True
+
+class CategoriaSimple(BaseModel):
+    """Simplified category for dropdowns"""
+    id: int
+    nombre: str
+    color: Optional[str] = '#6366f1'
+    
+    class Config:
+        from_attributes = True
+
+
 # --- Proveedor Schemas ---
 class ProveedorBase(BaseModel):
     nit: str
@@ -39,6 +90,7 @@ class Oficina(OficinaBase):
 class ContratoBase(BaseModel):
     proveedor_id: Optional[int] = None
     oficina_id: Optional[int] = None
+    categoria_id: Optional[int] = None  # Category for role-based access
     titular_nombre: Optional[str] = None
     titular_cc_nit: Optional[str] = None
     linea: Optional[str] = None
@@ -68,6 +120,7 @@ class Contrato(ContratoBase):
     id: int
     proveedor: Optional[Proveedor] = None
     oficina: Optional[Oficina] = None
+    categoria: Optional[CategoriaSimple] = None
     
     class Config:
         from_attributes = True
@@ -94,6 +147,7 @@ class Pago(PagoBase):
 # --- Factura Schemas ---
 class FacturaBase(BaseModel):
     proveedor_id: int
+    categoria_id: Optional[int] = None  # Category for role-based access
     oficina_id: Optional[int] = None
     contrato_id: Optional[int] = None
     numero_factura: Optional[str] = None
@@ -117,6 +171,7 @@ class FacturaCreateAPI(BaseModel):
     proveedor_id: Optional[int] = None  # Can be None if only NIT is provided
     proveedor_nit: Optional[str] = None  # Alternative: provide NIT to find/create proveedor
     proveedor_nombre: Optional[str] = None  # Name for new proveedor if needed
+    categoria_id: Optional[int] = None  # Category for role-based access
     numero_factura: Optional[str] = None
     cufe: Optional[str] = None
     fecha_factura: Optional[date] = None
@@ -145,6 +200,7 @@ class FacturaCreateConOficinas(BaseModel):
     """
     proveedor_nit: Optional[str] = None  # Opcional: NIT del proveedor
     proveedor_nombre: Optional[str] = None  # Para crear proveedor si no existe
+    categoria_id: Optional[int] = None  # Category for role-based access
     numero_factura: Optional[str] = None
     cufe: Optional[str] = None
     fecha_factura: Optional[date] = None
@@ -214,6 +270,7 @@ class AsignarMultiplesOficinasRequest(BaseModel):
 class Factura(FacturaBase):
     id: int
     proveedor: Optional[Proveedor] = None
+    categoria: Optional[CategoriaSimple] = None
     oficina: Optional[Oficina] = None  # Legacy single oficina
     contrato: Optional[Contrato] = None  # Legacy single contrato
     oficinas_asignadas: list[FacturaOficina] = []  # New: multiple oficinas
@@ -244,3 +301,4 @@ class ProveedorFeedback(BaseModel):
     
     class Config:
         from_attributes = True
+

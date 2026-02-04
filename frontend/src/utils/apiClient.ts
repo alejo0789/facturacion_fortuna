@@ -1,6 +1,6 @@
 /**
  * API Client con autenticación automática
- * Agrega el header X-API-Key a todas las peticiones
+ * Agrega el header X-API-Key y headers de usuario a todas las peticiones
  */
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
@@ -11,7 +11,41 @@ export interface FetchOptions extends RequestInit {
 }
 
 /**
- * Wrapper de fetch que agrega automáticamente la API Key
+ * Get user identity from localStorage for auth headers
+ */
+function getAuthHeaders(): Record<string, string> {
+    const headers: Record<string, string> = {};
+    try {
+        const stored = localStorage.getItem('identity');
+        if (stored) {
+            const identity = JSON.parse(stored);
+            if (identity.id) {
+                headers['X-User-Id'] = String(identity.id);
+            }
+            const rolId = identity.rol_id ?? identity.rol?.id;
+            if (rolId) {
+                headers['X-User-Rol-Id'] = String(rolId);
+            }
+            if (identity.primer_nombre) {
+                headers['X-User-Name'] = `${identity.primer_nombre} ${identity.primer_apellido || ''}`.trim();
+            }
+        } else {
+            // Localhost development fallback - use super admin ID from env or default
+            const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+            if (isLocalhost) {
+                // Use a default super admin ID for development (should match SUPER_ADMIN_USER_IDS in backend .env)
+                headers['X-User-Id'] = import.meta.env.VITE_DEV_USER_ID || '725';
+                headers['X-User-Name'] = 'Dev Super Admin';
+            }
+        }
+    } catch (e) {
+        console.error('Error reading identity from localStorage:', e);
+    }
+    return headers;
+}
+
+/**
+ * Wrapper de fetch que agrega automáticamente la API Key y headers de autenticación
  */
 export async function apiFetch(endpoint: string, options: FetchOptions = {}): Promise<Response> {
     const { params, ...fetchOptions } = options;
@@ -29,6 +63,12 @@ export async function apiFetch(endpoint: string, options: FetchOptions = {}): Pr
     // Agregar headers de autenticación
     const headers = new Headers(fetchOptions.headers);
     headers.set('X-API-Key', API_KEY);
+
+    // Add user auth headers for role-based filtering
+    const authHeaders = getAuthHeaders();
+    Object.entries(authHeaders).forEach(([key, value]) => {
+        headers.set(key, value);
+    });
 
     // Si hay body y no es FormData, agregar Content-Type
     if (fetchOptions.body && !(fetchOptions.body instanceof FormData)) {
@@ -96,3 +136,4 @@ export async function apiDelete<T>(endpoint: string): Promise<T> {
 
 // Exportar también la URL base para casos especiales
 export { API_URL };
+

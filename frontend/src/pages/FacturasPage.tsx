@@ -4,6 +4,9 @@ import type { Factura, Oficina, Proveedor, OficinaConContrato } from '../types';
 import Modal, { FormField, inputClassName } from '../components/Modal';
 import UploadFacturaModal from '../components/UploadFacturaModal';
 import { formatCOP } from '../utils/format';
+import { useAuth } from '../contexts/AuthContext';
+import { apiGet } from '../utils/apiClient';
+import type { Categoria } from '../types/auth';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
@@ -38,6 +41,11 @@ export default function FacturasPage() {
     const [allOficinas, setAllOficinas] = useState<Oficina[]>([]);
     const [filteredOficinas, setFilteredOficinas] = useState<Oficina[]>([]);
     const [showOficinaSuggestions, setShowOficinaSuggestions] = useState(false);
+
+    // Category filter
+    const [categorias, setCategorias] = useState<Categoria[]>([]);
+    const [filterCategoriaId, setFilterCategoriaId] = useState<number | null>(null);
+    const [userCategoria, setUserCategoria] = useState<Categoria | null>(null);
 
 
     // Assign Multiple Oficinas Modal states
@@ -96,6 +104,7 @@ export default function FacturasPage() {
     } | null>(null);
 
     const navigate = useNavigate();
+    const { isSuperAdmin } = useAuth();
 
     // Multi-select for consolidado
     const [selectedFacturaIds, setSelectedFacturaIds] = useState<Set<number>>(new Set());
@@ -697,6 +706,9 @@ export default function FacturasPage() {
             if (filterOficinaId) {
                 params.append('oficina_id', filterOficinaId.toString());
             }
+            if (filterCategoriaId) {
+                params.append('categoria_id', filterCategoriaId.toString());
+            }
 
             const res = await fetch(`${API_URL}/facturas/?${params}`);
             if (res.ok) {
@@ -709,7 +721,7 @@ export default function FacturasPage() {
         } finally {
             setLoading(false);
         }
-    }, [filterEstado, filterFechaDesde, filterFechaHasta, filterOficinaId]);
+    }, [filterEstado, filterFechaDesde, filterFechaHasta, filterOficinaId, filterCategoriaId]);
 
     const fetchStats = async () => {
         try {
@@ -763,11 +775,12 @@ export default function FacturasPage() {
             fetchFacturas(search, 1);
         }, 300);
         return () => clearTimeout(timer);
-    }, [search, filterEstado, filterFechaDesde, filterFechaHasta, filterOficinaId]);
+    }, [search, filterEstado, filterFechaDesde, filterFechaHasta, filterOficinaId, filterCategoriaId]);
 
     useEffect(() => {
         fetchStats();
         loadAllOficinas();
+        loadCategorias();
     }, []);
 
     // Filter oficinas based on search input - show all when empty, filter when typing
@@ -799,6 +812,31 @@ export default function FacturasPage() {
         setFilterOficinaSelected(null);
         setFilterOficinaSearch('');
         setShowOficinaSuggestions(false);
+    };
+
+    // Load categories
+    const loadCategorias = async () => {
+        try {
+            if (isSuperAdmin) {
+                // Super Admin: load all categories
+                const data = await apiGet<Categoria[]>('/categorias/');
+                setCategorias(data);
+            } else {
+                // Regular user: load only their assigned categories
+                const data = await apiGet<Categoria[]>('/categorias/mis-categorias');
+                setCategorias(data);
+                // If user has exactly one category, auto-filter by it
+                if (data.length === 1) {
+                    setFilterCategoriaId(data[0].id);
+                    setUserCategoria(data[0]);
+                } else if (data.length > 0) {
+                    setUserCategoria(data[0]);
+                    setFilterCategoriaId(data[0].id);
+                }
+            }
+        } catch (error) {
+            console.error('Error loading categories', error);
+        }
     };
 
     // Page change effect
@@ -1366,6 +1404,36 @@ export default function FacturasPage() {
                         </div>
                     )}
                 </div>
+
+                {/* Category Filter */}
+                {isSuperAdmin ? (
+                    // Super Admin: Dropdown to select any category
+                    <select
+                        className="px-4 py-3 bg-white border border-gray-200 rounded-xl shadow-sm focus:ring-2 focus:ring-blue-500"
+                        value={filterCategoriaId ?? ''}
+                        onChange={(e) => setFilterCategoriaId(e.target.value ? parseInt(e.target.value) : null)}
+                    >
+                        <option value="">Todas las categorías</option>
+                        {categorias.map(cat => (
+                            <option key={cat.id} value={cat.id}>
+                                {cat.nombre}
+                            </option>
+                        ))}
+                    </select>
+                ) : (
+                    // Regular user: Read-only badge showing their category
+                    userCategoria && (
+                        <div className="flex items-center gap-2 px-4 py-3 bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-200 rounded-xl">
+                            <div
+                                className="w-3 h-3 rounded-full"
+                                style={{ backgroundColor: userCategoria.color || '#6366f1' }}
+                            />
+                            <span className="text-sm font-medium text-indigo-700">
+                                {userCategoria.nombre}
+                            </span>
+                        </div>
+                    )
+                )}
             </div>
 
             {/* Facturas List */}
@@ -1609,7 +1677,7 @@ export default function FacturasPage() {
                                         <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                                             <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
                                         </svg>
-                                        IA
+                                        Feedback
                                     </button>
                                 </div>
                             </div>

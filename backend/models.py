@@ -1,6 +1,56 @@
-from sqlalchemy import Column, Integer, String, Date, DateTime, Numeric, ForeignKey, Text, UniqueConstraint, func
+from sqlalchemy import Column, Integer, String, Date, DateTime, Numeric, ForeignKey, Text, UniqueConstraint, func, Boolean
 from sqlalchemy.orm import relationship
 from database import Base
+
+
+# ============================================
+# Category System for Role-Based Access
+# ============================================
+
+class Categoria(Base):
+    """
+    Invoice categories (Internet, Servicios Públicos, etc.)
+    Each category can be assigned to one or more roles.
+    """
+    __tablename__ = "categorias"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    nombre = Column(String(100), unique=True, nullable=False)
+    descripcion = Column(Text)
+    color = Column(String(7), default='#6366f1')  # Hex color for UI
+    activa = Column(Boolean, default=True)
+    created_at = Column(DateTime, server_default=func.now())
+    created_by = Column(String(100))
+    
+    # Relationships
+    roles = relationship("CategoriaRol", back_populates="categoria", cascade="all, delete-orphan")
+    facturas = relationship("Factura", back_populates="categoria")
+    contratos = relationship("Contrato", back_populates="categoria")
+
+
+class CategoriaRol(Base):
+    """
+    Many-to-many relationship between Categoria and roles from parent system.
+    rol_id and rol_nombre come from the parent system's role definitions.
+    """
+    __tablename__ = "categoria_roles"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    categoria_id = Column(Integer, ForeignKey("categorias.id", ondelete="CASCADE"), nullable=False)
+    rol_id = Column(Integer, nullable=False)  # ID from parent system
+    rol_nombre = Column(String(100), nullable=False)  # Cached name from parent system
+    created_at = Column(DateTime, server_default=func.now())
+    
+    # Unique constraint to prevent duplicate assignments
+    __table_args__ = (UniqueConstraint('categoria_id', 'rol_id', name='uq_categoria_rol'),)
+    
+    # Relationships
+    categoria = relationship("Categoria", back_populates="roles")
+
+
+# ============================================
+# Core Business Models
+# ============================================
 
 class Proveedor(Base):
     __tablename__ = "proveedores"
@@ -33,6 +83,7 @@ class Contrato(Base):
     id = Column(Integer, primary_key=True, index=True)
     proveedor_id = Column(Integer, ForeignKey("proveedores.id"))
     oficina_id = Column(Integer, ForeignKey("oficinas.id"))
+    categoria_id = Column(Integer, ForeignKey("categorias.id"), nullable=True)  # Category for role-based access
     
     # Titular
     titular_nombre = Column(String(255))
@@ -66,6 +117,7 @@ class Contrato(Base):
     # Relationships
     proveedor = relationship("Proveedor", back_populates="contratos")
     oficina = relationship("Oficina", back_populates="contratos")
+    categoria = relationship("Categoria", back_populates="contratos")
     pagos = relationship("Pago", back_populates="contrato")
 
 class Pago(Base):
@@ -93,6 +145,7 @@ class Factura(Base):
     
     # Relations - proveedor required
     proveedor_id = Column(Integer, ForeignKey("proveedores.id"), nullable=False)
+    categoria_id = Column(Integer, ForeignKey("categorias.id"), nullable=True)  # Category for role-based access
     
     # Legacy single oficina/contrato (kept for backward compatibility)
     oficina_id = Column(Integer, ForeignKey("oficinas.id"), nullable=True)
@@ -117,6 +170,7 @@ class Factura(Base):
     
     # Relationships
     proveedor = relationship("Proveedor")
+    categoria = relationship("Categoria", back_populates="facturas")
     oficina = relationship("Oficina")  # Legacy single oficina
     contrato = relationship("Contrato")  # Legacy single contrato
     
@@ -203,3 +257,4 @@ class ProveedorFeedback(Base):
     # Relationships
     proveedor = relationship("Proveedor")
     factura = relationship("Factura")
+

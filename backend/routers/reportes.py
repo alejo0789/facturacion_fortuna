@@ -566,6 +566,7 @@ async def get_report_stats(
     año: Optional[int] = Query(None, description="Año para estadísticas"),
     oficina_id: Optional[int] = Query(None, description="Filtrar por oficina"),
     proveedor_id: Optional[int] = Query(None, description="Filtrar por proveedor"),
+    categoria_id: Optional[int] = Query(None, description="Filtrar por categoría"),
     db: AsyncSession = Depends(get_db)
 ):
     """Get dashboard statistics for reports"""
@@ -626,11 +627,15 @@ async def get_report_stats(
     if proveedor_id:
         total_facturado_query = total_facturado_query.filter(models.Factura.proveedor_id == proveedor_id)
     
+    # Apply categoria filter if specified
+    if categoria_id:
+        total_facturado_query = total_facturado_query.filter(models.Factura.categoria_id == categoria_id)
+    
     total_facturado_result = await db.execute(total_facturado_query)
     total_facturado = float(total_facturado_result.scalar() or 0)
     
     # 2. Total de facturas en el año
-    total_facturas_result = await db.execute(
+    total_facturas_query = (
         select(func.count(func.distinct(models.Factura.id)))
         .join(models.FacturaOficina)
         .filter(
@@ -648,10 +653,13 @@ async def get_report_stats(
             )
         )
     )
+    if categoria_id:
+        total_facturas_query = total_facturas_query.filter(models.Factura.categoria_id == categoria_id)
+    total_facturas_result = await db.execute(total_facturas_query)
     total_facturas = total_facturas_result.scalar() or 0
     
     # 3. Proveedores únicos facturados en el año
-    proveedores_facturados_result = await db.execute(
+    proveedores_query = (
         select(func.count(func.distinct(models.Factura.proveedor_id)))
         .join(models.FacturaOficina)
         .filter(
@@ -669,13 +677,19 @@ async def get_report_stats(
             )
         )
     )
+    if categoria_id:
+        proveedores_query = proveedores_query.filter(models.Factura.categoria_id == categoria_id)
+    proveedores_facturados_result = await db.execute(proveedores_query)
     proveedores_facturados = proveedores_facturados_result.scalar() or 0
     
-    # 4. Contratos activos sin facturas en el período
-    contratos_activos_result = await db.execute(
+    # 4. Contratos activos
+    contratos_query = (
         select(func.count(models.Contrato.id))
         .filter(models.Contrato.estado == 'ACTIVO')
     )
+    if categoria_id:
+        contratos_query = contratos_query.filter(models.Contrato.categoria_id == categoria_id)
+    contratos_activos_result = await db.execute(contratos_query)
     contratos_activos = contratos_activos_result.scalar() or 0
     
     # 5. Facturación por mes del año
@@ -716,6 +730,10 @@ async def get_report_stats(
         if proveedor_id:
             mes_query = mes_query.filter(models.Factura.proveedor_id == proveedor_id)
         
+        # Add categoria filter if specified
+        if categoria_id:
+            mes_query = mes_query.filter(models.Factura.categoria_id == categoria_id)
+        
         mes_result = await db.execute(mes_query)
         valor = float(mes_result.scalar() or 0)
         facturacion_por_mes.append({
@@ -725,7 +743,7 @@ async def get_report_stats(
         })
     
     # 6. Top 5 proveedores por facturación
-    top_proveedores_result = await db.execute(
+    top_proveedores_query = (
         select(
             models.Proveedor.id,
             models.Proveedor.nombre,
@@ -748,10 +766,15 @@ async def get_report_stats(
                 )
             )
         )
-        .group_by(models.Proveedor.id, models.Proveedor.nombre)
-        .order_by(func.sum(models.FacturaOficina.valor).desc())
-        .limit(5)
     )
+    
+    # Add categoria filter if specified
+    if categoria_id:
+        top_proveedores_query = top_proveedores_query.filter(models.Factura.categoria_id == categoria_id)
+    
+    top_proveedores_query = top_proveedores_query.group_by(models.Proveedor.id, models.Proveedor.nombre).order_by(func.sum(models.FacturaOficina.valor).desc()).limit(5)
+    
+    top_proveedores_result = await db.execute(top_proveedores_query)
     top_proveedores = [
         {'id': row[0], 'nombre': row[1], 'total': float(row[2] or 0)}
         for row in top_proveedores_result.all()

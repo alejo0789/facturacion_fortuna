@@ -20,8 +20,10 @@ export interface Contrato {
     id: number;
     proveedor_id: number;
     oficina_id: number;
+    categoria_id?: number;  // Category for role-based access
     proveedor?: Proveedor;
     oficina?: Oficina;
+    categoria?: { id: number; nombre: string; color?: string };  // Simplified category
 
     titular_nombre?: string;
     titular_cc_nit?: string;
@@ -60,9 +62,11 @@ export interface Pago {
 export interface Factura {
     id: number;
     proveedor_id: number;
+    categoria_id?: number;  // Category for role-based access
     oficina_id?: number;  // Legacy single oficina
     contrato_id?: number;  // Legacy single contrato
     proveedor?: Proveedor;
+    categoria?: { id: number; nombre: string; color?: string };  // Simplified category
     oficina?: Oficina;  // Legacy
     contrato?: Contrato;  // Legacy
 
