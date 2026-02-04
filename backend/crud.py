@@ -1,7 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
-from sqlalchemy import or_
+from sqlalchemy import or_, update
 from typing import List, Optional
 from datetime import datetime
 import models, schemas
@@ -301,6 +301,21 @@ async def delete_factura(db: AsyncSession, factura_id: int):
     """Delete a factura"""
     db_item = await get_factura(db, factura_id)
     if db_item:
+        # First, decouple any feedback linked to this invoice to allow deletion
+        # while keeping the feedback in the knowledge base.
+        await db.execute(
+            update(models.ProveedorFeedback)
+            .where(models.ProveedorFeedback.factura_id == factura_id)
+            .values(factura_id=None)
+        )
+        
+        # Also decouple from uploads if any
+        await db.execute(
+            update(models.FacturaUpload)
+            .where(models.FacturaUpload.factura_id == factura_id)
+            .values(factura_id=None)
+        )
+        
         await db.delete(db_item)
         await db.commit()
     return db_item

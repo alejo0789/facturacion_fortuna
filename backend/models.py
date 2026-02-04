@@ -169,7 +169,7 @@ class FacturaUpload(Base):
     error_message = Column(Text)
     
     # Result - links to created factura if successful
-    factura_id = Column(Integer, ForeignKey("facturas.id"), nullable=True)
+    factura_id = Column(Integer, ForeignKey("facturas.id", ondelete="SET NULL"), nullable=True)
     
     # Timestamps
     created_at = Column(DateTime, default=func.now())
@@ -191,7 +191,7 @@ class ProveedorFeedback(Base):
     
     # Relations
     proveedor_id = Column(Integer, ForeignKey("proveedores.id"), nullable=False)
-    factura_id = Column(Integer, ForeignKey("facturas.id"), nullable=True)  # Optional link to specific invoice
+    factura_id = Column(Integer, ForeignKey("facturas.id", ondelete="SET NULL"), nullable=True)  # Optional link to specific invoice
     
     # Feedback content
     descripcion = Column(Text, nullable=False)  # Free-form feedback from user
