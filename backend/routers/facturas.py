@@ -287,15 +287,27 @@ async def create_factura_con_oficinas(
                     oficina = await crud.get_oficina_by_codigo(db, of.cod_oficina)
                     
                     if oficina:
+                        # Case NIT 900154335 (WiFi SAS): ignore N8N value if we can fixed it to contract value
+                        valor_asignar = float(of.valor)
+                        nit_especial = "900154335" # WIFI SAS
+                        
+                        if request.proveedor_nit == nit_especial:
+                            # Try to find the contract for this specific office to get its valor_mensual
+                            contrato = await crud.find_contrato_by_proveedor_oficina(db, proveedor_id, oficina.id)
+                            if contrato and contrato.valor_mensual:
+                                valor_asignar = float(contrato.valor_mensual)
+                                # Log the adjustment in facturas table if possible or warnings
+                                warnings.append(f"Ajuste especial WIFI SAS: Oficina {of.cod_oficina} cargada con valor de contrato ({valor_asignar}) en lugar de valor extraído.")
+
                         # Add oficina to factura
                         await crud.add_oficina_to_factura(
-                            db, factura.id, oficina.id, float(of.valor), None
+                            db, factura.id, oficina.id, valor_asignar, None
                         )
                         oficinas_asignadas.append({
                             "cod_oficina": of.cod_oficina,
                             "oficina_id": oficina.id,
                             "oficina_nombre": oficina.nombre,
-                            "valor": str(of.valor)
+                            "valor": str(valor_asignar)
                         })
                     else:
                         oficinas_no_encontradas.append({
