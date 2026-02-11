@@ -61,7 +61,8 @@ function ServerSearchableSelect<T extends { id: number }>({
             if (query.trim()) {
                 params.append('search', query.trim());
             }
-            const res = await fetch(`${API_URL}/${endpoint}?${params}`);
+            // MODIFICACIÓN: Se añade el slash final antes de los parámetros
+            const res = await fetch(`${API_URL}/${endpoint}/?${params}`);
             if (res.ok) {
                 const data = await res.json();
                 setItems(data);
