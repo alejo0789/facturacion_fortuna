@@ -208,3 +208,33 @@ async def preview_temp_file(filename: str):
         raise HTTPException(status_code=404, detail="File not found or expired")
 
     return FileResponse(file_path, media_type="application/pdf", filename=filename, content_disposition_type="inline")
+
+@router.delete("/asistente/cleanup/{request_id}")
+async def cleanup_temp_files(request_id: str):
+    """
+    Elimina los archivos temporales asociados a una búsqueda específica y limpia el caché.
+    Se debe llamar al salir de la página de resultados.
+    """
+    # 1. Limpiar caché
+    if request_id in search_cache:
+        del search_cache[request_id]
+    
+    # 2. Eliminar archivos físicos
+    # Los archivos tienen el formato: temp_{request_id}_{filename}
+    prefix = f"temp_{request_id}_"
+    
+    deleted_count = 0
+    try:
+        if os.path.exists(TEMPORAL_FILES_PATH):
+            for filename in os.listdir(TEMPORAL_FILES_PATH):
+                if filename.startswith(prefix):
+                    file_path = os.path.join(TEMPORAL_FILES_PATH, filename)
+                    try:
+                        os.remove(file_path)
+                        deleted_count += 1
+                    except Exception as e:
+                        print(f"Error borrando archivo temporal {filename}: {e}")
+                        
+        return {"message": f"Limpieza completada. {deleted_count} archivos eliminados."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error en limpieza: {str(e)}")

@@ -28,10 +28,23 @@ export default function AsistenteBuscadorPage() {
     // Polling ref
     const pollingRef = useRef<number | null>(null);
 
-    // Clean up polling on unmount
+    // Request ID ref for cleanup
+    const currentRequestIdRef = useRef<string | null>(null);
+
+    // Clean up polling and temporary files on unmount
     useEffect(() => {
         return () => {
             if (pollingRef.current) clearTimeout(pollingRef.current);
+
+            // Clean up temporary files if a search was performed
+            const reqId = currentRequestIdRef.current;
+            if (reqId) {
+                // Use fetch with keepalive to ensure request is sent even if page closes
+                fetch(`${API_URL}/asistente/cleanup/${reqId}`, {
+                    method: 'DELETE',
+                    keepalive: true
+                }).catch(err => console.error("Error cleaning up temp files:", err));
+            }
         };
     }, []);
 
@@ -62,8 +75,6 @@ export default function AsistenteBuscadorPage() {
             }
         } catch (err: any) {
             console.error('Polling error', err);
-            // Don't stop polling immediately on intermittent network error, but maybe limit retries?
-            // For now, continue
         }
 
         // Continue polling
@@ -78,6 +89,13 @@ export default function AsistenteBuscadorPage() {
         setResults([]);
         setSelected(new Set());
         if (pollingRef.current) clearTimeout(pollingRef.current);
+
+        // Clean up previous search if exists before starting new one
+        if (currentRequestIdRef.current) {
+            const prevReqId = currentRequestIdRef.current;
+            fetch(`${API_URL}/asistente/cleanup/${prevReqId}`, { method: 'DELETE' })
+                .catch(console.error);
+        }
 
         try {
             const res = await fetch(`${API_URL}/asistente/search`, {
@@ -97,6 +115,7 @@ export default function AsistenteBuscadorPage() {
 
             const data = await res.json();
             const requestId = data.requestId;
+            currentRequestIdRef.current = requestId;
 
             setStatusMsg('Buscando correos y archivos (esto puede tomar un momento)...');
             pollStatus(requestId);
