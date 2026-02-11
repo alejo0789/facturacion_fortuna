@@ -59,7 +59,9 @@ async def generar_consolidado(
         .options(
             selectinload(models.Factura.proveedor),
             selectinload(models.Factura.oficinas_asignadas)
-            .selectinload(models.FacturaOficina.oficina)
+            .selectinload(models.FacturaOficina.oficina),
+            selectinload(models.Factura.oficinas_asignadas)
+            .selectinload(models.FacturaOficina.contrato)
         )
         .where(models.Factura.id.in_(request.factura_ids))
     )
@@ -87,7 +89,16 @@ async def generar_consolidado(
         info_sheet[f'A{idx}'] = factura.fecha_factura
         
         # Column F: Numero Factura
-        info_sheet[f'F{idx}'] = factura.numero_factura or ''
+        # Special case: Movistar (830122566) and Claro (800153993) use contract number
+        num_f = factura.numero_factura or ''
+        if factura.proveedor and factura.proveedor.nit in ["830122566", "800153993"]:
+            # Seek for contract number in assigned offices
+            for oa in (factura.oficinas_asignadas or []):
+                if oa.contrato and oa.contrato.num_contrato:
+                    num_f = oa.contrato.num_contrato
+                    break
+        
+        info_sheet[f'F{idx}'] = num_f
         
         # Column L: Proveedor + Oficinas
         # Format: Proveedor, codigo1, oficina1, codigo2, oficina2, ...
