@@ -172,7 +172,7 @@
                                 },
                                 "conditions": [
                                     {
-                                        "leftValue": "={{ $binary.data.fileExtension.toLowerCase() }}",
+                                        "leftValue": "={{ ($binary.data.fileExtension || $binary.data.fileName.split('.').pop()).toLowerCase() }}",
                                         "rightValue": "zip",
                                         "operator": {
                                             "type": "string",
@@ -195,7 +195,7 @@
                                 "conditions": [
                                     {
                                         "id": "2ba164c2-ce55-4a2a-9540-07c7b5c7aeac",
-                                        "leftValue": "={{ $binary.data.fileExtension.toLowerCase() }}",
+                                        "leftValue": "={{ ($binary.data.fileExtension || $binary.data.fileName.split('.').pop()).toLowerCase() }}",
                                         "rightValue": "pdf",
                                         "operator": {
                                             "type": "string",
@@ -319,7 +319,7 @@
                                 },
                                 "conditions": [
                                     {
-                                        "leftValue": "={{ $binary.data.fileExtension.toLowerCase() }}",
+                                        "leftValue": "={{ ($binary.data.fileExtension || $binary.data.fileName.split('.').pop()).toLowerCase() }}",
                                         "rightValue": "zip",
                                         "operator": {
                                             "type": "string",
@@ -342,7 +342,7 @@
                                 "conditions": [
                                     {
                                         "id": "2ba164c2-ce55-4a2a-9540-07c7b5c7aeac",
-                                        "leftValue": "={{ $binary.data.fileExtension.toLowerCase() }}",
+                                        "leftValue": "={{ ($binary.data.fileExtension || $binary.data.fileName.split('.').pop()).toLowerCase() }}",
                                         "rightValue": "pdf",
                                         "operator": {
                                             "type": "string",
@@ -496,7 +496,7 @@
                                 },
                                 "conditions": [
                                     {
-                                        "leftValue": "={{ $binary.data.fileExtension.toLowerCase() }}",
+                                        "leftValue": "={{ ($binary.data.fileExtension || $binary.data.fileName.split('.').pop()).toLowerCase() }}",
                                         "rightValue": "zip",
                                         "operator": {
                                             "type": "string",
@@ -519,7 +519,7 @@
                                 "conditions": [
                                     {
                                         "id": "1b1c149b-ae40-48a7-9357-fd8defe9530a",
-                                        "leftValue": "={{ $binary.data.fileExtension.toLowerCase() }}",
+                                        "leftValue": "={{ ($binary.data.fileExtension || $binary.data.fileName.split('.').pop()).toLowerCase() }}",
                                         "rightValue": "pdf",
                                         "operator": {
                                             "type": "string",

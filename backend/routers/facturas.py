@@ -20,8 +20,17 @@ import httpx
 import uuid
 import zipfile
 import tempfile
+import io
 import schemas, crud
 from database import get_db
+
+# Image to PDF conversion support
+try:
+    from PIL import Image
+    PILLOW_AVAILABLE = True
+except ImportError:
+    PILLOW_AVAILABLE = False
+    print("Warning: Pillow not installed. Image to PDF conversion will not be available.")
 
 router = APIRouter()
 
@@ -29,7 +38,60 @@ router = APIRouter()
 INVOICE_UPLOAD_PATH = r"\\192.168.2.20\Facturas\temp"
 WEBHOOK_URL = "https://saman.lafortuna.com.co/n8n/webhook/d15fc127-671d-4b24-8221-bac74a6f4648"
 
+# Supported file types
+PDF_EXTENSIONS = ['.pdf']
+IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png']
+SUPPORTED_EXTENSIONS = PDF_EXTENSIONS + IMAGE_EXTENSIONS
 
+
+def convert_image_to_pdf(image_content: bytes, original_filename: str) -> tuple[bytes, str]:
+    """
+    Convert an image (JPG/PNG) to PDF format.
+    
+    Args:
+        image_content: The raw bytes of the image file
+        original_filename: Original filename for generating the PDF filename
+        
+    Returns:
+        tuple: (pdf_bytes, new_filename_with_pdf_extension)
+    """
+    if not PILLOW_AVAILABLE:
+        raise HTTPException(
+            status_code=500, 
+            detail="Pillow no está instalado. No se pueden convertir imágenes a PDF."
+        )
+    
+    try:
+        # Open the image from bytes
+        image = Image.open(io.BytesIO(image_content))
+        
+        # Convert to RGB if necessary (PNG can have RGBA which PDF doesn't support well)
+        if image.mode in ('RGBA', 'LA', 'P'):
+            # Create white background
+            background = Image.new('RGB', image.size, (255, 255, 255))
+            if image.mode == 'P':
+                image = image.convert('RGBA')
+            background.paste(image, mask=image.split()[-1] if image.mode == 'RGBA' else None)
+            image = background
+        elif image.mode != 'RGB':
+            image = image.convert('RGB')
+        
+        # Save as PDF to bytes buffer
+        pdf_buffer = io.BytesIO()
+        image.save(pdf_buffer, format='PDF', resolution=100.0)
+        pdf_bytes = pdf_buffer.getvalue()
+        
+        # Generate new filename with .pdf extension
+        base_name = os.path.splitext(original_filename)[0]
+        new_filename = f"{base_name}.pdf"
+        
+        return pdf_bytes, new_filename
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error convirtiendo imagen a PDF: {str(e)}"
+        )
 
 
 # --- Main Factura Endpoints ---
@@ -393,6 +455,48 @@ async def create_factura_con_oficinas(
         }
 
 
+def enrich_factura_with_file_info(factura: models.Factura) -> schemas.Factura:
+    """Calculates the expected UNC path and checks if the file exists"""
+    # Convert to Pydantic object first if it's a model
+    if hasattr(factura, "__dict__"):
+        factura_schema = schemas.Factura.model_validate(factura)
+    else:
+        factura_schema = factura
+
+    if not factura_schema.url_factura:
+        factura_schema.file_exists = False
+        factura_schema.storage_path = "Sin URL asignada"
+        return factura_schema
+
+    url = factura_schema.url_factura
+    unc_path = ""
+    
+    # Logic copied from ver_factura
+    if url.startswith("file://"):
+        path_part = url[7:]
+        path_part = unquote(path_part)
+        unc_path = "\\\\" + path_part.replace("/", "\\")
+    elif url.startswith("\\\\"):
+        unc_path = unquote(url)
+    else:
+        # HTTP or other
+        unc_path = url
+
+    factura_schema.storage_path = unc_path
+    
+    # Check if it's a local/network path and if it exists
+    if unc_path.startswith("\\\\") or (len(unc_path) > 1 and unc_path[1] == ":"):
+        try:
+            factura_schema.file_exists = os.path.exists(unc_path)
+        except:
+            factura_schema.file_exists = False
+    else:
+        # For HTTP URLs we don't easily check existence here without a request
+        factura_schema.file_exists = True # Assume true if it's a web URL for now
+        
+    return factura_schema
+
+
 @router.get("/facturas/", response_model=List[schemas.Factura])
 async def list_facturas(
     skip: int = 0,
@@ -411,18 +515,6 @@ async def list_facturas(
 ):
     """
     List facturas with optional filters.
-    
-    - search: Search by proveedor name/NIT, oficina name, factura number, or CUFE
-    - estado: Filter by estado (PENDIENTE, ASIGNADA, PAGADA)
-    - proveedor_id: Filter by proveedor
-    - categoria_id: Filter by category (role-based access control)
-    - oficina_id: Filter by oficina (includes oficinas_asignadas)
-    - fecha_desde: Filter invoices from this date
-    - fecha_hasta: Filter invoices until this date
-    - solo_pendientes: Only show facturas without assigned contrato
-    
-    If X-User-Id and X-User-Rol-Id headers are provided, results will be filtered
-    to only show facturas from categories accessible to that role (unless super admin).
     """
     # Check if user is super admin
     from routers.categorias import is_super_admin, get_user_categoria_ids
@@ -437,7 +529,7 @@ async def list_facturas(
                 # Return empty - user doesn't have access to this category
                 return []
     
-    return await crud.get_facturas(
+    facturas_models = await crud.get_facturas(
         db, skip=skip, limit=limit, search=search, 
         estado=estado, proveedor_id=proveedor_id, 
         solo_pendientes=solo_pendientes,
@@ -446,6 +538,9 @@ async def list_facturas(
         categoria_id=categoria_id,
         allowed_categoria_ids=allowed_categoria_ids
     )
+    
+    # Enrich with file info
+    return [enrich_factura_with_file_info(f) for f in facturas_models]
 
 
 @router.get("/facturas/{factura_id}", response_model=schemas.Factura)
@@ -454,7 +549,8 @@ async def get_factura(factura_id: int, db: AsyncSession = Depends(get_db)):
     factura = await crud.get_factura(db, factura_id)
     if not factura:
         raise HTTPException(status_code=404, detail="Factura no encontrada")
-    return factura
+    
+    return enrich_factura_with_file_info(factura)
 
 
 @router.put("/facturas/{factura_id}", response_model=schemas.Factura)
@@ -901,31 +997,49 @@ async def upload_factura_pdf(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Upload a PDF file for OCR processing by n8n.
+    Upload a PDF or image file (JPG/PNG) for OCR processing by n8n.
     
-    This endpoint is synchronous - it waits for n8n to process the PDF and respond.
-    n8n uses "Respond to Webhook" node to return the result.
+    If an image is uploaded, it will be automatically converted to PDF before processing.
+    This allows the n8n workflow to continue working with PDF-only filters.
+    
+    Supported formats: PDF, JPG, JPEG, PNG
     
     Flow:
-    1. Frontend uploads PDF
-    2. Backend saves PDF and calls webhook
-    3. Backend WAITS for n8n to respond (up to 120 seconds)
-    4. n8n processes the PDF (OCR, extraction), creates factura
-    5. n8n responds with the result
-    6. Backend returns the result to frontend
+    1. Frontend uploads PDF or image
+    2. If image: convert to PDF automatically
+    3. Backend saves PDF and calls webhook
+    4. Backend WAITS for n8n to respond (up to 120 seconds)
+    5. n8n processes the PDF (OCR, extraction), creates factura
+    6. n8n responds with the result
+    7. Backend returns the result to frontend
     
     n8n should respond with JSON:
     - Success: {"success": true, "factura_id": 123, "factura": {...}}
     - Error: {"success": false, "error": "Error message"}
     """
-    # Validate file type
-    if not file.filename.lower().endswith('.pdf'):
-        raise HTTPException(status_code=400, detail="Solo se permiten archivos PDF")
+    original_filename = file.filename
+    file_extension = os.path.splitext(original_filename)[1].lower()
     
-    # Generate unique filename
+    # Validate file type
+    if file_extension not in SUPPORTED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Formato no soportado. Formatos permitidos: PDF, JPG, JPEG, PNG"
+        )
+    
+    # Read file content
+    content = await file.read()
+    
+    # Convert image to PDF if necessary
+    was_converted = False
+    if file_extension in IMAGE_EXTENSIONS:
+        content, original_filename = convert_image_to_pdf(content, original_filename)
+        was_converted = True
+    
+    # Generate unique filename (always .pdf at this point)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     unique_id = str(uuid.uuid4())[:8]
-    safe_filename = f"{timestamp}_{unique_id}_{file.filename}"
+    safe_filename = f"{timestamp}_{unique_id}_{original_filename}"
     
     # Create full path
     file_path = os.path.join(INVOICE_UPLOAD_PATH, safe_filename)
@@ -936,7 +1050,6 @@ async def upload_factura_pdf(
         if not os.path.exists(INVOICE_UPLOAD_PATH):
             os.makedirs(INVOICE_UPLOAD_PATH, exist_ok=True)
         
-        content = await file.read()
         with open(file_path, "wb") as f:
             f.write(content)
         
@@ -955,7 +1068,9 @@ async def upload_factura_pdf(
                 "file_url": url_factura,
                 "filename": safe_filename,
                 "original_filename": file.filename,
-                "uploaded_at": datetime.now().isoformat()
+                "uploaded_at": datetime.now().isoformat(),
+                "converted_from_image": was_converted,
+                "original_format": file_extension.replace(".", "").upper() if was_converted else "PDF"
             }
             
             response = await client.post(WEBHOOK_URL, json=webhook_data)
@@ -969,9 +1084,10 @@ async def upload_factura_pdf(
                     if n8n_result.get("success"):
                         return {
                             "ok": True,
-                            "message": "Factura procesada correctamente",
+                            "message": "Factura procesada correctamente" + (" (imagen convertida a PDF)" if was_converted else ""),
                             "file_url": url_factura,
                             "filename": safe_filename,
+                            "converted_from_image": was_converted,
                             "factura_id": n8n_result.get("factura_id"),
                             "factura": n8n_result.get("factura"),
                             "n8n_response": n8n_result

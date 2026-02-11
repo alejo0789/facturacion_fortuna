@@ -276,6 +276,10 @@ class Factura(FacturaBase):
     oficinas_asignadas: list[FacturaOficina] = []  # New: multiple oficinas
     created_at: Optional[datetime] = None  # When invoice was received
     
+    # Debugging/Info fields
+    storage_path: Optional[str] = None  # Expected network path
+    file_exists: Optional[bool] = None  # Whether the file was found
+    
     class Config:
         from_attributes = True
 
