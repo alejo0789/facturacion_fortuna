@@ -212,29 +212,26 @@ async def preview_temp_file(filename: str):
 @router.delete("/asistente/cleanup/{request_id}")
 async def cleanup_temp_files(request_id: str):
     """
-    Elimina los archivos temporales asociados a una búsqueda específica y limpia el caché.
-    Se debe llamar al salir de la página de resultados.
+    Elimina TODOS los archivos temporales en la carpeta temp_buscador.
+    Se ignora el request_id para el borrado de archivos, pero se usa para limpiar caché.
     """
     # 1. Limpiar caché
     if request_id in search_cache:
         del search_cache[request_id]
     
-    # 2. Eliminar archivos físicos
-    # Los archivos tienen el formato: temp_{request_id}_{filename}
-    prefix = f"temp_{request_id}_"
-    
+    # 2. Eliminar TODOS los archivos físicos en la carpeta temporal
     deleted_count = 0
     try:
         if os.path.exists(TEMPORAL_FILES_PATH):
             for filename in os.listdir(TEMPORAL_FILES_PATH):
-                if filename.startswith(prefix):
-                    file_path = os.path.join(TEMPORAL_FILES_PATH, filename)
-                    try:
+                file_path = os.path.join(TEMPORAL_FILES_PATH, filename)
+                try:
+                    if os.path.isfile(file_path):
                         os.remove(file_path)
                         deleted_count += 1
-                    except Exception as e:
-                        print(f"Error borrando archivo temporal {filename}: {e}")
+                except Exception as e:
+                    print(f"Error borrando archivo temporal {filename}: {e}")
                         
-        return {"message": f"Limpieza completada. {deleted_count} archivos eliminados."}
+        return {"message": f"Limpieza TOTAL completada. {deleted_count} archivos eliminados."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error en limpieza: {str(e)}")
