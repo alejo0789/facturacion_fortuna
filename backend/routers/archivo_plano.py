@@ -139,6 +139,14 @@ def get_month_name_spanish(d: date) -> str:
     return months.get(d.month, "")
 
 
+def build_detalle(numero_factura: str, nombre_oficina: str, mes_factura: str, proveedor_nit: str, num_contrato: Optional[str] = None) -> str:
+    """Helper to build consistent detail strings with special rules for certain NITs"""
+    nit_especiales = ["830114921", "830122566", "800153993"]
+    if proveedor_nit in nit_especiales and num_contrato:
+        return f"FACT {numero_factura}, Contrato {num_contrato}, SERVICIO DE INTERNET {nombre_oficina} MES {mes_factura}"
+    return f"FACT {numero_factura} SERVICIO DE INTERNET {nombre_oficina} MES {mes_factura}"
+
+
 def create_flat_file_row(
     row_index: int,  # Excel row number (2, 3, 4...) for formulas
     empresa: str = "101",  # Must be text, not number
@@ -262,15 +270,17 @@ async def generate_rows_for_oficina(
     vinculado = format_value(proveedor_nit)
     destino = format_value(clean_oficina_code(oficina.cod_oficina))
     
-    # Build DETALLE: FACT {num} SERVICIO DE INTERNET {oficina} MES {mes}
+    # Build DETALLE
     nombre_oficina = oficina.nombre_oficina or oficina.cod_oficina
     mes_factura = get_month_name_spanish(fecha_factura) if fecha_factura else ""
     
-    # Special rule for TIGO (NIT 830114921)
-    if proveedor_nit == "830114921" and oficina.num_contrato:
-        detalle = f"FACT {numero_factura}, Contrato {oficina.num_contrato}, SERVICIO DE INTERNET {nombre_oficina} MES {mes_factura}"
-    else:
-        detalle = f"FACT {numero_factura} SERVICIO DE INTERNET {nombre_oficina} MES {mes_factura}"
+    detalle = build_detalle(
+        numero_factura=numero_factura,
+        nombre_oficina=nombre_oficina,
+        mes_factura=mes_factura,
+        proveedor_nit=proveedor_nit,
+        num_contrato=oficina.num_contrato
+    )
     
     valor = float(oficina.valor)
     
@@ -699,11 +709,14 @@ async def preview_causacion_manager(request: CausacionManagerPreviewRequest):
             destino = clean_oficina_code(oficina.cod_oficina)
             nombre_oficina = oficina.nombre_oficina or oficina.cod_oficina
             mes_factura = get_month_name_spanish(factura.fecha_factura) if factura.fecha_factura else ""
-            # Special rule for TIGO (NIT 830114921)
-            if request.proveedor_nit == "830114921" and oficina.num_contrato:
-                detalle = f"FACT {factura.numero_factura or ''}, Contrato {oficina.num_contrato}, SERVICIO DE INTERNET {nombre_oficina} MES {mes_factura}"
-            else:
-                detalle = f"FACT {factura.numero_factura or ''} SERVICIO DE INTERNET {nombre_oficina} MES {mes_factura}"
+            
+            detalle = build_detalle(
+                numero_factura=factura.numero_factura or '',
+                nombre_oficina=nombre_oficina,
+                mes_factura=mes_factura,
+                proveedor_nit=request.proveedor_nit,
+                num_contrato=oficina.num_contrato
+            )
             
             valor = float(oficina.valor)
             
@@ -755,7 +768,13 @@ async def preview_causacion_manager(request: CausacionManagerPreviewRequest):
             last_destino = clean_oficina_code(last_oficina.cod_oficina)
             last_nombre = last_oficina.nombre_oficina or last_oficina.cod_oficina
             last_mes = get_month_name_spanish(factura.fecha_factura) if factura.fecha_factura else ""
-            last_detalle = f"FACT {factura.numero_factura or ''} SERVICIO DE INTERNET {last_nombre} MES {last_mes}"
+            last_detalle = build_detalle(
+                numero_factura=factura.numero_factura or '',
+                nombre_oficina=last_nombre,
+                mes_factura=last_mes,
+                proveedor_nit=request.proveedor_nit,
+                num_contrato=last_oficina.num_contrato
+            )
         
         # IVA row (DEBITO)
         if request.tiene_iva and factura_iva > 0:
@@ -898,7 +917,13 @@ async def insertar_causacion_manager(request: CausacionInsertRequest):
             # Build detalle for header
             nombre_oficina = first_oficina.nombre_oficina or first_oficina.cod_oficina
             mes_factura = get_month_name_spanish(factura.fecha_factura) if factura.fecha_factura else ""
-            detalle = f"FACT {factura.numero_factura or ''} SERVICIO DE INTERNET {nombre_oficina} MES {mes_factura}"
+            detalle = build_detalle(
+                numero_factura=factura.numero_factura or '',
+                nombre_oficina=nombre_oficina,
+                mes_factura=mes_factura,
+                proveedor_nit=request.proveedor_nit,
+                num_contrato=first_oficina.num_contrato
+            )
             
             # === INSERT INTO MNGDOC (Header) ===
             cursor.execute("""
@@ -942,11 +967,14 @@ async def insertar_causacion_manager(request: CausacionInsertRequest):
                 destino = oficina.cod_oficina
                 nombre_oficina = oficina.nombre_oficina or oficina.cod_oficina
                 mes_factura = get_month_name_spanish(factura.fecha_factura) if factura.fecha_factura else ""
-                # Special rule for TIGO (NIT 830114921)
-                if request.proveedor_nit == "830114921" and oficina.num_contrato:
-                    detalle = f"FACT {factura.numero_factura or ''}, Contrato {oficina.num_contrato}, SERVICIO DE INTERNET {nombre_oficina} MES {mes_factura}"
-                else:
-                    detalle = f"FACT {factura.numero_factura or ''} SERVICIO DE INTERNET {nombre_oficina} MES {mes_factura}"
+                
+                detalle = build_detalle(
+                    numero_factura=factura.numero_factura or '',
+                    nombre_oficina=nombre_oficina,
+                    mes_factura=mes_factura,
+                    proveedor_nit=request.proveedor_nit,
+                    num_contrato=oficina.num_contrato
+                )
                 
                 valor = float(oficina.valor)
                 
@@ -1043,7 +1071,13 @@ async def insertar_causacion_manager(request: CausacionInsertRequest):
             last_destino = last_oficina.cod_oficina
             last_nombre = last_oficina.nombre_oficina or last_oficina.cod_oficina
             last_mes = get_month_name_spanish(factura.fecha_factura) if factura.fecha_factura else ""
-            last_detalle = f"FACT {factura.numero_factura or ''} SERVICIO DE INTERNET {last_nombre} MES {last_mes}"
+            last_detalle = build_detalle(
+                numero_factura=factura.numero_factura or '',
+                nombre_oficina=last_nombre,
+                mes_factura=last_mes,
+                proveedor_nit=request.proveedor_nit,
+                num_contrato=last_oficina.num_contrato
+            )
             
             # Row: IVA (DEBITO) - Account 24081003
             if request.tiene_iva and factura_iva > 0:
