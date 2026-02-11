@@ -62,7 +62,11 @@ def clean_oficina_code(cod_oficina: str) -> str:
     if "_INT_" in upper_cod:
         # Split using the uppercase version to find the position, but slice the original
         idx = upper_cod.find("_INT_")
-        return cod_oficina[:idx]
+        res = cod_oficina[:idx]
+        # REGLA ESPECIAL: Si lo que queda es '001', asegurar que no haya colas
+        if res.strip() == "001":
+            return "001"
+        return res
     return cod_oficina
 
 
