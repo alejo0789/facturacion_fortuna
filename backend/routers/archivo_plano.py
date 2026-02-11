@@ -925,7 +925,7 @@ async def insertar_causacion_manager(request: CausacionInsertRequest):
             first_oficina = factura.oficinas[0]
             ccosto_raw = await get_centro_costo(first_oficina.cod_oficina)
             ccosto = ccosto_raw if ccosto_raw else "."
-            destino = first_oficina.cod_oficina
+            destino = clean_oficina_code(first_oficina.cod_oficina)
             
             # Build detalle for header
             nombre_oficina = first_oficina.nombre_oficina or first_oficina.cod_oficina
@@ -977,7 +977,7 @@ async def insertar_causacion_manager(request: CausacionInsertRequest):
             for oficina in factura.oficinas:
                 ccosto_raw = await get_centro_costo(oficina.cod_oficina)
                 ccosto = ccosto_raw if ccosto_raw else "."
-                destino = oficina.cod_oficina
+                destino = clean_oficina_code(oficina.cod_oficina)
                 nombre_oficina = oficina.nombre_oficina or oficina.cod_oficina
                 mes_factura = get_month_name_spanish(factura.fecha_factura) if factura.fecha_factura else ""
                 
@@ -1081,7 +1081,7 @@ async def insertar_causacion_manager(request: CausacionInsertRequest):
             last_oficina = factura.oficinas[-1]
             last_ccosto_raw = await get_centro_costo(last_oficina.cod_oficina)
             last_ccosto = last_ccosto_raw if last_ccosto_raw else "."
-            last_destino = last_oficina.cod_oficina
+            last_destino = clean_oficina_code(last_oficina.cod_oficina)
             last_nombre = last_oficina.nombre_oficina or last_oficina.cod_oficina
             last_mes = get_month_name_spanish(factura.fecha_factura) if factura.fecha_factura else ""
             last_detalle = build_detalle(

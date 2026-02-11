@@ -37,6 +37,7 @@ import re
 PUBLIC_PATTERNS = [
     re.compile(r"^/api/facturas/\d+/ver$"),  # Ver PDFs de facturas
     re.compile(r"^/api/contratos/\d+/pdf$"),  # Ver PDFs de contratos
+    re.compile(r"^/api/asistente/preview/.*$"),  # Ver PDFs temporales de asistente
 ]
 
 class APIKeyMiddleware(BaseHTTPMiddleware):

@@ -80,6 +80,10 @@ async def get_search_result(request_id: str):
         raise HTTPException(status_code=404, detail="Request ID not found")
     return search_cache[request_id]
 
+import json
+
+# ... (omitted)
+
 @router.post("/asistente/callback/search-results")
 async def receive_search_results(payload: dict):
     """
@@ -93,6 +97,14 @@ async def receive_search_results(payload: dict):
     
     files = payload.get("files", [])
     
+    # Handle case where n8n sends JSON string instead of list
+    if isinstance(files, str):
+        try:
+            files = json.loads(files)
+        except json.JSONDecodeError:
+            # If invalid JSON, fallback to empty list or keep as is (likely error state)
+            files = []
+
     # Update cache
     search_cache[req_id].status = "completed"
     search_cache[req_id].data = files
@@ -119,3 +131,25 @@ async def process_documents(query: ProcessQuery):
         raise HTTPException(status_code=503, detail=f"Error conectando con n8n: {str(e)}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+from fastapi.responses import FileResponse
+from urllib.parse import unquote
+import os
+
+TEMPORAL_FILES_PATH = r"\\192.168.2.20\Facturas\temp_buscador"
+
+@router.get("/asistente/preview/{filename}")
+async def preview_temp_file(filename: str):
+    """
+    Serve a temporary PDF file for preview.
+    """
+    # Security: Prevent path traversal
+    if ".." in filename or "/" in filename or "\\" in filename:
+         raise HTTPException(status_code=400, detail="Invalid filename")
+
+    file_path = os.path.join(TEMPORAL_FILES_PATH, filename)
+    
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="File not found or expired")
+
+    return FileResponse(file_path, media_type="application/pdf", filename=filename, content_disposition_type="inline")

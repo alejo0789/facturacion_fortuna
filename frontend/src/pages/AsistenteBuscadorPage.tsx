@@ -9,6 +9,7 @@ interface SearchResult {
     type: string;
     sourceId: string;
     date: string;
+    storage_path?: string;
 }
 
 export default function AsistenteBuscadorPage() {
@@ -22,6 +23,7 @@ export default function AsistenteBuscadorPage() {
     const [processing, setProcessing] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [successMsg, setSuccessMsg] = useState<string | null>(null);
+    const [previewFile, setPreviewFile] = useState<string | null>(null);
 
     // Polling ref
     const pollingRef = useRef<number | null>(null);
@@ -42,7 +44,12 @@ export default function AsistenteBuscadorPage() {
             } else {
                 const data = await res.json();
                 if (data.status === 'completed') {
-                    setResults(data.data || []);
+                    if (Array.isArray(data.data)) {
+                        setResults(data.data);
+                    } else {
+                        console.warn("Received non-array data:", data.data);
+                        setResults([]);
+                    }
                     setLoading(false);
                     setStatusMsg('');
                     return; // Stop polling
@@ -238,6 +245,19 @@ export default function AsistenteBuscadorPage() {
                 </div>
             )}
 
+            {/* Empty Results State */}
+            {!loading && !statusMsg && !error && results.length === 0 && (
+                <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-8 text-center">
+                    <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <svg className="w-8 h-8 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                        </svg>
+                    </div>
+                    <h3 className="text-lg font-medium text-slate-800 mb-2">No se encontraron archivos</h3>
+                    <p className="text-slate-500">Intenta ajustar los filtros de búsqueda</p>
+                </div>
+            )}
+
             {/* Results */}
             {results.length > 0 && (
                 <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
@@ -275,6 +295,7 @@ export default function AsistenteBuscadorPage() {
                                         />
                                     </th>
                                     <th className="p-4">Archivo</th>
+                                    <th className="p-4 w-10"></th>
                                     <th className="p-4">Tamaño</th>
                                     <th className="p-4">Tipo</th>
                                     <th className="p-4">Remitente</th>
@@ -302,6 +323,20 @@ export default function AsistenteBuscadorPage() {
                                                     {file.filename}
                                                 </div>
                                             </td>
+                                            <td className="p-4 w-10">
+                                                {file.storage_path ? (
+                                                    <button
+                                                        onClick={() => setPreviewFile(`${API_URL}/asistente/preview/${encodeURIComponent(file.storage_path!.split('\\').pop() || '')}`)}
+                                                        className="text-slate-400 hover:text-blue-600 transition-colors"
+                                                        title="Ver PDF"
+                                                    >
+                                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                                        </svg>
+                                                    </button>
+                                                ) : <span className="text-slate-200">-</span>}
+                                            </td>
                                             <td className="p-4 text-slate-500">{(file.size / 1024).toFixed(1)} KB</td>
                                             <td className="p-4 text-slate-500">{file.type}</td>
                                             <td className="p-4 text-slate-500 text-xs">{(file as any).sender}</td>
@@ -311,6 +346,31 @@ export default function AsistenteBuscadorPage() {
                                 })}
                             </tbody>
                         </table>
+                    </div>
+                </div>
+            )}
+            {/* Preview Modal */}
+            {previewFile && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={() => setPreviewFile(null)}>
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl h-[90vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+                        <div className="flex justify-between items-center p-4 border-b border-slate-200">
+                            <h3 className="font-semibold text-slate-800">Vista Previa</h3>
+                            <button
+                                onClick={() => setPreviewFile(null)}
+                                className="text-slate-400 hover:text-slate-600 transition-colors p-1 rounded-full hover:bg-slate-100"
+                            >
+                                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+                        <div className="flex-1 bg-slate-100 p-4">
+                            <iframe
+                                src={previewFile}
+                                className="w-full h-full rounded-lg border border-slate-200 shadow-sm bg-white"
+                                title="Vista Previa de PDF"
+                            />
+                        </div>
                     </div>
                 </div>
             )}

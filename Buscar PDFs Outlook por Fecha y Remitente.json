@@ -150,6 +150,21 @@
     },
     {
       "parameters": {
+        "operation": "write",
+        "fileName": "=\\\\\\\\192.168.2.20\\\\Facturas\\\\temp_buscador\\\\temp_{{$json.requestId}}_{{$json.filename}}",
+        "dataPropertyName": "data"
+      },
+      "name": "Guardar Temporal",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        1850,
+        720
+      ],
+      "id": "write-temp-file-001"
+    },
+    {
+      "parameters": {
         "operation": "getAll",
         "returnAll": true,
         "output": "raw",
@@ -186,11 +201,11 @@
           "parameter": [
             {
               "name": "requestId",
-              "value": "={{$json.requestId}}"
+              "value": "={{ $('Webhook Entrada').first().json.body.requestId }}"
             },
             {
               "name": "files",
-              "value": "={{$items(\"Unir PDFs\")}}"
+              "value": "={{ $items(\"Guardar Temporal\").map(i => ({ filename: i.json.filename, size: i.json.size, type: i.json.type, sourceId: i.json.sourceId, date: i.json.date, sender: i.json.sender, storage_path: i.json.fileName || ('temp_' + i.json.requestId + '_' + i.json.filename) })) }}"
             }
           ]
         }
@@ -199,7 +214,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
       "position": [
-        1952,
+        2050,
         720
       ],
       "id": "0476db83-6e28-4d02-8071-608f7a1f5a1a"
@@ -320,6 +335,17 @@
       ]
     },
     "Unir PDFs": {
+      "main": [
+        [
+          {
+            "node": "Guardar Temporal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar Temporal": {
       "main": [
         [
           {
