@@ -393,6 +393,48 @@ async def create_factura_con_oficinas(
         }
 
 
+def enrich_factura_with_file_info(factura: models.Factura) -> schemas.Factura:
+    """Calculates the expected UNC path and checks if the file exists"""
+    # Convert to Pydantic object first if it's a model
+    if hasattr(factura, "__dict__"):
+        factura_schema = schemas.Factura.model_validate(factura)
+    else:
+        factura_schema = factura
+
+    if not factura_schema.url_factura:
+        factura_schema.file_exists = False
+        factura_schema.storage_path = "Sin URL asignada"
+        return factura_schema
+
+    url = factura_schema.url_factura
+    unc_path = ""
+    
+    # Logic copied from ver_factura
+    if url.startswith("file://"):
+        path_part = url[7:]
+        path_part = unquote(path_part)
+        unc_path = "\\\\" + path_part.replace("/", "\\")
+    elif url.startswith("\\\\"):
+        unc_path = unquote(url)
+    else:
+        # HTTP or other
+        unc_path = url
+
+    factura_schema.storage_path = unc_path
+    
+    # Check if it's a local/network path and if it exists
+    if unc_path.startswith("\\\\") or (len(unc_path) > 1 and unc_path[1] == ":"):
+        try:
+            factura_schema.file_exists = os.path.exists(unc_path)
+        except:
+            factura_schema.file_exists = False
+    else:
+        # For HTTP URLs we don't easily check existence here without a request
+        factura_schema.file_exists = True # Assume true if it's a web URL for now
+        
+    return factura_schema
+
+
 @router.get("/facturas/", response_model=List[schemas.Factura])
 async def list_facturas(
     skip: int = 0,
@@ -408,22 +450,17 @@ async def list_facturas(
 ):
     """
     List facturas with optional filters.
-    
-    - search: Search by proveedor name/NIT, oficina name, factura number, or CUFE
-    - estado: Filter by estado (PENDIENTE, ASIGNADA, PAGADA)
-    - proveedor_id: Filter by proveedor
-    - oficina_id: Filter by oficina (includes oficinas_asignadas)
-    - fecha_desde: Filter invoices from this date
-    - fecha_hasta: Filter invoices until this date
-    - solo_pendientes: Only show facturas without assigned contrato
     """
-    return await crud.get_facturas(
+    facturas_models = await crud.get_facturas(
         db, skip=skip, limit=limit, search=search, 
         estado=estado, proveedor_id=proveedor_id, 
         solo_pendientes=solo_pendientes,
         fecha_desde=fecha_desde, fecha_hasta=fecha_hasta,
         oficina_id=oficina_id
     )
+    
+    # Enrich with file info
+    return [enrich_factura_with_file_info(f) for f in facturas_models]
 
 
 @router.get("/facturas/{factura_id}", response_model=schemas.Factura)
@@ -432,7 +469,8 @@ async def get_factura(factura_id: int, db: AsyncSession = Depends(get_db)):
     factura = await crud.get_factura(db, factura_id)
     if not factura:
         raise HTTPException(status_code=404, detail="Factura no encontrada")
-    return factura
+    
+    return enrich_factura_with_file_info(factura)
 
 
 @router.put("/facturas/{factura_id}", response_model=schemas.Factura)

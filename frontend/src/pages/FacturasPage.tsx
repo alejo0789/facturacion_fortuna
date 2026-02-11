@@ -1519,12 +1519,33 @@ export default function FacturasPage() {
                                             <span className="block text-gray-400 text-xs uppercase">Vencimiento</span>
                                             <span className="text-gray-700">{f.fecha_vencimiento || '-'}</span>
                                         </div>
+                                        <div>
+                                            <span className="block text-gray-400 text-xs uppercase">Procesada</span>
+                                            <span className="text-gray-700 font-medium">{f.created_at ? new Date(f.created_at).toLocaleString('es-CO') : '-'}</span>
+                                        </div>
                                     </div>
 
                                     {f.cufe && (
                                         <div className="mt-2">
                                             <span className="block text-gray-400 text-xs uppercase">CUFE</span>
                                             <span className="font-mono text-xs text-gray-500 break-all">{f.cufe}</span>
+                                        </div>
+                                    )}
+
+                                    {f.url_factura && (
+                                        <div className="mt-2 bg-gray-50 p-2 rounded border border-gray-100">
+                                            <span className="block text-gray-400 text-xs uppercase mb-1">Ubicación del Archivo</span>
+                                            <div className="flex items-start gap-2">
+                                                <div className={`mt-1 h-2 w-2 rounded-full flex-shrink-0 ${f.file_exists ? 'bg-green-500' : 'bg-red-500'}`} title={f.file_exists ? 'Archivo encontrado' : 'Archivo NO encontrado'}></div>
+                                                <span className="font-mono text-[10px] text-gray-500 break-all leading-tight">
+                                                    {f.storage_path || f.url_factura}
+                                                </span>
+                                            </div>
+                                            {!f.file_exists && (
+                                                <p className="text-[10px] text-red-500 mt-1 font-medium italic">
+                                                    Error: El archivo no se encuentra en la ruta esperada.
+                                                </p>
+                                            )}
                                         </div>
                                     )}
                                 </div>

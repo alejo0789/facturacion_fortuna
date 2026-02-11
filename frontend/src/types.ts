@@ -75,6 +75,8 @@ export interface Factura {
     url_factura?: string;
     observaciones?: string;
     created_at?: string;  // When invoice was received/uploaded
+    storage_path?: string; // Expected network path
+    file_exists?: boolean; // Whether the file exists
 
     // New: multiple oficinas with individual values
     oficinas_asignadas?: FacturaOficina[];
