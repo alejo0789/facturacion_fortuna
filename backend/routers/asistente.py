@@ -111,32 +111,87 @@ async def receive_search_results(payload: dict):
     
     return {"status": "received"}
 
-@router.post("/asistente/process")
-async def process_documents(query: ProcessQuery):
+import shutil
+import asyncio
+
+# Configuration from facturas.py (replicated here)
+INVOICE_UPLOAD_PATH = r"\\192.168.2.20\Facturas\temp"
+TEMPORAL_FILES_PATH = r"\\192.168.2.20\Facturas\temp_buscador"
+# ID del webhook de subida manual (tomado de facturas.py)
+WEBHOOK_URL_MANUAL = "https://saman.lafortuna.com.co/n8n/webhook/d15fc127-671d-4b24-8221-bac74a6f4648"
+
+async def process_single_file_task(file_info: dict):
     """
-    Envía los archivos seleccionados al flujo de procesamiento.
+    Tarea en segundo plano para procesar un solo archivo:
+    1. Copiar de temp_buscador a temp (procesamiento manual)
+    2. Llamar al webhook de n8n
     """
     try:
-        async with httpx.AsyncClient() as client:
-            # This can also be async if needed, but keeping sync for now as per reliable receipt confirmation
-            response = await client.post(
-                N8N_PROCESS_WEBHOOK,
-                json={"files": query.files},
-                timeout=30.0
-            )
-            response.raise_for_status()
-            return response.json()
+        filename = file_info.get("filename")
+        storage_path = file_info.get("storage_path")
+        
+        # Si storage_path es una ruta completa, extraemos solo el nombre
+        if "\\" in storage_path:
+            storage_path = storage_path.split("\\")[-1]
+            
+        source_path = os.path.join(TEMPORAL_FILES_PATH, storage_path)
+        
+        if not os.path.exists(source_path):
+            print(f"Error: Archivo no encontrado {source_path}")
+            return
 
-    except httpx.RequestError as e:
-        raise HTTPException(status_code=503, detail=f"Error conectando con n8n: {str(e)}")
+        # Generar nombre único para destino (igual que en facturas.py)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        unique_id = str(uuid.uuid4())[:8]
+        safe_filename = f"{timestamp}_{unique_id}_{filename}"
+        
+        dest_path = os.path.join(INVOICE_UPLOAD_PATH, safe_filename)
+        url_factura = f"file://192.168.2.20/Facturas/temp/{safe_filename}"
+        
+        # Copiar archivo
+        shutil.copy2(source_path, dest_path)
+        
+        # Llamar al webhook
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            webhook_data = {
+                "event": "invoice_uploaded_via_search",
+                "file_path": dest_path,
+                "file_url": url_factura,
+                "filename": safe_filename,
+                "original_filename": filename,
+                "uploaded_at": datetime.now().isoformat()
+            }
+            # No esperamos respuesta (fire and forget en background) para no bloquear
+            # Ojo: Si el n8n falla, no nos enteramos aquí.
+            await client.post(WEBHOOK_URL_MANUAL, json=webhook_data)
+            
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"Error procesando archivo {filename}: {e}")
+
+@router.post("/asistente/process")
+async def process_documents(query: ProcessQuery, background_tasks: BackgroundTasks):
+    """
+    Envía los archivos seleccionados al flujo de procesamiento manual.
+    Se ejecuta en segundo plano para no bloquear al usuario.
+    """
+    if not query.files:
+        raise HTTPException(status_code=400, detail="No se seleccionaron archivos")
+
+    # Asegurar que directorio destino existe
+    if not os.path.exists(INVOICE_UPLOAD_PATH):
+        os.makedirs(INVOICE_UPLOAD_PATH, exist_ok=True)
+
+    count = 0
+    for file_info in query.files:
+        if file_info.get("storage_path"):
+            background_tasks.add_task(process_single_file_task, file_info)
+            count += 1
+            
+    return {"message": f"Se han enviado {count} archivos a procesar en segundo plano."}
 
 from fastapi.responses import FileResponse
 from urllib.parse import unquote
 import os
-
-TEMPORAL_FILES_PATH = r"\\192.168.2.20\Facturas\temp_buscador"
 
 @router.get("/asistente/preview/{filename}")
 async def preview_temp_file(filename: str):
