@@ -59,6 +59,10 @@ def clean_oficina_code(cod_oficina: str) -> str:
     if not cod_oficina:
         return cod_oficina
     upper_cod = cod_oficina.upper()
+    # REGLA DE EMERGENCIA: Si el código es de la serie 001, forzar 001
+    if "001_INT" in upper_cod:
+        return "001"
+        
     if "_INT_" in upper_cod:
         # Split using the uppercase version to find the position, but slice the original
         idx = upper_cod.find("_INT_")
