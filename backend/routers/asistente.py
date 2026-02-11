@@ -31,7 +31,7 @@ search_cache: Dict[str, SearchResult] = {}
 N8N_SEARCH_WEBHOOK = os.getenv("N8N_SEARCH_WEBHOOK", "https://your-n8n-instance.com/webhook/search-email")
 N8N_PROCESS_WEBHOOK = os.getenv("N8N_PROCESS_WEBHOOK", "https://your-n8n-instance.com/webhook/process-email")
 
-@router.post("/search")
+@router.post("/asistente/search")
 async def search_emails_async(query: SearchQuery):
     """
     Inicia búsqueda asíncrona de correos via n8n.
@@ -74,13 +74,13 @@ async def search_emails_async(query: SearchQuery):
         search_cache[request_id].error = str(e)
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/search/{request_id}")
+@router.get("/asistente/search/{request_id}")
 async def get_search_result(request_id: str):
     if request_id not in search_cache:
         raise HTTPException(status_code=404, detail="Request ID not found")
     return search_cache[request_id]
 
-@router.post("/callback/search-results")
+@router.post("/asistente/callback/search-results")
 async def receive_search_results(payload: dict):
     """
     Endpoint for n8n to push results back.
@@ -99,7 +99,7 @@ async def receive_search_results(payload: dict):
     
     return {"status": "received"}
 
-@router.post("/process")
+@router.post("/asistente/process")
 async def process_documents(query: ProcessQuery):
     """
     Envía los archivos seleccionados al flujo de procesamiento.
