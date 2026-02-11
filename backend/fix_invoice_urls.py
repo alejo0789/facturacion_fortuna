@@ -7,8 +7,8 @@ from models import Factura
 async def fix_urls():
     # Invoices to fix: { numero_factura: new_url }
     to_fix = {
-        "580831421034": r"\\192.168.2.20\Facturas\febrero\5\RepGrafica_580831421034.pdf",
-        "BEC505068640": r"\\192.168.2.20\Facturas\febrero\5\RepGrafica_BEC505068640.pdf"
+        "580831421034": r"\\192.168.2.20\Facturas\febrero\5\RepGrafica_580831421034.pdf.pdf",
+        "BEC505068640": r"\\192.168.2.20\Facturas\febrero\5\RepGrafica_BEC505068640.pdf.pdf"
     }
     
     print(f"Connecting to database...")
