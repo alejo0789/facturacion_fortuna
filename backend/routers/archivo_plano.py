@@ -56,8 +56,13 @@ def clean_oficina_code(cod_oficina: str) -> str:
     Remove internal suffix from office code if present.
     Example: '001_INT_1' -> '001'
     """
-    if "_INT_" in cod_oficina:
-        return cod_oficina.split("_INT_")[0]
+    if not cod_oficina:
+        return cod_oficina
+    upper_cod = cod_oficina.upper()
+    if "_INT_" in upper_cod:
+        # Split using the uppercase version to find the position, but slice the original
+        idx = upper_cod.find("_INT_")
+        return cod_oficina[:idx]
     return cod_oficina
 
 
