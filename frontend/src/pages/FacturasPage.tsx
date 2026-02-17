@@ -161,6 +161,8 @@ export default function FacturasPage() {
         numedoc: 1290
     });
     const [showCausacionTable, setShowCausacionTable] = useState(false);
+    const [editingCell, setEditingCell] = useState<{ facturaIdx: number; rowIdx: number; field: string } | null>(null);
+
 
     // Historial modal - previous invoices for same proveedor + oficina
     const [isHistorialModalOpen, setIsHistorialModalOpen] = useState(false);
@@ -1663,12 +1665,12 @@ export default function FacturasPage() {
                                             onChange={(e) => cambiarEstado(f, e.target.value)}
                                             disabled={updatingStatusIds.has(f.id)}
                                             className={`appearance-none w-full px-4 py-2.5 text-sm font-semibold rounded-lg transition-all cursor-pointer border-2 shadow-sm hover:shadow-md ${f.estado === 'PAGADA'
-                                                    ? 'bg-gradient-to-r from-emerald-50 to-green-50 text-emerald-700 border-emerald-300 hover:border-emerald-400'
-                                                    : f.estado === 'ASIGNADA'
-                                                        ? 'bg-gradient-to-r from-blue-50 to-cyan-50 text-blue-700 border-blue-300 hover:border-blue-400'
-                                                        : f.estado === 'EN_TRAMITE'
-                                                            ? 'bg-gradient-to-r from-purple-50 to-fuchsia-50 text-purple-700 border-purple-300 hover:border-purple-400'
-                                                            : 'bg-gradient-to-r from-amber-50 to-yellow-50 text-amber-700 border-amber-300 hover:border-amber-400'
+                                                ? 'bg-gradient-to-r from-emerald-50 to-green-50 text-emerald-700 border-emerald-300 hover:border-emerald-400'
+                                                : f.estado === 'ASIGNADA'
+                                                    ? 'bg-gradient-to-r from-blue-50 to-cyan-50 text-blue-700 border-blue-300 hover:border-blue-400'
+                                                    : f.estado === 'EN_TRAMITE'
+                                                        ? 'bg-gradient-to-r from-purple-50 to-fuchsia-50 text-purple-700 border-purple-300 hover:border-purple-400'
+                                                        : 'bg-gradient-to-r from-amber-50 to-yellow-50 text-amber-700 border-amber-300 hover:border-amber-400'
                                                 } ${updatingStatusIds.has(f.id) ? 'opacity-60 cursor-wait' : ''}`}
                                         >
                                             <option value="PENDIENTE">📋 Pendiente</option>
@@ -2729,28 +2731,237 @@ export default function FacturasPage() {
                                                         </tr>
                                                     </thead>
                                                     <tbody className="divide-y divide-gray-100">
-                                                        {factura.rows.map((row, rowIdx) => (
-                                                            <tr key={rowIdx} className={row.tipo_movimiento === 'CREDITO' ? 'bg-green-50' : 'bg-white'}>
-                                                                <td className="px-3 py-2 text-gray-500">{row.row_num}</td>
-                                                                <td className="px-3 py-2 font-mono text-gray-800">{row.cuenta}</td>
-                                                                <td className="px-3 py-2">
-                                                                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${row.tipo_movimiento === 'DEBITO'
-                                                                        ? 'bg-blue-100 text-blue-700'
-                                                                        : 'bg-green-100 text-green-700'
-                                                                        }`}>
-                                                                        {row.tipo_movimiento}
-                                                                    </span>
-                                                                </td>
-                                                                <td className="px-3 py-2 font-mono text-gray-600">{row.ccosto || '-'}</td>
-                                                                <td className="px-3 py-2 font-mono text-gray-600">{row.destino}</td>
-                                                                <td className="px-3 py-2 text-right font-mono font-medium text-gray-800">
-                                                                    ${row.valor.toLocaleString('es-CO', { minimumFractionDigits: 0 })}
-                                                                </td>
-                                                                <td className="px-3 py-2 text-gray-600 whitespace-nowrap">
-                                                                    {row.detalle}
-                                                                </td>
-                                                            </tr>
-                                                        ))}
+                                                        {factura.rows.map((row, rowIdx) => {
+                                                            const isEditingCuenta = editingCell?.facturaIdx === idx && editingCell?.rowIdx === rowIdx && editingCell?.field === 'cuenta';
+                                                            const isEditingTipo = editingCell?.facturaIdx === idx && editingCell?.rowIdx === rowIdx && editingCell?.field === 'tipo';
+                                                            const isEditingCcosto = editingCell?.facturaIdx === idx && editingCell?.rowIdx === rowIdx && editingCell?.field === 'ccosto';
+                                                            const isEditingDestino = editingCell?.facturaIdx === idx && editingCell?.rowIdx === rowIdx && editingCell?.field === 'destino';
+                                                            const isEditingValor = editingCell?.facturaIdx === idx && editingCell?.rowIdx === rowIdx && editingCell?.field === 'valor';
+                                                            const isEditingDetalle = editingCell?.facturaIdx === idx && editingCell?.rowIdx === rowIdx && editingCell?.field === 'detalle';
+
+                                                            return (
+                                                                <tr key={rowIdx} className={row.tipo_movimiento === 'CREDITO' ? 'bg-green-50' : 'bg-white'}>
+                                                                    <td className="px-3 py-2 text-gray-500">{row.row_num}</td>
+
+                                                                    {/* Cuenta - Click to edit */}
+                                                                    <td className="px-3 py-2">
+                                                                        {isEditingCuenta ? (
+                                                                            <input
+                                                                                type="text"
+                                                                                value={row.cuenta}
+                                                                                autoFocus
+                                                                                onChange={(e) => {
+                                                                                    setCausacionPreviewData(prev => {
+                                                                                        if (!prev) return prev;
+                                                                                        const newFacturas = [...prev.facturas];
+                                                                                        newFacturas[idx].rows[rowIdx].cuenta = e.target.value;
+                                                                                        return { ...prev, facturas: newFacturas };
+                                                                                    });
+                                                                                }}
+                                                                                onBlur={() => setEditingCell(null)}
+                                                                                onKeyDown={(e) => e.key === 'Enter' && setEditingCell(null)}
+                                                                                className="w-full px-2 py-1 text-sm font-mono bg-white border-2 border-purple-500 rounded focus:outline-none"
+                                                                            />
+                                                                        ) : (
+                                                                            <div
+                                                                                onClick={() => setEditingCell({ facturaIdx: idx, rowIdx, field: 'cuenta' })}
+                                                                                className="font-mono text-gray-800 cursor-pointer hover:bg-purple-50 px-2 py-1 rounded transition-colors"
+                                                                            >
+                                                                                {row.cuenta}
+                                                                            </div>
+                                                                        )}
+                                                                    </td>
+                                                                    {/* Tipo - Click to select */}
+                                                                    <td className="px-3 py-2">
+                                                                        {isEditingTipo ? (
+                                                                            <select
+                                                                                value={row.tipo_movimiento}
+                                                                                autoFocus
+                                                                                onChange={(e) => {
+                                                                                    setCausacionPreviewData(prev => {
+                                                                                        if (!prev) return prev;
+                                                                                        const newFacturas = [...prev.facturas];
+                                                                                        newFacturas[idx].rows[rowIdx].tipo_movimiento = e.target.value as 'DEBITO' | 'CREDITO';
+
+                                                                                        // Recalculate totals
+                                                                                        let debitos = 0;
+                                                                                        let creditos = 0;
+                                                                                        newFacturas[idx].rows.forEach(r => {
+                                                                                            if (r.tipo_movimiento === 'DEBITO') debitos += r.valor;
+                                                                                            else creditos += r.valor;
+                                                                                        });
+                                                                                        newFacturas[idx].total_debitos = debitos;
+                                                                                        newFacturas[idx].total_creditos = creditos;
+
+                                                                                        const totalDebitos = newFacturas.reduce((sum, f) => sum + f.total_debitos, 0);
+                                                                                        const totalCreditos = newFacturas.reduce((sum, f) => sum + f.total_creditos, 0);
+
+                                                                                        setEditingCell(null);
+
+                                                                                        return {
+                                                                                            ...prev,
+                                                                                            facturas: newFacturas,
+                                                                                            total_debitos: totalDebitos,
+                                                                                            total_creditos: totalCreditos,
+                                                                                            balance: totalDebitos - totalCreditos
+                                                                                        };
+                                                                                    });
+                                                                                }}
+                                                                                onBlur={() => setEditingCell(null)}
+                                                                                className="px-2 py-1 text-xs font-medium border-2 border-purple-500 rounded focus:outline-none"
+                                                                            >
+                                                                                <option value="DEBITO">DEBITO</option>
+                                                                                <option value="CREDITO">CREDITO</option>
+                                                                            </select>
+                                                                        ) : (
+                                                                            <span
+                                                                                onClick={() => setEditingCell({ facturaIdx: idx, rowIdx, field: 'tipo' })}
+                                                                                className={`px-2 py-0.5 rounded text-xs font-medium cursor-pointer transition-colors ${row.tipo_movimiento === 'DEBITO'
+                                                                                        ? 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                                                                                        : 'bg-green-100 text-green-700 hover:bg-green-200'
+                                                                                    }`}
+                                                                            >
+                                                                                {row.tipo_movimiento}
+                                                                            </span>
+                                                                        )}
+                                                                    </td>
+                                                                    {/* C.Costo - Click to edit */}
+                                                                    <td className="px-3 py-2">
+                                                                        {isEditingCcosto ? (
+                                                                            <input
+                                                                                type="text"
+                                                                                value={row.ccosto || ''}
+                                                                                autoFocus
+                                                                                onChange={(e) => {
+                                                                                    setCausacionPreviewData(prev => {
+                                                                                        if (!prev) return prev;
+                                                                                        const newFacturas = [...prev.facturas];
+                                                                                        newFacturas[idx].rows[rowIdx].ccosto = e.target.value;
+                                                                                        return { ...prev, facturas: newFacturas };
+                                                                                    });
+                                                                                }}
+                                                                                onBlur={() => setEditingCell(null)}
+                                                                                onKeyDown={(e) => e.key === 'Enter' && setEditingCell(null)}
+                                                                                className="w-full px-2 py-1 text-sm font-mono bg-white border-2 border-purple-500 rounded focus:outline-none"
+                                                                                placeholder="-"
+                                                                            />
+                                                                        ) : (
+                                                                            <div
+                                                                                onClick={() => setEditingCell({ facturaIdx: idx, rowIdx, field: 'ccosto' })}
+                                                                                className="font-mono text-gray-600 cursor-pointer hover:bg-purple-50 px-2 py-1 rounded transition-colors"
+                                                                            >
+                                                                                {row.ccosto || '-'}
+                                                                            </div>
+                                                                        )}
+                                                                    </td>
+                                                                    {/* Destino - Click to edit */}
+                                                                    <td className="px-3 py-2">
+                                                                        {isEditingDestino ? (
+                                                                            <input
+                                                                                type="text"
+                                                                                value={row.destino}
+                                                                                autoFocus
+                                                                                onChange={(e) => {
+                                                                                    setCausacionPreviewData(prev => {
+                                                                                        if (!prev) return prev;
+                                                                                        const newFacturas = [...prev.facturas];
+                                                                                        newFacturas[idx].rows[rowIdx].destino = e.target.value;
+                                                                                        return { ...prev, facturas: newFacturas };
+                                                                                    });
+                                                                                }}
+                                                                                onBlur={() => setEditingCell(null)}
+                                                                                onKeyDown={(e) => e.key === 'Enter' && setEditingCell(null)}
+                                                                                className="w-full px-2 py-1 text-sm font-mono bg-white border-2 border-purple-500 rounded focus:outline-none"
+                                                                            />
+                                                                        ) : (
+                                                                            <div
+                                                                                onClick={() => setEditingCell({ facturaIdx: idx, rowIdx, field: 'destino' })}
+                                                                                className="font-mono text-gray-600 cursor-pointer hover:bg-purple-50 px-2 py-1 rounded transition-colors"
+                                                                            >
+                                                                                {row.destino}
+                                                                            </div>
+                                                                        )}
+                                                                    </td>
+                                                                    {/* Valor - Click to edit */}
+                                                                    <td className="px-3 py-2">
+                                                                        {isEditingValor ? (
+                                                                            <input
+                                                                                type="number"
+                                                                                value={row.valor}
+                                                                                autoFocus
+                                                                                onChange={(e) => {
+                                                                                    setCausacionPreviewData(prev => {
+                                                                                        if (!prev) return prev;
+                                                                                        const newFacturas = [...prev.facturas];
+                                                                                        const newValor = parseFloat(e.target.value) || 0;
+                                                                                        newFacturas[idx].rows[rowIdx].valor = newValor;
+
+                                                                                        // Recalculate totals
+                                                                                        let debitos = 0;
+                                                                                        let creditos = 0;
+                                                                                        newFacturas[idx].rows.forEach(r => {
+                                                                                            if (r.tipo_movimiento === 'DEBITO') debitos += r.valor;
+                                                                                            else creditos += r.valor;
+                                                                                        });
+                                                                                        newFacturas[idx].total_debitos = debitos;
+                                                                                        newFacturas[idx].total_creditos = creditos;
+
+                                                                                        const totalDebitos = newFacturas.reduce((sum, f) => sum + f.total_debitos, 0);
+                                                                                        const totalCreditos = newFacturas.reduce((sum, f) => sum + f.total_creditos, 0);
+
+                                                                                        return {
+                                                                                            ...prev,
+                                                                                            facturas: newFacturas,
+                                                                                            total_debitos: totalDebitos,
+                                                                                            total_creditos: totalCreditos,
+                                                                                            balance: totalDebitos - totalCreditos
+                                                                                        };
+                                                                                    });
+                                                                                }}
+                                                                                onBlur={() => setEditingCell(null)}
+                                                                                onKeyDown={(e) => e.key === 'Enter' && setEditingCell(null)}
+                                                                                className="w-full px-2 py-1 text-sm font-mono text-right bg-white border-2 border-purple-500 rounded focus:outline-none"
+                                                                            />
+                                                                        ) : (
+                                                                            <div
+                                                                                onClick={() => setEditingCell({ facturaIdx: idx, rowIdx, field: 'valor' })}
+                                                                                className="font-mono font-medium text-gray-800 cursor-pointer hover:bg-purple-50 px-2 py-1 rounded transition-colors text-right"
+                                                                            >
+                                                                                ${row.valor.toLocaleString('es-CO', { minimumFractionDigits: 0 })}
+                                                                            </div>
+                                                                        )}
+                                                                    </td>
+                                                                    {/* Detalle - Click to edit */}
+                                                                    <td className="px-3 py-2">
+                                                                        {isEditingDetalle ? (
+                                                                            <input
+                                                                                type="text"
+                                                                                value={row.detalle}
+                                                                                autoFocus
+                                                                                onChange={(e) => {
+                                                                                    setCausacionPreviewData(prev => {
+                                                                                        if (!prev) return prev;
+                                                                                        const newFacturas = [...prev.facturas];
+                                                                                        newFacturas[idx].rows[rowIdx].detalle = e.target.value;
+                                                                                        return { ...prev, facturas: newFacturas };
+                                                                                    });
+                                                                                }}
+                                                                                onBlur={() => setEditingCell(null)}
+                                                                                onKeyDown={(e) => e.key === 'Enter' && setEditingCell(null)}
+                                                                                className="w-full px-2 py-1 text-sm bg-white border-2 border-purple-500 rounded focus:outline-none min-w-[350px]"
+                                                                            />
+                                                                        ) : (
+                                                                            <div
+                                                                                onClick={() => setEditingCell({ facturaIdx: idx, rowIdx, field: 'detalle' })}
+                                                                                className="text-gray-600 cursor-pointer hover:bg-purple-50 px-2 py-1 rounded transition-colors"
+                                                                            >
+                                                                                {row.detalle}
+                                                                            </div>
+                                                                        )}
+                                                                    </td>
+                                                                </tr>
+                                                            );
+                                                        })}
                                                     </tbody>
                                                     <tfoot className="bg-gray-100">
                                                         <tr>
