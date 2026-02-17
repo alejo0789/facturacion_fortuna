@@ -1,7 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
-from sqlalchemy import or_, update
+from sqlalchemy import or_, update, func
 from typing import List, Optional
 from datetime import datetime
 import models, schemas
@@ -279,6 +279,22 @@ async def get_facturas(db: AsyncSession, skip: int = 0, limit: int = 100,
     result = await db.execute(query.offset(skip).limit(limit))
     return result.scalars().all()
 
+async def get_facturas_status_counts(db: AsyncSession):
+    """Get counts of facturas by status efficiently"""
+    result = await db.execute(
+        select(models.Factura.estado, func.count(models.Factura.id))
+        .group_by(models.Factura.estado)
+    )
+    # result is list of tuples (estado, count)
+    counts = {row[0]: row[1] for row in result.all()}
+    
+    return {
+        'PENDIENTE': counts.get('PENDIENTE', 0),
+        'ASIGNADA': counts.get('ASIGNADA', 0),
+        'EN_TRAMITE': counts.get('EN_TRAMITE', 0),
+        'PAGADA': counts.get('PAGADA', 0)
+    }
+
 async def create_factura(db: AsyncSession, factura: schemas.FacturaCreate):
     """Create a new factura"""
     db_factura = models.Factura(**factura.model_dump())
@@ -291,7 +307,13 @@ async def update_factura(db: AsyncSession, factura_id: int, data: schemas.Factur
     """Update factura data"""
     db_item = await get_factura(db, factura_id)
     if db_item:
-        for key, value in data.model_dump(exclude_unset=True).items():
+        update_data = data.model_dump(exclude_unset=True)
+        
+        # Check if estado is being modified
+        if 'estado' in update_data and update_data['estado'] != db_item.estado:
+            db_item.status_updated_at = datetime.now()
+            
+        for key, value in update_data.items():
             setattr(db_item, key, value)
         await db.commit()
         return await get_factura(db, factura_id)
@@ -339,10 +361,11 @@ async def find_contrato_by_proveedor_oficina(db: AsyncSession, proveedor_id: int
     )
     return result.scalars().first()
 
-async def asignar_oficina_a_factura(db: AsyncSession, factura_id: int, oficina_id: int):
+async def asignar_oficina_a_factura(db: AsyncSession, factura_id: int, 
+                                     oficina_id: int, contrato_id: Optional[int] = None):
     """
-    Assign oficina to factura and auto-detect the contrato.
-    Updates the estado to ASIGNADA.
+    Simpler assignment for legacy one-to-one relationship.
+    Auto-updates status to ASIGNADA if currently PENDIENTE.
     """
     db_factura = await get_factura(db, factura_id)
     if not db_factura:
@@ -351,16 +374,23 @@ async def asignar_oficina_a_factura(db: AsyncSession, factura_id: int, oficina_i
     # Update oficina
     db_factura.oficina_id = oficina_id
     
-    # Try to find matching contrato
-    contrato = await find_contrato_by_proveedor_oficina(
-        db, db_factura.proveedor_id, oficina_id
-    )
+    if contrato_id:
+        # Use provided contract
+        db_factura.contrato_id = contrato_id
+    else:
+        # Try to find matching contrato automatically
+        contrato = await find_contrato_by_proveedor_oficina(
+            db, db_factura.proveedor_id, oficina_id
+        )
+        if contrato:
+            db_factura.contrato_id = contrato.id
+        else:
+            db_factura.contrato_id = None
     
-    if contrato:
-        db_factura.contrato_id = contrato.id
-    
-    # Update estado
-    db_factura.estado = 'ASIGNADA'
+    # Update estado only if currently PENDIENTE
+    if db_factura.estado == 'PENDIENTE':
+        db_factura.estado = 'ASIGNADA'
+        db_factura.status_updated_at = datetime.now()
     
     await db.commit()
     return await get_factura(db, factura_id)
@@ -391,6 +421,17 @@ async def add_oficina_to_factura(db: AsyncSession, factura_id: int, oficina_id: 
     if not factura:
         return None
     
+    # Check duplicate assignment
+    existing = await db.execute(
+        select(models.FacturaOficina)
+        .filter(
+            models.FacturaOficina.factura_id == factura_id,
+            models.FacturaOficina.oficina_id == oficina_id
+        )
+    )
+    if existing.scalars().first():
+        return None
+    
     # Find contrato for this proveedor + oficina combination
     contrato = await find_contrato_by_proveedor_oficina(db, factura.proveedor_id, oficina_id)
     contrato_id = contrato.id if contrato else None
@@ -406,7 +447,9 @@ async def add_oficina_to_factura(db: AsyncSession, factura_id: int, oficina_id: 
     db.add(db_item)
     
     # Update factura estado to ASIGNADA if it has at least one oficina
-    factura.estado = 'ASIGNADA'
+    if factura.estado == 'PENDIENTE':
+        factura.estado = 'ASIGNADA'
+        factura.status_updated_at = datetime.now()
     
     await db.commit()
     await db.refresh(db_item)
@@ -480,27 +523,51 @@ async def asignar_multiples_oficinas(db: AsyncSession, factura_id: int, oficinas
     for item in existing:
         await db.delete(item)
     
-    # Add new assignments
+    # Prepare new assignments
+    new_assignments = []
     for data in oficinas_data:
-        # Find contrato
-        contrato = await find_contrato_by_proveedor_oficina(
-            db, factura.proveedor_id, data['oficina_id']
-        )
+        # Determine contrato_id: use provided one or auto-detect based on oficina
+        contrato_id = data.get('contrato_id')
+        
+        if not contrato_id:
+            contrato = await find_contrato_by_proveedor_oficina(
+                db, factura.proveedor_id, data['oficina_id']
+            )
+            contrato_id = contrato.id if contrato else None
         
         db_item = models.FacturaOficina(
             factura_id=factura_id,
             oficina_id=data['oficina_id'],
-            contrato_id=contrato.id if contrato else None,
+            contrato_id=contrato_id,
             valor=data['valor'],
             observaciones=data.get('observaciones')
         )
-        db.add(db_item)
+        new_assignments.append(db_item)
+
+    # Bulk add
+    if new_assignments:
+        db.add_all(new_assignments)
     
     # Update factura estado
-    if len(oficinas_data) > 0:
-        factura.estado = 'ASIGNADA'
+    if len(new_assignments) > 0:
+        # Only update to ASIGNADA if it was PENDIENTE (don't override EN_TRAMITE or PAGADA)
+        # However, assigning offices usually implies it is now ASIGNADA.
+        # Let's keep the existing logic that sets it to ASIGNADA, but maybe respect if it's PAGADA?
+        # User request says "se demora mucho en asignar los estados y no me deja asignar en tramite"
+        # So we should probably NOT force ASIGNADA if the user wants EN_TRAMITE.
+        # Ideally, this function shouldn't inadvertently change the status if not needed.
+        # But traditionally, assigning offices makes it "ASIGNADA". 
+        # Let's check if the current status is NOT PAGADA or EN_TRAMITE before changing? 
+        # OR just update it if it's currently PENDIENTE.
+        
+        if factura.estado == 'PENDIENTE':
+            factura.estado = 'ASIGNADA'
+            factura.status_updated_at = datetime.now()
     else:
-        factura.estado = 'PENDIENTE'
+        # If removing all offices, maybe go back to PENDIENTE?
+        if factura.estado == 'ASIGNADA':
+            factura.estado = 'PENDIENTE'
+            factura.status_updated_at = datetime.now()
     
     await db.commit()
     return await get_factura(db, factura_id)

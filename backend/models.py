@@ -113,6 +113,7 @@ class Factura(Base):
     
     # Audit
     created_at = Column(DateTime, server_default=func.now())  # When the invoice was received/uploaded
+    status_updated_at = Column(DateTime, nullable=True)  # When the status was last changed
     observaciones = Column(Text)
     
     # Relationships

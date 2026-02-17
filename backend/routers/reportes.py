@@ -828,6 +828,7 @@ async def get_contratos_by_nit(
         select(models.Contrato)
         .options(selectinload(models.Contrato.oficina))
         .filter(models.Contrato.proveedor_id == proveedor.id)
+        .filter(models.Contrato.estado != 'CANCELADO')
         .order_by(models.Contrato.id)
     )
     contratos = contratos_result.scalars().all()

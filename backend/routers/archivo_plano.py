@@ -97,16 +97,20 @@ def extract_codigo_for_oracle(cod_oficina: str) -> str:
     else:
         return cod
 
+    return ""
+
 
 async def get_centro_costo(cod_oficina: str) -> str:
     """
     Call Oracle API to get centro de costo for an office.
     Returns the codigo_ccosto or empty string if not found.
+    Tries with truncated code first, then falls back to full cleaned code.
     """
     api_key = os.getenv("API_KEY", "")
     
     # helper uses clean_oficina_code internally
     codigo_busqueda = extract_codigo_for_oracle(cod_oficina)
+    codigo_completo = clean_oficina_code(cod_oficina.strip())
     
     # HARDCODED RULES for specific offices per user request
     if codigo_busqueda == "001":
@@ -116,6 +120,7 @@ async def get_centro_costo(cod_oficina: str) -> str:
     
     try:
         async with httpx.AsyncClient() as client:
+            # First attempt: partial code
             response = await client.get(
                 f"http://localhost:8000/api/oficinas-oracle/{codigo_busqueda}",
                 headers={"X-API-Key": api_key},
@@ -126,6 +131,21 @@ async def get_centro_costo(cod_oficina: str) -> str:
                 data = response.json()
                 if data.get("success") and data.get("data"):
                     return data["data"].get("codigo_ccosto", "").strip()
+            
+            # Second attempt: full code (if different)
+            if codigo_busqueda != codigo_completo:
+                print(f"Retrying with full code for {cod_oficina}: {codigo_completo}")
+                response = await client.get(
+                    f"http://localhost:8000/api/oficinas-oracle/{codigo_completo}",
+                    headers={"X-API-Key": api_key},
+                    timeout=10.0
+                )
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    if data.get("success") and data.get("data"):
+                        return data["data"].get("codigo_ccosto", "").strip()
+
     except Exception as e:
         print(f"Error getting centro costo for {cod_oficina}: {e}")
     
@@ -154,7 +174,7 @@ def get_month_name_spanish(d: date) -> str:
 
 def build_detalle(numero_factura: str, nombre_oficina: str, mes_factura: str, proveedor_nit: str, num_contrato: Optional[str] = None) -> str:
     """Helper to build consistent detail strings with special rules for certain NITs"""
-    nit_especiales = ["830114921", "830122566", "800153993"]
+    nit_especiales = ["830114921", "830122566", "800153993", "891502163"]
     if proveedor_nit in nit_especiales and num_contrato:
         return f"FACT {numero_factura}, Contrato {num_contrato}, SERVICIO DE INTERNET {nombre_oficina} MES {mes_factura}"
     return f"FACT {numero_factura} SERVICIO DE INTERNET {nombre_oficina} MES {mes_factura}"
@@ -295,20 +315,21 @@ async def generate_rows_for_oficina(
         num_contrato=oficina.num_contrato
     )
     
-    valor = float(oficina.valor)
+    valor = round(float(oficina.valor), 0)  # Valor total de la oficina (ENTERO)
     
     # Calculate base value (without IVA if applicable)
     # If tiene_iva: valor includes IVA, so base = valor / 1.19
     if tiene_iva:
-        valor_base = round(valor / 1.19, 2)
-        valor_iva = round(valor - valor_base, 2)
+        valor_base = round(valor / 1.19, 0)
+        valor_iva = round(valor - valor_base, 0)
     else:
         valor_base = valor
         valor_iva = 0
     
     # Split base value 70%/30%
-    valor_70 = round(valor_base * 0.70, 2)
-    valor_30 = round(valor_base * 0.30, 2)
+    # Ensure exact sum by calculating one and subtracting from total
+    valor_70 = round(valor_base * 0.70, 0)
+    valor_30 = round(valor_base - valor_70, 0)
     
     # Row 1: Account 61350513 - 70% (VALDEBI)
     rows.append(create_flat_file_row(
@@ -379,9 +400,11 @@ def create_final_summary_rows(
     vinculado = last_office_info["vinculado"]
     
     # Calculate retefuente based on percentage (0%, 4%, or 6%) - SOBRE VALOR BASE SIN IVA
-    valor_retefuente = round(total_valor_base * (porcentaje_retefuente / 100), 2) if porcentaje_retefuente > 0 else 0
+    # Round to integer as requested
+    valor_retefuente = round(total_valor_base * (porcentaje_retefuente / 100), 0) if porcentaje_retefuente > 0 else 0
     
     # Calculate balance: total debitos + IVA - retefuente
+    # Calculations are already integers or rounded to integers
     valor_balance = total_debitos + total_iva - valor_retefuente
     
     # Row: Account 24081003 - IVA total (VALDEBI) - only if tiene_iva
@@ -546,8 +569,10 @@ async def generar_archivo_plano(request: ArchivoPlanoRequest):
     wb.save(buffer)
     buffer.seek(0)
     
-    # Generate filename
-    filename = f"archivo_plano_{request.proveedor_nit}_{fecha_causacion.strftime('%Y%m%d')}.xlsx"
+    # Generate filename: PLANO-PROVEEDOR-MES.xlsx
+    mes_nombre = get_month_name_spanish(fecha_causacion)
+    proveedor_slug = (request.proveedor_nombre or request.proveedor_nit).upper().replace(" ", "-")
+    filename = f"PLANO-{proveedor_slug}-{mes_nombre}.xlsx"
     
     return StreamingResponse(
         buffer,
@@ -731,18 +756,18 @@ async def preview_causacion_manager(request: CausacionManagerPreviewRequest):
                 num_contrato=oficina.num_contrato
             )
             
-            valor = float(oficina.valor)
+            valor = round(float(oficina.valor), 0)
             
             # Calculate base value
             if request.tiene_iva:
-                valor_base = round(valor / 1.19, 2)
-                valor_iva = round(valor - valor_base, 2)
+                valor_base = round(valor / 1.19, 0)
+                valor_iva = round(valor - valor_base, 0)
             else:
                 valor_base = valor
                 valor_iva = 0
             
-            valor_70 = round(valor_base * 0.70, 2)
-            valor_30 = round(valor_base * 0.30, 2)
+            valor_70 = round(valor_base * 0.70, 0)
+            valor_30 = round(valor_base - valor_70, 0)
             
             # Row 1: Account 61350513 - 70% DEBITO
             rows_preview.append(CausacionRowPreview(
@@ -804,7 +829,7 @@ async def preview_causacion_manager(request: CausacionManagerPreviewRequest):
             factura_debitos += factura_iva
         
         # Retefuente row (CREDITO) - SOBRE VALOR BASE SIN IVA
-        valor_retefuente = round(factura_valor_base * (request.porcentaje_retefuente / 100), 2) if request.porcentaje_retefuente > 0 else 0
+        valor_retefuente = round(factura_valor_base * (request.porcentaje_retefuente / 100), 0) if request.porcentaje_retefuente > 0 else 0
         if valor_retefuente > 0:
             rows_preview.append(CausacionRowPreview(
                 row_num=row_counter,

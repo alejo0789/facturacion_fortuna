@@ -526,7 +526,7 @@ async def asignar_oficina(
     If no matching contrato is found, only the oficina will be assigned 
     (contrato_id will remain null).
     """
-    result = await crud.asignar_oficina_a_factura(db, factura_id, request.oficina_id)
+    result = await crud.asignar_oficina_a_factura(db, factura_id, request.oficina_id, request.contrato_id)
     if not result:
         raise HTTPException(status_code=404, detail="Factura no encontrada")
     return result
@@ -648,6 +648,7 @@ async def asignar_multiples_oficinas(
     oficinas_data = [
         {
             "oficina_id": o.oficina_id,
+            "contrato_id": o.contrato_id,
             "valor": float(o.valor),
             "observaciones": o.observaciones
         }
@@ -723,7 +724,7 @@ async def ver_factura(factura_id: int, db: AsyncSession = Depends(get_db)):
 @router.put("/facturas/{factura_id}/estado")
 async def cambiar_estado(
     factura_id: int,
-    nuevo_estado: str = Query(..., description="Nuevo estado: PENDIENTE, ASIGNADA, PAGADA"),
+    nuevo_estado: str = Query(..., description="Nuevo estado: PENDIENTE, ASIGNADA, EN_TRAMITE, PAGADA"),
     db: AsyncSession = Depends(get_db)
 ):
     """Change the estado of a factura"""
@@ -731,11 +732,13 @@ async def cambiar_estado(
     if not factura:
         raise HTTPException(status_code=404, detail="Factura no encontrada")
     
-    if nuevo_estado not in ['PENDIENTE', 'ASIGNADA', 'PAGADA']:
+    if nuevo_estado not in ['PENDIENTE', 'ASIGNADA', 'EN_TRAMITE', 'PAGADA']:
         raise HTTPException(status_code=400, detail="Estado inválido")
     
     # Use raw update to change estado
-    factura.estado = nuevo_estado
+    if factura.estado != nuevo_estado:
+        factura.estado = nuevo_estado
+        factura.status_updated_at = datetime.now()
     await db.commit()
     
     return await crud.get_factura(db, factura_id)
@@ -747,22 +750,30 @@ async def cambiar_estado(
 async def resumen_facturas(db: AsyncSession = Depends(get_db)):
     """Get summary statistics for facturas"""
     from datetime import datetime
-    todas = await crud.get_facturas(db, limit=10000)
     
-    pendientes = len([f for f in todas if f.estado == 'PENDIENTE'])
-    asignadas = len([f for f in todas if f.estado == 'ASIGNADA'])
-    pagadas = len([f for f in todas if f.estado == 'PAGADA'])
+    # Efficiently get counts by status
+    counts = await crud.get_facturas_status_counts(db)
+    
+    pendientes = counts.get('PENDIENTE', 0)
+    asignadas = counts.get('ASIGNADA', 0)
+    en_tramite = counts.get('EN_TRAMITE', 0)
+    pagadas = counts.get('PAGADA', 0)
+    total = pendientes + asignadas + en_tramite + pagadas
     
     # Calculate missing invoices for this month
     today = datetime.now()
     missing_contracts = await crud.get_contratos_pendientes_por_llegar(db, today.year, today.month)
+    
+    # Only count active contracts
+    # Assuming get_contratos_pendientes_por_llegar already filters or returns relevant contracts
     pendientes_por_llegar = len(missing_contracts)
     
     return {
-        "total": len(todas),
+        "total": total,
         "sin_oficina": pendientes, # Re-labeling or providing specific key
         "pendientes": pendientes,   # Keeping old key for compatibility
         "asignadas": asignadas,
+        "en_tramite": en_tramite,
         "pagadas": pagadas,
         "pendientes_por_llegar": pendientes_por_llegar
     }

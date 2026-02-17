@@ -12,6 +12,7 @@ interface OficinaAsignacion {
     oficina_id: number;
     oficina_nombre: string;
     oficina_ciudad: string;
+    contrato_id?: number | null;
     contrato_num?: string;
     contrato_estado?: string;
     valor: string;
@@ -59,6 +60,7 @@ export default function FacturasPage() {
     const [editForm, setEditForm] = useState({
         proveedor_id: 0,
         oficina_id: null as number | null,
+        contrato_id: null as number | null,
         numero_factura: '',
         cufe: '',
         fecha_factura: '',
@@ -94,6 +96,8 @@ export default function FacturasPage() {
         pagadas: number;
         pendientes_por_llegar: number;
     } | null>(null);
+
+    const [updatingStatusIds, setUpdatingStatusIds] = useState<Set<number>>(new Set());
 
     const navigate = useNavigate();
 
@@ -600,11 +604,11 @@ export default function FacturasPage() {
             const facturasForRequest: Array<{
                 numero_factura: string;
                 fecha_factura: string | null;
-                oficinas: Array<{ cod_oficina: string; valor: number; nombre_oficina: string }>;
+                oficinas: Array<{ cod_oficina: string; valor: number; nombre_oficina: string; num_contrato?: string | null }>;
             }> = [];
 
             for (const factura of selectedFacturasData) {
-                const oficinas: Array<{ cod_oficina: string; valor: number; nombre_oficina: string }> = [];
+                const oficinas: Array<{ cod_oficina: string; valor: number; nombre_oficina: string; num_contrato?: string | null }> = [];
                 if (factura.oficinas_asignadas && factura.oficinas_asignadas.length > 0) {
                     for (const oa of factura.oficinas_asignadas) {
                         if (oa.oficina?.cod_oficina && oa.valor) {
@@ -852,16 +856,17 @@ export default function FacturasPage() {
     // Toggle oficina selection - using functional setState to avoid stale state
     const toggleOficinaSelection = (oc: OficinaConContrato) => {
         setOficinasSeleccionadas(prev => {
-            const exists = prev.find(o => o.oficina_id === oc.oficina_id);
+            const exists = prev.find(o => o.oficina_id === oc.oficina_id && o.contrato_id === oc.contrato_id);
             if (exists) {
                 // Remove
-                return prev.filter(o => o.oficina_id !== oc.oficina_id);
+                return prev.filter(o => !(o.oficina_id === oc.oficina_id && o.contrato_id === oc.contrato_id));
             } else {
                 // Add with suggested valor from contract
                 return [...prev, {
                     oficina_id: oc.oficina_id,
                     oficina_nombre: oc.oficina_nombre || '',
                     oficina_ciudad: oc.oficina_ciudad || '',
+                    contrato_id: oc.contrato_id,
                     contrato_num: oc.contrato_num,
                     contrato_estado: oc.contrato_estado,
                     valor: oc.valor_mensual?.toString() || '0'
@@ -871,9 +876,9 @@ export default function FacturasPage() {
     };
 
     // Update valor for a selected oficina
-    const updateOficinaValor = (oficina_id: number, valor: string) => {
+    const updateOficinaValor = (oficina_id: number, contrato_id: number | null | undefined, valor: string) => {
         setOficinasSeleccionadas(prev =>
-            prev.map(o => o.oficina_id === oficina_id ? { ...o, valor } : o)
+            prev.map(o => (o.oficina_id === oficina_id && o.contrato_id === contrato_id) ? { ...o, valor } : o)
         );
     };
 
@@ -890,6 +895,7 @@ export default function FacturasPage() {
             const body = {
                 oficinas: oficinasSeleccionadas.map(o => ({
                     oficina_id: o.oficina_id,
+                    contrato_id: o.contrato_id,
                     valor: parseFloat(o.valor) || 0
                 }))
             };
@@ -919,14 +925,32 @@ export default function FacturasPage() {
     };
 
     const cambiarEstado = async (factura: Factura, nuevoEstado: string) => {
+        // Set loading state
+        setUpdatingStatusIds(prev => {
+            const newSet = new Set(prev);
+            newSet.add(factura.id);
+            return newSet;
+        });
+
         try {
-            await fetch(`${API_URL}/facturas/${factura.id}/estado?nuevo_estado=${nuevoEstado}`, {
+            const res = await fetch(`${API_URL}/facturas/${factura.id}/estado?nuevo_estado=${nuevoEstado}`, {
                 method: 'PUT'
             });
-            fetchFacturas(search, page);
-            fetchStats();
+
+            if (res.ok) {
+                // Wait for refresh to complete so loading spinner stays until UI updates
+                await fetchFacturas(search, page);
+                fetchStats();
+            }
         } catch (error) {
             console.error("Failed to change estado", error);
+        } finally {
+            // Clear loading state
+            setUpdatingStatusIds(prev => {
+                const newSet = new Set(prev);
+                newSet.delete(factura.id);
+                return newSet;
+            });
         }
     };
 
@@ -991,6 +1015,7 @@ export default function FacturasPage() {
         setEditForm({
             proveedor_id: factura.proveedor_id,
             oficina_id: factura.oficina_id || null,
+            contrato_id: factura.contrato_id || null,
             numero_factura: factura.numero_factura || '',
             cufe: factura.cufe || '',
             fecha_factura: factura.fecha_factura || '',
@@ -1076,7 +1101,7 @@ export default function FacturasPage() {
                 body: JSON.stringify({
                     proveedor_id: editForm.proveedor_id,
                     oficina_id: editForm.oficina_id,
-                    contrato_id: null,
+                    contrato_id: editForm.contrato_id || null,
                     numero_factura: editForm.numero_factura || null,
                     cufe: editForm.cufe || null,
                     fecha_factura: editForm.fecha_factura || null,
@@ -1094,7 +1119,10 @@ export default function FacturasPage() {
                     await fetch(`${API_URL}/facturas/${editingFactura.id}/asignar-oficina`, {
                         method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ oficina_id: editForm.oficina_id })
+                        body: JSON.stringify({
+                            oficina_id: editForm.oficina_id,
+                            contrato_id: editForm.contrato_id
+                        })
                     });
                 }
                 setIsEditModalOpen(false);
@@ -1166,6 +1194,10 @@ export default function FacturasPage() {
                             <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-2 text-center">
                                 <div className="text-2xl font-bold text-blue-700">{stats.asignadas}</div>
                                 <div className="text-xs text-blue-600">Asignadas</div>
+                            </div>
+                            <div className="bg-purple-50 border border-purple-200 rounded-lg px-4 py-2 text-center">
+                                <div className="text-2xl font-bold text-purple-700">{stats.en_tramite || 0}</div>
+                                <div className="text-xs text-purple-600">En Trámite</div>
                             </div>
                             <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-2 text-center">
                                 <div className="text-2xl font-bold text-green-700">{stats.pagadas}</div>
@@ -1283,6 +1315,7 @@ export default function FacturasPage() {
                     <option value="">Todos los estados</option>
                     <option value="PENDIENTE">Pendiente</option>
                     <option value="ASIGNADA">Asignada</option>
+                    <option value="EN_TRAMITE">En Trámite</option>
                     <option value="PAGADA">Pagada</option>
                 </select>
 
@@ -1519,6 +1552,24 @@ export default function FacturasPage() {
                                             <span className="block text-gray-400 text-xs uppercase">Vencimiento</span>
                                             <span className="text-gray-700">{f.fecha_vencimiento || '-'}</span>
                                         </div>
+                                        <div className="col-span-2 mt-2 pt-2 border-t border-dashed border-gray-200">
+                                            <span className="block text-gray-400 text-xs uppercase mb-1">Estado: {f.estado}</span>
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-sm font-semibold text-gray-700">
+                                                    {f.status_updated_at
+                                                        ? new Date(f.status_updated_at).toLocaleString('es-CO')
+                                                        : (f.created_at ? new Date(f.created_at).toLocaleString('es-CO') : '-')
+                                                    }
+                                                </span>
+                                                <span className={`px-2 py-0.5 rounded text-xs font-bold ${f.estado === 'PAGADA' ? 'bg-green-100 text-green-700' :
+                                                    f.estado === 'ASIGNADA' ? 'bg-blue-100 text-blue-700' :
+                                                        f.estado === 'EN_TRAMITE' ? 'bg-purple-100 text-purple-700' :
+                                                            'bg-yellow-100 text-yellow-700'
+                                                    }`}>
+                                                    {f.estado}
+                                                </span>
+                                            </div>
+                                        </div>
                                         <div>
                                             <span className="block text-gray-400 text-xs uppercase">Procesada</span>
                                             <span className="text-gray-700 font-medium">{f.created_at ? new Date(f.created_at).toLocaleString('es-CO') : '-'}</span>
@@ -1597,18 +1648,32 @@ export default function FacturasPage() {
                                         </button>
                                     )}
 
-                                    {/* Estado Toggle */}
-                                    {f.estado === 'ASIGNADA' && (
-                                        <button
-                                            onClick={() => cambiarEstado(f, 'PAGADA')}
-                                            className="flex items-center justify-center gap-1 px-3 py-2 text-sm bg-green-50 text-green-600 rounded-lg hover:bg-green-100 transition-colors"
+                                    {/* Estado Selector */}
+                                    <div className="relative">
+                                        <select
+                                            value={f.estado}
+                                            onChange={(e) => cambiarEstado(f, e.target.value)}
+                                            className={`appearance-none w-full flex items-center justify-center gap-1 px-3 py-2 text-sm rounded-lg transition-colors cursor-pointer border ${f.estado === 'PAGADA' ? 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100' :
+                                                f.estado === 'ASIGNADA' ? 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100' :
+                                                    f.estado === 'EN_TRAMITE' ? 'bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100' :
+                                                        'bg-yellow-50 text-yellow-700 border-yellow-200 hover:bg-yellow-100'
+                                                }`}
                                         >
-                                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                            </svg>
-                                            Marcar Pagada
-                                        </button>
-                                    )}
+                                            <option value="PENDIENTE">Pendiente</option>
+                                            <option value="ASIGNADA">Asignada</option>
+                                            <option value="EN_TRAMITE">En Trámite</option>
+                                            <option value="PAGADA">Pagada</option>
+                                        </select>
+                                        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-500">
+                                            {updatingStatusIds.has(f.id) ? (
+                                                <div className="animate-spin h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full"></div>
+                                            ) : (
+                                                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                                                </svg>
+                                            )}
+                                        </div>
+                                    </div>
 
                                     {/* Delete Button */}
                                     <button
@@ -1709,7 +1774,7 @@ export default function FacturasPage() {
                             </div>
                             <div className="space-y-2">
                                 {oficinasSeleccionadas.map((os) => (
-                                    <div key={os.oficina_id} className="flex items-center gap-2 bg-white rounded p-2 border border-green-200">
+                                    <div key={`${os.oficina_id}-${os.contrato_id || 'nocontract'}`} className="flex items-center gap-2 bg-white rounded p-2 border border-green-200">
                                         <div className="flex-1 min-w-0">
                                             <div className="font-medium text-gray-900 text-sm truncate">{os.oficina_nombre}</div>
                                             <div className="text-xs text-gray-500">{os.oficina_ciudad} • {os.contrato_num || 'Sin contrato'}</div>
@@ -1717,13 +1782,13 @@ export default function FacturasPage() {
                                         <input
                                             type="number"
                                             value={os.valor}
-                                            onChange={(e) => updateOficinaValor(os.oficina_id, e.target.value)}
+                                            onChange={(e) => updateOficinaValor(os.oficina_id, os.contrato_id, e.target.value)}
                                             className="w-28 px-2 py-1 border rounded text-sm text-right"
                                             placeholder="Valor"
                                         />
                                         <button
                                             type="button"
-                                            onClick={() => setOficinasSeleccionadas(prev => prev.filter(o => o.oficina_id !== os.oficina_id))}
+                                            onClick={() => setOficinasSeleccionadas(prev => prev.filter(o => !(o.oficina_id === os.oficina_id && o.contrato_id === os.contrato_id)))}
                                             className="text-red-500 hover:text-red-700 p-1"
                                         >
                                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1763,6 +1828,7 @@ export default function FacturasPage() {
                                                     oficina_id: oc.oficina_id,
                                                     oficina_nombre: oc.oficina_nombre || '',
                                                     oficina_ciudad: oc.oficina_ciudad || '',
+                                                    contrato_id: oc.contrato_id,
                                                     contrato_num: oc.contrato_num,
                                                     contrato_estado: oc.contrato_estado,
                                                     valor: oc.valor_mensual?.toString() || '0'
@@ -1778,7 +1844,7 @@ export default function FacturasPage() {
                             </div>
                             <div className="max-h-48 overflow-y-auto border rounded-lg">
                                 {oficinasConContrato.map((oc) => {
-                                    const isSelected = oficinasSeleccionadas.some(o => o.oficina_id === oc.oficina_id);
+                                    const isSelected = oficinasSeleccionadas.some(o => o.oficina_id === oc.oficina_id && o.contrato_id === oc.contrato_id);
                                     return (
                                         <button
                                             key={`${oc.oficina_id}-${oc.contrato_id}`}
@@ -2010,7 +2076,7 @@ export default function FacturasPage() {
                                                     type="button"
                                                     onClick={() => {
                                                         setSelectedOficinaConContrato(oc);
-                                                        setEditForm({ ...editForm, oficina_id: oc.oficina_id });
+                                                        setEditForm({ ...editForm, oficina_id: oc.oficina_id, contrato_id: oc.contrato_id });
                                                     }}
                                                     className="w-full text-left px-3 py-2 border-b last:border-b-0 hover:bg-gray-50"
                                                 >
@@ -2158,6 +2224,7 @@ export default function FacturasPage() {
                         >
                             <option value="PENDIENTE">Pendiente</option>
                             <option value="ASIGNADA">Asignada</option>
+                            <option value="EN_TRAMITE">En Trámite</option>
                             <option value="PAGADA">Pagada</option>
                         </select>
                     </FormField>

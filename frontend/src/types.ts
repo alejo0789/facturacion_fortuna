@@ -75,6 +75,7 @@ export interface Factura {
     url_factura?: string;
     observaciones?: string;
     created_at?: string;  // When invoice was received/uploaded
+    status_updated_at?: string; // When status last changed
     storage_path?: string; // Expected network path
     file_exists?: boolean; // Whether the file exists
 

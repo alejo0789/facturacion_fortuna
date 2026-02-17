@@ -102,6 +102,7 @@ class FacturaBase(BaseModel):
     fecha_vencimiento: Optional[date] = None
     valor: Optional[Decimal] = None
     estado: Optional[str] = "PENDIENTE"
+    status_updated_at: Optional[datetime] = None
     url_factura: Optional[str] = None
     observaciones: Optional[str] = None
 
@@ -180,13 +181,15 @@ class FacturaCreateConOficinas(BaseModel):
         extra = 'ignore'  # Ignora campos extra que no están en el schema
 
 class AsignarOficinaRequest(BaseModel):
-    """Request to assign oficina to a factura (will auto-detect contrato)"""
+    """Request to assign oficina to a factura (will auto-detect contrato if not provided)"""
     oficina_id: int
+    contrato_id: Optional[int] = None
 
 # --- FacturaOficina Schemas (many-to-many with individual values) ---
 
 class FacturaOficinaBase(BaseModel):
     oficina_id: int
+    contrato_id: Optional[int] = None
     valor: Decimal
     estado: Optional[str] = 'PENDIENTE'
     observaciones: Optional[str] = None
