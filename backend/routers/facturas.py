@@ -17,6 +17,9 @@ from urllib.parse import unquote
 from datetime import datetime, date
 import os
 import httpx
+import img2pdf
+from PIL import Image
+import io
 import uuid
 import zipfile
 import tempfile
@@ -957,32 +960,55 @@ async def upload_factura_pdf(
     - Success: {"success": true, "factura_id": 123, "factura": {...}}
     - Error: {"success": false, "error": "Error message"}
     """
-    # Validate file type
-    if not file.filename.lower().endswith('.pdf'):
-        raise HTTPException(status_code=400, detail="Solo se permiten archivos PDF")
+    # Validate file type and prepare filename
+    filename = file.filename.lower()
+    is_image = filename.endswith(('.jpg', '.jpeg', '.png'))
     
-    # Generate unique filename
+    if not (filename.endswith('.pdf') or is_image):
+        raise HTTPException(status_code=400, detail="Solo se permiten archivos PDF, JPG o PNG")
+    
+    # Generate unique filename (always .pdf for storage)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     unique_id = str(uuid.uuid4())[:8]
-    safe_filename = f"{timestamp}_{unique_id}_{file.filename}"
+    
+    original_name_base = os.path.splitext(file.filename)[0]
+    safe_filename = f"{timestamp}_{unique_id}_{original_name_base}.pdf"
     
     # Create full path
     file_path = os.path.join(INVOICE_UPLOAD_PATH, safe_filename)
     url_factura = f"file://192.168.2.20/Facturas/temp/{safe_filename}"
     
-    # Check if directory exists and save file
+    # Check if directory exists and save/convert file
     try:
         if not os.path.exists(INVOICE_UPLOAD_PATH):
             os.makedirs(INVOICE_UPLOAD_PATH, exist_ok=True)
         
         content = await file.read()
-        with open(file_path, "wb") as f:
-            f.write(content)
+        
+        if is_image:
+            # Convert image to PDF
+            # Use Pillow to handle image loading and img2pdf for quality/efficiency or just Pillow
+            # img2pdf is better for preserving quality without re-encoding if possible, 
+            # but simplest path is Pillow.save(..., "PDF")
+            
+            # Use Pillow to ensure it's a valid image and handle basic conversions (e.g. RGBA to RGB)
+            image = Image.open(io.BytesIO(content))
+            
+            # Convert to RGB if necessary (PDF doesn't support RGBA)
+            if image.mode == 'RGBA':
+                image = image.convert('RGB')
+                
+            # Save as PDF
+            image.save(file_path, "PDF", resolution=100.0)
+        else:
+            # Save PDF directly
+            with open(file_path, "wb") as f:
+                f.write(content)
         
     except Exception as e:
         raise HTTPException(
             status_code=500, 
-            detail=f"Error guardando archivo: {str(e)}"
+            detail=f"Error procesando archivo: {str(e)}"
         )
     
     # Call webhook and WAIT for n8n response (timeout 120 seconds for OCR processing)
