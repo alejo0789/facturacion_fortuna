@@ -938,8 +938,16 @@ export default function FacturasPage() {
             });
 
             if (res.ok) {
-                // Wait for refresh to complete so loading spinner stays until UI updates
-                await fetchFacturas(search, page);
+                // Update the specific factura in local state instead of refetching all
+                setFacturas(prevFacturas =>
+                    prevFacturas.map(f =>
+                        f.id === factura.id
+                            ? { ...f, estado: nuevoEstado, status_updated_at: new Date().toISOString() }
+                            : f
+                    )
+                );
+
+                // Update stats in background without waiting
                 fetchStats();
             }
         } catch (error) {
@@ -1653,23 +1661,27 @@ export default function FacturasPage() {
                                         <select
                                             value={f.estado}
                                             onChange={(e) => cambiarEstado(f, e.target.value)}
-                                            className={`appearance-none w-full flex items-center justify-center gap-1 px-3 py-2 text-sm rounded-lg transition-colors cursor-pointer border ${f.estado === 'PAGADA' ? 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100' :
-                                                f.estado === 'ASIGNADA' ? 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100' :
-                                                    f.estado === 'EN_TRAMITE' ? 'bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100' :
-                                                        'bg-yellow-50 text-yellow-700 border-yellow-200 hover:bg-yellow-100'
-                                                }`}
+                                            disabled={updatingStatusIds.has(f.id)}
+                                            className={`appearance-none w-full px-4 py-2.5 text-sm font-semibold rounded-lg transition-all cursor-pointer border-2 shadow-sm hover:shadow-md ${f.estado === 'PAGADA'
+                                                    ? 'bg-gradient-to-r from-emerald-50 to-green-50 text-emerald-700 border-emerald-300 hover:border-emerald-400'
+                                                    : f.estado === 'ASIGNADA'
+                                                        ? 'bg-gradient-to-r from-blue-50 to-cyan-50 text-blue-700 border-blue-300 hover:border-blue-400'
+                                                        : f.estado === 'EN_TRAMITE'
+                                                            ? 'bg-gradient-to-r from-purple-50 to-fuchsia-50 text-purple-700 border-purple-300 hover:border-purple-400'
+                                                            : 'bg-gradient-to-r from-amber-50 to-yellow-50 text-amber-700 border-amber-300 hover:border-amber-400'
+                                                } ${updatingStatusIds.has(f.id) ? 'opacity-60 cursor-wait' : ''}`}
                                         >
-                                            <option value="PENDIENTE">Pendiente</option>
-                                            <option value="ASIGNADA">Asignada</option>
-                                            <option value="EN_TRAMITE">En Trámite</option>
-                                            <option value="PAGADA">Pagada</option>
+                                            <option value="PENDIENTE">📋 Pendiente</option>
+                                            <option value="ASIGNADA">📌 Asignada</option>
+                                            <option value="EN_TRAMITE">⚙️ En Trámite</option>
+                                            <option value="PAGADA">✅ Pagada</option>
                                         </select>
-                                        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-500">
+                                        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3">
                                             {updatingStatusIds.has(f.id) ? (
-                                                <div className="animate-spin h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full"></div>
+                                                <div className="animate-spin h-4 w-4 border-2 border-blue-600 border-t-transparent rounded-full"></div>
                                             ) : (
-                                                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                                                <svg className="h-4 w-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 9l-7 7-7-7" />
                                                 </svg>
                                             )}
                                         </div>
