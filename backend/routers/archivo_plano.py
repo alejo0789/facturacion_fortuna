@@ -174,10 +174,19 @@ def get_month_name_spanish(d: date) -> str:
 
 def build_detalle(numero_factura: str, nombre_oficina: str, mes_factura: str, proveedor_nit: str, num_contrato: Optional[str] = None) -> str:
     """Helper to build consistent detail strings with special rules for certain NITs"""
+    # Base observation (standard format)
+    base = f"FACT {numero_factura} SERVICIO DE INTERNET {nombre_oficina} MES {mes_factura}"
+
+    # NITs that include the contract number in the middle of the detail
     nit_especiales = ["830114921", "830122566", "800153993", "891502163"]
     if proveedor_nit in nit_especiales and num_contrato:
-        return f"FACT {numero_factura}, Contrato {num_contrato}, SERVICIO DE INTERNET {nombre_oficina} MES {mes_factura}"
-    return f"FACT {numero_factura} SERVICIO DE INTERNET {nombre_oficina} MES {mes_factura}"
+        base = f"FACT {numero_factura}, Contrato {num_contrato}, SERVICIO DE INTERNET {nombre_oficina} MES {mes_factura}"
+
+    # NIT 900971687 (Hughes): prefix with "REF <num_contrato>,"
+    if proveedor_nit == "900971687" and num_contrato:
+        return f"REF {num_contrato}, {base}"
+
+    return base
 
 
 # --- Casos especiales: cuenta única (sin división 70/30) ---
