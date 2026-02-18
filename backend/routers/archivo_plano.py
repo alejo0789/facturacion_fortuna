@@ -178,7 +178,7 @@ def build_detalle(numero_factura: str, nombre_oficina: str, mes_factura: str, pr
     base = f"FACT {numero_factura} SERVICIO DE INTERNET {nombre_oficina} MES {mes_factura}"
 
     # NITs that include the contract number in the middle of the detail
-    nit_especiales = ["830114921", "830122566", "800153993", "891502163"]
+    nit_especiales = ["830114921", "830122566", "800153993", "891502163", "91502163", "900092385"]
     if proveedor_nit in nit_especiales and num_contrato:
         base = f"FACT {numero_factura}, Contrato {num_contrato}, SERVICIO DE INTERNET {nombre_oficina} MES {mes_factura}"
 
