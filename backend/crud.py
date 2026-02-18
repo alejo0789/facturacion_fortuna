@@ -219,8 +219,11 @@ async def get_facturas(db: AsyncSession, skip: int = 0, limit: int = 100,
                        search: Optional[str] = None, estado: Optional[str] = None,
                        proveedor_id: Optional[int] = None, solo_pendientes: bool = False,
                        fecha_desde: Optional[str] = None, fecha_hasta: Optional[str] = None,
-                       oficina_id: Optional[int] = None):
-    """Get facturas with optional filters including date range and oficina"""
+                       oficina_id: Optional[int] = None, usar_fecha_estado: bool = False):
+    """Get facturas with optional filters including date range and oficina.
+    usar_fecha_estado=True: date range filters by COALESCE(status_updated_at, created_at)
+    usar_fecha_estado=False (default): date range filters by created_at (reception date)
+    """
     query = (
         select(models.Factura)
         .options(
@@ -255,15 +258,22 @@ async def get_facturas(db: AsyncSession, skip: int = 0, limit: int = 100,
     if solo_pendientes:
         query = query.filter(models.Factura.contrato_id.is_(None))
     
-    # Date filters - filter by created_at (when invoice was received)
-    if fecha_desde:
-        fecha_desde_dt = datetime.strptime(fecha_desde, '%Y-%m-%d')
-        query = query.filter(models.Factura.created_at >= fecha_desde_dt)
-    
-    if fecha_hasta:
-        # Add 1 day to include all invoices from that day
-        fecha_hasta_dt = datetime.strptime(fecha_hasta, '%Y-%m-%d').replace(hour=23, minute=59, second=59)
-        query = query.filter(models.Factura.created_at <= fecha_hasta_dt)
+    # Date filters
+    if fecha_desde or fecha_hasta:
+        if usar_fecha_estado:
+            # Filter by when the status changed (COALESCE: status_updated_at, fallback created_at)
+            fecha_col = func.coalesce(models.Factura.status_updated_at, models.Factura.created_at)
+        else:
+            # Filter by when the invoice was received
+            fecha_col = models.Factura.created_at
+
+        if fecha_desde:
+            fecha_desde_dt = datetime.strptime(fecha_desde, '%Y-%m-%d')
+            query = query.filter(fecha_col >= fecha_desde_dt)
+
+        if fecha_hasta:
+            fecha_hasta_dt = datetime.strptime(fecha_hasta, '%Y-%m-%d').replace(hour=23, minute=59, second=59)
+            query = query.filter(fecha_col <= fecha_hasta_dt)
     
     # Oficina filter - check both legacy oficina_id and new oficinas_asignadas
     if oficina_id:
@@ -279,6 +289,7 @@ async def get_facturas(db: AsyncSession, skip: int = 0, limit: int = 100,
     result = await db.execute(query.offset(skip).limit(limit))
     return result.scalars().all()
 
+
 async def get_facturas_status_counts(db: AsyncSession):
     """Get counts of facturas by status efficiently"""
     result = await db.execute(
@@ -288,6 +299,31 @@ async def get_facturas_status_counts(db: AsyncSession):
     # result is list of tuples (estado, count)
     counts = {row[0]: row[1] for row in result.all()}
     
+    return {
+        'PENDIENTE': counts.get('PENDIENTE', 0),
+        'ASIGNADA': counts.get('ASIGNADA', 0),
+        'EN_TRAMITE': counts.get('EN_TRAMITE', 0),
+        'PAGADA': counts.get('PAGADA', 0)
+    }
+
+async def get_facturas_status_counts_mes(db: AsyncSession, year: int, month: int):
+    """Get counts of facturas by status for a specific month, filtered by status_updated_at.
+    Uses COALESCE(status_updated_at, created_at) so invoices that never changed state
+    are counted by their creation date.
+    Example: a factura from January paid in February appears in February's PAGADA count."""
+    from sqlalchemy import extract, and_
+    fecha_ref = func.coalesce(models.Factura.status_updated_at, models.Factura.created_at)
+    result = await db.execute(
+        select(models.Factura.estado, func.count(models.Factura.id))
+        .filter(
+            and_(
+                extract('year', fecha_ref) == year,
+                extract('month', fecha_ref) == month,
+            )
+        )
+        .group_by(models.Factura.estado)
+    )
+    counts = {row[0]: row[1] for row in result.all()}
     return {
         'PENDIENTE': counts.get('PENDIENTE', 0),
         'ASIGNADA': counts.get('ASIGNADA', 0),

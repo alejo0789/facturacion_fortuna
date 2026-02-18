@@ -460,6 +460,7 @@ async def list_facturas(
     oficina_id: Optional[int] = Query(None, description="Filtrar por oficina asignada"),
     fecha_desde: Optional[str] = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     fecha_hasta: Optional[str] = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
+    usar_fecha_estado: bool = Query(False, description="Si True, filtra por fecha de cambio de estado en vez de fecha de recepción"),
     solo_pendientes: bool = Query(False, description="Solo mostrar facturas sin contrato asignado"),
     db: AsyncSession = Depends(get_db)
 ):
@@ -471,7 +472,8 @@ async def list_facturas(
         estado=estado, proveedor_id=proveedor_id, 
         solo_pendientes=solo_pendientes,
         fecha_desde=fecha_desde, fecha_hasta=fecha_hasta,
-        oficina_id=oficina_id
+        oficina_id=oficina_id,
+        usar_fecha_estado=usar_fecha_estado
     )
     
     # Enrich with file info
@@ -754,30 +756,31 @@ async def resumen_facturas(db: AsyncSession = Depends(get_db)):
     """Get summary statistics for facturas"""
     from datetime import datetime
     
-    # Efficiently get counts by status
-    counts = await crud.get_facturas_status_counts(db)
+    today = datetime.now()
     
-    pendientes = counts.get('PENDIENTE', 0)
-    asignadas = counts.get('ASIGNADA', 0)
-    en_tramite = counts.get('EN_TRAMITE', 0)
-    pagadas = counts.get('PAGADA', 0)
-    total = pendientes + asignadas + en_tramite + pagadas
+    # Total counts by status (all time) - used for pendientes sin oficina
+    counts_total = await crud.get_facturas_status_counts(db)
+    
+    # Monthly counts - used for En Trámite and Pagadas counters (current month)
+    counts_mes = await crud.get_facturas_status_counts_mes(db, today.year, today.month)
+    
+    pendientes = counts_total.get('PENDIENTE', 0)
+    asignadas = counts_total.get('ASIGNADA', 0)
+    en_tramite_mes = counts_mes.get('EN_TRAMITE', 0)
+    pagadas_mes = counts_mes.get('PAGADA', 0)
+    total = pendientes + asignadas + counts_total.get('EN_TRAMITE', 0) + counts_total.get('PAGADA', 0)
     
     # Calculate missing invoices for this month
-    today = datetime.now()
     missing_contracts = await crud.get_contratos_pendientes_por_llegar(db, today.year, today.month)
-    
-    # Only count active contracts
-    # Assuming get_contratos_pendientes_por_llegar already filters or returns relevant contracts
     pendientes_por_llegar = len(missing_contracts)
     
     return {
         "total": total,
-        "sin_oficina": pendientes, # Re-labeling or providing specific key
-        "pendientes": pendientes,   # Keeping old key for compatibility
+        "sin_oficina": pendientes,
+        "pendientes": pendientes,       # Sin oficina asignada (total histórico activo)
         "asignadas": asignadas,
-        "en_tramite": en_tramite,
-        "pagadas": pagadas,
+        "en_tramite": en_tramite_mes,   # Solo del mes actual
+        "pagadas": pagadas_mes,         # Solo del mes actual
         "pendientes_por_llegar": pendientes_por_llegar
     }
 

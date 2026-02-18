@@ -31,6 +31,7 @@ export default function FacturasPage() {
     const [filterFechaDesde, setFilterFechaDesde] = useState('');
     const [filterFechaHasta, setFilterFechaHasta] = useState('');
     const [filterPeriodo, setFilterPeriodo] = useState<string>(''); // 'este_mes', 'mes_anterior', 'custom'
+    const [filterUsarFechaEstado, setFilterUsarFechaEstado] = useState(false); // filter by status_updated_at
 
     // Oficina filter with autocomplete
     const [filterOficinaId, setFilterOficinaId] = useState<number | null>(null);
@@ -93,6 +94,7 @@ export default function FacturasPage() {
         total: number;
         pendientes: number;
         asignadas: number;
+        en_tramite: number;
         pagadas: number;
         pendientes_por_llegar: number;
     } | null>(null);
@@ -703,6 +705,9 @@ export default function FacturasPage() {
             if (filterOficinaId) {
                 params.append('oficina_id', filterOficinaId.toString());
             }
+            if (filterUsarFechaEstado) {
+                params.append('usar_fecha_estado', 'true');
+            }
 
             const res = await fetch(`${API_URL}/facturas/?${params}`);
             if (res.ok) {
@@ -715,7 +720,8 @@ export default function FacturasPage() {
         } finally {
             setLoading(false);
         }
-    }, [filterEstado, filterFechaDesde, filterFechaHasta, filterOficinaId]);
+    }, [filterEstado, filterFechaDesde, filterFechaHasta, filterOficinaId, filterUsarFechaEstado]);
+
 
     const fetchStats = async () => {
         try {
@@ -1197,22 +1203,69 @@ export default function FacturasPage() {
                     {/* Stats Cards */}
                     {stats && (
                         <>
+                            {/* Sin Oficina - static counter */}
                             <div className="bg-yellow-50 border border-yellow-200 rounded-lg px-4 py-2 text-center">
                                 <div className="text-2xl font-bold text-yellow-700">{stats.pendientes}</div>
                                 <div className="text-xs text-yellow-600">Sin Oficina</div>
                             </div>
-                            <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-2 text-center">
-                                <div className="text-2xl font-bold text-blue-700">{stats.asignadas}</div>
-                                <div className="text-xs text-blue-600">Asignadas</div>
-                            </div>
-                            <div className="bg-purple-50 border border-purple-200 rounded-lg px-4 py-2 text-center">
-                                <div className="text-2xl font-bold text-purple-700">{stats.en_tramite || 0}</div>
-                                <div className="text-xs text-purple-600">En Trámite</div>
-                            </div>
-                            <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-2 text-center">
-                                <div className="text-2xl font-bold text-green-700">{stats.pagadas}</div>
-                                <div className="text-xs text-green-600">Pagadas</div>
-                            </div>
+
+                            {/* En Trámite - clickable filter for current month */}
+                            <button
+                                onClick={() => {
+                                    const isActive = filterEstado === 'EN_TRAMITE' && filterPeriodo === 'este_mes';
+                                    if (isActive) {
+                                        setFilterEstado('');
+                                        handlePeriodoChange('');
+                                        setFilterUsarFechaEstado(false);
+                                    } else {
+                                        setFilterEstado('EN_TRAMITE');
+                                        handlePeriodoChange('este_mes');
+                                        setFilterUsarFechaEstado(true);
+                                    }
+                                }}
+                                className={`rounded-lg px-4 py-2 text-center transition-all duration-200 border ${filterEstado === 'EN_TRAMITE' && filterPeriodo === 'este_mes'
+                                    ? 'bg-purple-600 border-purple-700 shadow-md ring-2 ring-purple-400 ring-offset-1'
+                                    : 'bg-purple-50 border-purple-200 hover:bg-purple-100 hover:border-purple-400'
+                                    }`}
+                                title="Ver facturas En Trámite de este mes"
+                            >
+                                <div className={`text-2xl font-bold ${filterEstado === 'EN_TRAMITE' && filterPeriodo === 'este_mes' ? 'text-white' : 'text-purple-700'
+                                    }`}>{stats.en_tramite || 0}</div>
+                                <div className={`text-xs font-medium ${filterEstado === 'EN_TRAMITE' && filterPeriodo === 'este_mes' ? 'text-purple-100' : 'text-purple-600'
+                                    }`}>En Trámite</div>
+                                <div className={`text-[10px] ${filterEstado === 'EN_TRAMITE' && filterPeriodo === 'este_mes' ? 'text-purple-200' : 'text-purple-400'
+                                    }`}>este mes</div>
+                            </button>
+
+                            {/* Pagadas - clickable filter for current month */}
+                            <button
+                                onClick={() => {
+                                    const isActive = filterEstado === 'PAGADA' && filterPeriodo === 'este_mes';
+                                    if (isActive) {
+                                        setFilterEstado('');
+                                        handlePeriodoChange('');
+                                        setFilterUsarFechaEstado(false);
+                                    } else {
+                                        setFilterEstado('PAGADA');
+                                        handlePeriodoChange('este_mes');
+                                        setFilterUsarFechaEstado(true);
+                                    }
+                                }}
+                                className={`rounded-lg px-4 py-2 text-center transition-all duration-200 border ${filterEstado === 'PAGADA' && filterPeriodo === 'este_mes'
+                                    ? 'bg-green-600 border-green-700 shadow-md ring-2 ring-green-400 ring-offset-1'
+                                    : 'bg-green-50 border-green-200 hover:bg-green-100 hover:border-green-400'
+                                    }`}
+                                title="Ver facturas Pagadas de este mes"
+                            >
+                                <div className={`text-2xl font-bold ${filterEstado === 'PAGADA' && filterPeriodo === 'este_mes' ? 'text-white' : 'text-green-700'
+                                    }`}>{stats.pagadas}</div>
+                                <div className={`text-xs font-medium ${filterEstado === 'PAGADA' && filterPeriodo === 'este_mes' ? 'text-green-100' : 'text-green-600'
+                                    }`}>Pagadas</div>
+                                <div className={`text-[10px] ${filterEstado === 'PAGADA' && filterPeriodo === 'este_mes' ? 'text-green-200' : 'text-green-400'
+                                    }`}>este mes</div>
+                            </button>
+
+                            {/* Pendientes por llegar - navigate to dedicated page */}
                             <button
                                 onClick={() => navigate('/facturas/pendientes')}
                                 className="bg-red-50 border border-red-200 rounded-lg px-4 py-2 text-center hover:bg-red-100 transition-colors"
@@ -2817,8 +2870,8 @@ export default function FacturasPage() {
                                                                             <span
                                                                                 onClick={() => setEditingCell({ facturaIdx: idx, rowIdx, field: 'tipo' })}
                                                                                 className={`px-2 py-0.5 rounded text-xs font-medium cursor-pointer transition-colors ${row.tipo_movimiento === 'DEBITO'
-                                                                                        ? 'bg-blue-100 text-blue-700 hover:bg-blue-200'
-                                                                                        : 'bg-green-100 text-green-700 hover:bg-green-200'
+                                                                                    ? 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                                                                                    : 'bg-green-100 text-green-700 hover:bg-green-200'
                                                                                     }`}
                                                                             >
                                                                                 {row.tipo_movimiento}
