@@ -1466,6 +1466,43 @@ export default function FacturasPage() {
 
             {/* Facturas List */}
             <div className="space-y-4">
+
+                {/* Select All Bar - only shown when there are facturas */}
+                {facturas.length > 0 && (
+                    <div className="flex items-center justify-between bg-white border border-gray-200 rounded-xl px-4 py-2.5 shadow-sm">
+                        <label className="flex items-center gap-3 cursor-pointer select-none">
+                            <input
+                                type="checkbox"
+                                checked={selectedFacturaIds.size === facturas.length && facturas.length > 0}
+                                ref={(el) => {
+                                    if (el) el.indeterminate = selectedFacturaIds.size > 0 && selectedFacturaIds.size < facturas.length;
+                                }}
+                                onChange={toggleSelectAll}
+                                className="w-5 h-5 text-emerald-600 rounded border-gray-300 focus:ring-emerald-500 cursor-pointer"
+                            />
+                            <span className="text-sm font-medium text-gray-700">
+                                {selectedFacturaIds.size === 0
+                                    ? `Seleccionar todas (${facturas.length})`
+                                    : selectedFacturaIds.size === facturas.length
+                                        ? `Todas seleccionadas (${facturas.length})`
+                                        : `${selectedFacturaIds.size} de ${facturas.length} seleccionadas`
+                                }
+                            </span>
+                        </label>
+                        {selectedFacturaIds.size > 0 && (
+                            <button
+                                onClick={clearSelection}
+                                className="text-xs text-gray-400 hover:text-gray-600 transition-colors flex items-center gap-1"
+                            >
+                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                                Limpiar selección
+                            </button>
+                        )}
+                    </div>
+                )}
+
                 {facturas.length === 0 && !loading ? (
                     <div className="text-center py-10 text-gray-500 bg-white rounded-xl shadow-sm border border-gray-100">
                         No se encontraron facturas.
