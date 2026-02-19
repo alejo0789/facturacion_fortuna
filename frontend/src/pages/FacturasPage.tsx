@@ -386,9 +386,11 @@ export default function FacturasPage() {
         let porcentajeRetefuente = 0; // default
 
         if (firstContrato) {
-            tieneIva = firstContrato.tiene_iva === 'si';
-            if (firstContrato.tiene_retefuente === 'si' && firstContrato.retefuente_pct) {
-                porcentajeRetefuente = firstContrato.retefuente_pct;
+            tieneIva = (firstContrato.tiene_iva || '').toLowerCase() === 'si';
+
+            const tieneRete = (firstContrato.tiene_retefuente || '').toLowerCase() === 'si';
+            if (tieneRete && firstContrato.retefuente_pct) {
+                porcentajeRetefuente = Number(firstContrato.retefuente_pct);
             }
         }
 
@@ -478,9 +480,11 @@ export default function FacturasPage() {
         let porcentajeRetefuente = 0;
 
         if (firstContrato) {
-            tieneIva = firstContrato.tiene_iva === 'si';
-            if (firstContrato.tiene_retefuente === 'si' && firstContrato.retefuente_pct) {
-                porcentajeRetefuente = firstContrato.retefuente_pct;
+            tieneIva = (firstContrato.tiene_iva || '').toLowerCase() === 'si';
+
+            const tieneRete = (firstContrato.tiene_retefuente || '').toLowerCase() === 'si';
+            if (tieneRete && firstContrato.retefuente_pct) {
+                porcentajeRetefuente = Number(firstContrato.retefuente_pct);
             }
         }
 
