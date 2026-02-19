@@ -810,11 +810,11 @@ async def get_contratos_by_nit(
     Get all contracts for a provider by their NIT.
     Returns: num_contrato, valor, cod_oficina, nombre_oficina, direccion, ciudad
     """
-    # First find the provider by NIT
+    # First find the provider by NIT (allow partial match)
     proveedor_result = await db.execute(
-        select(models.Proveedor).filter(models.Proveedor.nit == nit)
+        select(models.Proveedor).filter(models.Proveedor.nit.like(f"{nit}%"))
     )
-    proveedor = proveedor_result.scalar_one_or_none()
+    proveedor = proveedor_result.scalars().first()
     
     if not proveedor:
         return {
