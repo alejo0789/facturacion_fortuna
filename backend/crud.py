@@ -678,15 +678,23 @@ async def get_contratos_pendientes_por_llegar(db: AsyncSession, year: int, month
     from sqlalchemy import extract, and_
     
     # 1. Get IDs of contracts that ALREADY have an invoice for this period
-    # We check BOTH direct links in Factura AND multi-office links in FacturaOficina
+    # We check multiple dates to be flexible:
+    # - fecha_factura (date on paper)
+    # - created_at (when it arrived in system)
+    # - status_updated_at (when it was processed/paid) - using COALESCE with created_at
+    
+    from sqlalchemy import or_
     
     # Direct links query
     direct_query = (
         select(models.Factura.contrato_id)
         .filter(
             and_(
-                extract('year', models.Factura.fecha_factura) == year,
-                extract('month', models.Factura.fecha_factura) == month,
+                or_(
+                    and_(extract('year', models.Factura.fecha_factura) == year, extract('month', models.Factura.fecha_factura) == month),
+                    and_(extract('year', models.Factura.created_at) == year, extract('month', models.Factura.created_at) == month),
+                    and_(extract('year', func.coalesce(models.Factura.status_updated_at, models.Factura.created_at)) == year, extract('month', func.coalesce(models.Factura.status_updated_at, models.Factura.created_at)) == month)
+                ),
                 models.Factura.contrato_id.isnot(None)
             )
         )
@@ -698,8 +706,11 @@ async def get_contratos_pendientes_por_llegar(db: AsyncSession, year: int, month
         .join(models.Factura, models.Factura.id == models.FacturaOficina.factura_id)
         .filter(
             and_(
-                extract('year', models.Factura.fecha_factura) == year,
-                extract('month', models.Factura.fecha_factura) == month,
+                or_(
+                    and_(extract('year', models.Factura.fecha_factura) == year, extract('month', models.Factura.fecha_factura) == month),
+                    and_(extract('year', models.Factura.created_at) == year, extract('month', models.Factura.created_at) == month),
+                    and_(extract('year', func.coalesce(models.Factura.status_updated_at, models.Factura.created_at)) == year, extract('month', func.coalesce(models.Factura.status_updated_at, models.Factura.created_at)) == month)
+                ),
                 models.FacturaOficina.contrato_id.isnot(None)
             )
         )
