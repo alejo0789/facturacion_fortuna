@@ -678,8 +678,22 @@ async def get_contratos_pendientes_por_llegar(db: AsyncSession, year: int, month
     from sqlalchemy import extract, and_
     
     # 1. Get IDs of contracts that ALREADY have an invoice for this period
-    # We check through FacturaOficina links to Factura
-    invoiced_contracts_query = (
+    # We check BOTH direct links in Factura AND multi-office links in FacturaOficina
+    
+    # Direct links query
+    direct_query = (
+        select(models.Factura.contrato_id)
+        .filter(
+            and_(
+                extract('year', models.Factura.fecha_factura) == year,
+                extract('month', models.Factura.fecha_factura) == month,
+                models.Factura.contrato_id.isnot(None)
+            )
+        )
+    )
+    
+    # Multi-office links query
+    multi_office_query = (
         select(models.FacturaOficina.contrato_id)
         .join(models.Factura, models.Factura.id == models.FacturaOficina.factura_id)
         .filter(
@@ -691,8 +705,11 @@ async def get_contratos_pendientes_por_llegar(db: AsyncSession, year: int, month
         )
     )
     
-    result_invoiced = await db.execute(invoiced_contracts_query)
-    invoiced_ids = {row[0] for row in result_invoiced.all()}
+    result_direct = await db.execute(direct_query)
+    result_multi = await db.execute(multi_office_query)
+    
+    invoiced_ids = {row[0] for row in result_direct.all()}
+    invoiced_ids.update({row[0] for row in result_multi.all()})
     
     # 2. Get all active contracts that are NOT in the invoiced list
     query = (
