@@ -116,6 +116,9 @@ class Factura(Base):
     status_updated_at = Column(DateTime, nullable=True)  # When the status was last changed
     observaciones = Column(Text)
     
+    # New: Field to keep info if the linked contract is deleted
+    info_contrato_audit = Column(Text, nullable=True)
+    
     # Relationships
     proveedor = relationship("Proveedor")
     oficina = relationship("Oficina")  # Legacy single oficina
@@ -147,6 +150,9 @@ class FacturaOficina(Base):
     
     # Audit
     observaciones = Column(Text)
+    
+    # New: Field to keep info if the linked contract is deleted
+    info_contrato_audit = Column(Text, nullable=True)
     
     # Relationships
     factura = relationship("Factura", back_populates="oficinas_asignadas")
@@ -204,3 +210,24 @@ class ProveedorFeedback(Base):
     # Relationships
     proveedor = relationship("Proveedor")
     factura = relationship("Factura")
+
+class ContratoAuditoria(Base):
+    """
+    Historical record of deleted contracts to maintain traceability in invoices.
+    """
+    __tablename__ = "contrato_auditoria"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    original_id = Column(Integer)
+    num_contrato = Column(String(100))
+    proveedor_nit = Column(String(50))
+    proveedor_nombre = Column(String(255))
+    oficina_cod = Column(String(50))
+    oficina_nombre = Column(String(255))
+    valor_mensual = Column(Numeric(12, 2))
+    
+    # Full JSON snapshot of the contract for deep history
+    detalles_completos = Column(Text)
+    
+    fecha_eliminacion = Column(DateTime, server_default=func.now())
+    motivo = Column(String(255), default="Eliminación manual por usuario")

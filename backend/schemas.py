@@ -105,6 +105,7 @@ class FacturaBase(BaseModel):
     status_updated_at: Optional[datetime] = None
     url_factura: Optional[str] = None
     observaciones: Optional[str] = None
+    info_contrato_audit: Optional[str] = None
 
 class FacturaCreate(FacturaBase):
     """Full factura creation (for internal use)"""
@@ -193,6 +194,7 @@ class FacturaOficinaBase(BaseModel):
     valor: Decimal
     estado: Optional[str] = 'PENDIENTE'
     observaciones: Optional[str] = None
+    info_contrato_audit: Optional[str] = None
 
 class FacturaOficinaCreate(FacturaOficinaBase):
     """Create a new assignment of oficina to factura"""

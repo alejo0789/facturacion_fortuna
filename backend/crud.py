@@ -1,7 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
-from sqlalchemy import or_, update, func
+from sqlalchemy import or_, update, func, delete as sqlalchemy_delete
 from typing import List, Optional
 from datetime import datetime
 import models, schemas
@@ -192,10 +192,71 @@ async def delete_oficina(db: AsyncSession, oficina_id: int):
     return db_item
 
 async def delete_contrato(db: AsyncSession, contrato_id: int):
-    db_item = await get_contrato(db, contrato_id)
-    if db_item:
-        await db.delete(db_item)
-        await db.commit()
+    # 1. Get contract with all relations to capture the snapshot
+    result = await db.execute(
+        select(models.Contrato)
+        .options(selectinload(models.Contrato.proveedor), selectinload(models.Contrato.oficina))
+        .filter(models.Contrato.id == contrato_id)
+    )
+    db_item = result.scalars().first()
+    
+    if not db_item:
+        return None
+        
+    # 2. Create info strings
+    prov_nombre = db_item.proveedor.nombre if db_item.proveedor else "N/A"
+    ofic_nombre = db_item.oficina.nombre if db_item.oficina else "N/A"
+    num_cont = db_item.num_contrato or "S/N"
+    
+    audit_snapshot = f"Contrato #{num_cont} - {prov_nombre} ({ofic_nombre})"
+    
+    # 3. Create Audit Record
+    db_audit = models.ContratoAuditoria(
+        original_id=db_item.id,
+        num_contrato=num_cont,
+        proveedor_nit=db_item.proveedor.nit if db_item.proveedor else None,
+        proveedor_nombre=prov_nombre,
+        oficina_cod=db_item.oficina.cod_oficina if db_item.oficina else None,
+        oficina_nombre=ofic_nombre,
+        valor_mensual=db_item.valor_mensual,
+        detalles_completos=str({
+            "linea": db_item.linea,
+            "tipo": db_item.tipo,
+            "ref_pago": db_item.ref_pago,
+            "observaciones": db_item.observaciones
+        })
+    )
+    db.add(db_audit)
+    
+    # 4. Update linked Facturas (legacy)
+    await db.execute(
+        update(models.Factura)
+        .where(models.Factura.contrato_id == contrato_id)
+        .values(
+            contrato_id=None,
+            info_contrato_audit=audit_snapshot
+        )
+    )
+    
+    # 5. Update linked FacturaOficinas (new system)
+    await db.execute(
+        update(models.FacturaOficina)
+        .where(models.FacturaOficina.contrato_id == contrato_id)
+        .values(
+            contrato_id=None,
+            info_contrato_audit=audit_snapshot
+        )
+    )
+    
+    # 6. Delete Pagos associated
+    await db.execute(
+        sqlalchemy_delete(models.Pago)
+        .where(models.Pago.contrato_id == contrato_id)
+    )
+        
+    # 7. Final deletion
+    await db.delete(db_item)
+    await db.commit()
     return db_item
 
 

@@ -1559,18 +1559,22 @@ export default function FacturasPage() {
                                                             </div>
                                                             <div className="text-xs text-gray-500 flex items-center gap-2">
                                                                 <span>{oa.oficina?.ciudad || ''}</span>
-                                                                {oa.contrato && (
+                                                                {oa.contrato ? (
                                                                     <>
                                                                         <span>•</span>
                                                                         <span className="font-mono">{oa.contrato.num_contrato}</span>
-                                                                        <span className={`px-1.5 py-0.5 rounded text-xs ${oa.contrato.estado === 'ACTIVO'
-                                                                            ? 'bg-green-100 text-green-700'
-                                                                            : 'bg-red-100 text-red-700'
-                                                                            }`}>
+                                                                        <span className={`px-1.5 py-0.5 rounded text-xs ${oa.contrato.estado === 'ACTIVO' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                                                                             {oa.contrato.estado}
                                                                         </span>
                                                                     </>
-                                                                )}
+                                                                ) : oa.info_contrato_audit ? (
+                                                                    <>
+                                                                        <span>•</span>
+                                                                        <span className="bg-orange-100 text-orange-700 px-2 py-0.5 rounded text-[10px] font-bold border border-orange-200" title="Contrato borrado pero conservado en auditoría">
+                                                                            ⚠️ Contrato eliminado: {oa.info_contrato_audit}
+                                                                        </span>
+                                                                    </>
+                                                                ) : null}
                                                             </div>
                                                         </div>
                                                         <div className="flex items-center gap-2">
@@ -1613,14 +1617,17 @@ export default function FacturasPage() {
                                                     <span className="font-semibold text-gray-700">Oficina:</span>{' '}
                                                     <span className="text-gray-600">{f.oficina.nombre} ({f.oficina.ciudad})</span>
                                                 </div>
-                                                {f.contrato && (
+                                                {f.contrato ? (
                                                     <div className="text-sm mt-1">
                                                         <span className="font-semibold text-gray-700">Contrato:</span>{' '}
                                                         <span className="text-gray-600 font-mono">{f.contrato.num_contrato}</span>
-                                                        <span className={`ml-2 px-2 py-0.5 rounded text-xs ${f.contrato.estado === 'ACTIVO' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-                                                            }`}>
+                                                        <span className={`ml-2 px-2 py-0.5 rounded text-xs ${f.contrato.estado === 'ACTIVO' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                                                             {f.contrato.estado}
                                                         </span>
+                                                    </div>
+                                                ) : f.info_contrato_audit && (
+                                                    <div className="text-xs mt-1 text-orange-700 bg-orange-50 px-2 py-1 rounded border border-orange-200 inline-block font-medium">
+                                                        ⚠️ Contrato eliminado: {f.info_contrato_audit}
                                                     </div>
                                                 )}
                                             </>
@@ -2432,6 +2439,19 @@ export default function FacturasPage() {
                                                     <div className="text-sm text-gray-500 mt-1">
                                                         Fecha: {hf.fecha_factura || '-'} | Recibida: {hf.created_at?.split('T')[0] || '-'}
                                                     </div>
+                                                    {(() => {
+                                                        const asignacion = hf.oficinas_asignadas?.find(
+                                                            oa => oa.oficina_id === historialInfo?.oficinaId
+                                                        );
+                                                        if (asignacion?.info_contrato_audit) {
+                                                            return (
+                                                                <div className="text-[10px] text-orange-700 font-bold mt-1 bg-orange-50 px-2 py-1 rounded border border-orange-100 inline-block">
+                                                                    ⚠️ Contrato eliminado: {asignacion.info_contrato_audit}
+                                                                </div>
+                                                            );
+                                                        }
+                                                        return null;
+                                                    })()}
                                                 </div>
                                                 <div className="text-right">
                                                     {/* Show value assigned to this specific oficina */}

@@ -79,6 +79,9 @@ export interface Factura {
     storage_path?: string; // Expected network path
     file_exists?: boolean; // Whether the file exists
 
+    // Audit info for deleted contracts
+    info_contrato_audit?: string;
+
     // New: multiple oficinas with individual values
     oficinas_asignadas?: FacturaOficina[];
 }
@@ -94,6 +97,7 @@ export interface FacturaOficina {
     observaciones?: string;
     oficina?: Oficina;
     contrato?: Contrato;
+    info_contrato_audit?: string;
 }
 
 // Oficina with contract info - used for selecting oficina when assigning to factura
