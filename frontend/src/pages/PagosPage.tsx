@@ -620,7 +620,8 @@ export default function PagosPage() {
                                                                                             <th style={{ padding: '8px 12px', borderBottom: '1px solid #fde68a' }}>Tipo</th>
                                                                                             <th style={{ padding: '8px 12px', borderBottom: '1px solid #fde68a' }}>C.Costo</th>
                                                                                             <th style={{ padding: '8px 12px', borderBottom: '1px solid #fde68a' }}>Destino</th>
-                                                                                            <th style={{ padding: '8px 12px', borderBottom: '1px solid #fde68a' }}>Valor</th>
+                                                                                            <th style={{ padding: '8px 12px', borderBottom: '1px solid #fde68a', textAlign: 'right' }}>Débito</th>
+                                                                                            <th style={{ padding: '8px 12px', borderBottom: '1px solid #fde68a', textAlign: 'right' }}>Crédito</th>
                                                                                             <th style={{ padding: '8px 12px', borderBottom: '1px solid #fde68a' }}>Detalle</th>
                                                                                         </tr>
                                                                                     </thead>
@@ -633,10 +634,25 @@ export default function PagosPage() {
                                                                                                 </td>
                                                                                                 <td style={{ padding: '8px 12px' }}>{mRow.ccosto || '-'}</td>
                                                                                                 <td style={{ padding: '8px 12px' }}>{mRow.destino || '-'}</td>
-                                                                                                <td style={{ padding: '8px 12px', fontWeight: 700 }}>{formatCOP(mRow.valor)}</td>
+                                                                                                <td style={{ padding: '8px 12px', fontWeight: 700, color: '#15803d', textAlign: 'right' }}>
+                                                                                                    {mRow.tipo === 'DEBITO' ? formatCOP(mRow.valor) : ''}
+                                                                                                </td>
+                                                                                                <td style={{ padding: '8px 12px', fontWeight: 700, color: '#b91c1c', textAlign: 'right' }}>
+                                                                                                    {mRow.tipo === 'CREDITO' ? formatCOP(mRow.valor) : ''}
+                                                                                                </td>
                                                                                                 <td style={{ padding: '8px 12px', color: '#4b5563' }}>{mRow.detalle}</td>
                                                                                             </tr>
                                                                                         ))}
+                                                                                        <tr style={{ background: '#fef3c7', borderTop: '2px solid #fde68a' }}>
+                                                                                            <td colSpan={4} style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700, color: '#92400e' }}>TOTALES</td>
+                                                                                            <td style={{ padding: '8px 12px', fontWeight: 800, color: '#15803d', textAlign: 'right' }}>
+                                                                                                {formatCOP(managerData[f.id].data?.reduce((sum: number, r: any) => r.tipo === 'DEBITO' ? sum + r.valor : sum, 0))}
+                                                                                            </td>
+                                                                                            <td style={{ padding: '8px 12px', fontWeight: 800, color: '#b91c1c', textAlign: 'right' }}>
+                                                                                                {formatCOP(managerData[f.id].data?.reduce((sum: number, r: any) => r.tipo === 'CREDITO' ? sum + r.valor : sum, 0))}
+                                                                                            </td>
+                                                                                            <td></td>
+                                                                                        </tr>
                                                                                     </tbody>
                                                                                 </table>
                                                                             )}
