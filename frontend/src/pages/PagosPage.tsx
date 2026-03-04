@@ -24,6 +24,7 @@ interface FacturaEnTramite {
     estado: string;
     status_updated_at: string | null;
     observaciones: string | null;
+    url_factura: string | null;
     proveedor_id: number;
     proveedor_nombre: string;
     proveedor_nit: string;
@@ -45,6 +46,10 @@ export default function PagosPage() {
     const [expandedRow, setExpandedRow] = useState<number | null>(null);
     const [semanaModal, setSemanaModal] = useState(false);
     const [semanaTexto, setSemanaTexto] = useState('');
+
+    // PDF Viewer State
+    const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
+    const [pdfUrl, setPdfUrl] = useState('');
 
     // Manager Validation
     const [managerData, setManagerData] = useState<Record<number, any>>({});
@@ -457,13 +462,37 @@ export default function PagosPage() {
 
                                                     {/* No. FACTURA */}
                                                     <td style={{ padding: '10px 14px' }}>
-                                                        <span style={{
-                                                            background: '#dbeafe', color: '#1d4ed8',
-                                                            padding: '2px 8px', borderRadius: 6,
-                                                            fontSize: 12, fontWeight: 600,
-                                                        }}>
-                                                            {f.numero_factura || '—'}
-                                                        </span>
+                                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', alignItems: 'flex-start' }}>
+                                                            <span style={{
+                                                                background: '#dbeafe', color: '#1d4ed8',
+                                                                padding: '2px 8px', borderRadius: 6,
+                                                                fontSize: 12, fontWeight: 600,
+                                                            }}>
+                                                                {f.numero_factura || '—'}
+                                                            </span>
+                                                            {f.url_factura && (
+                                                                <button
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        setPdfUrl(`${API_URL}/facturas/${f.id}/ver`);
+                                                                        setIsPdfModalOpen(true);
+                                                                    }}
+                                                                    style={{
+                                                                        display: 'flex', alignItems: 'center', gap: '4px',
+                                                                        fontSize: '11px', color: '#2563eb', fontWeight: 600,
+                                                                        background: 'none', border: 'none', cursor: 'pointer',
+                                                                        padding: '2px 4px', borderRadius: '4px'
+                                                                    }}
+                                                                    onMouseOver={(e) => e.currentTarget.style.background = '#eff6ff'}
+                                                                    onMouseOut={(e) => e.currentTarget.style.background = 'none'}
+                                                                >
+                                                                    <svg style={{ width: 14, height: 14 }} fill="currentColor" viewBox="0 0 20 20">
+                                                                        <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clipRule="evenodd" />
+                                                                    </svg>
+                                                                    Ver PDF
+                                                                </button>
+                                                            )}
+                                                        </div>
                                                     </td>
 
                                                     {/* CUENTA POR PAGAR */}
@@ -796,10 +825,72 @@ export default function PagosPage() {
                 </div>
             )}
 
+            {/* View PDF Modal */}
+            {isPdfModalOpen && (
+                <div style={{
+                    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center'
+                }}>
+                    <div
+                        style={{
+                            position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+                            background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(4px)'
+                        }}
+                        onClick={() => setIsPdfModalOpen(false)}
+                    />
+                    <div style={{
+                        position: 'relative', zIndex: 10000,
+                        width: '100%', maxWidth: 1024, height: '85vh',
+                        background: '#fff', borderRadius: 16, display: 'flex', flexDirection: 'column',
+                        overflow: 'hidden', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)'
+                    }}>
+                        {/* Header */}
+                        <div style={{
+                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                            padding: '16px 24px', borderBottom: '1px solid #f3f4f6', background: '#f9fafb'
+                        }}>
+                            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: '#111827' }}>Visor de Factura</h2>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                                <a
+                                    href={pdfUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    style={{
+                                        padding: '8px 16px', fontSize: 13, background: '#2563eb', color: '#fff',
+                                        borderRadius: 8, textDecoration: 'none', fontWeight: 500
+                                    }}
+                                >
+                                    Abrir en nueva pestaña
+                                </a>
+                                <button
+                                    onClick={() => setIsPdfModalOpen(false)}
+                                    style={{
+                                        border: 'none', background: 'transparent', padding: 8, cursor: 'pointer',
+                                        color: '#9ca3af', borderRadius: 8
+                                    }}
+                                >
+                                    <svg style={{ width: 20, height: 20 }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                        {/* Iframe */}
+                        <div style={{ flex: 1, padding: 16, background: '#f3f4f6' }}>
+                            <iframe
+                                src={pdfUrl}
+                                title="Visor de PDF"
+                                style={{ width: '100%', height: '100%', border: 'none', borderRadius: 12, background: '#fff' }}
+                            />
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Spin animation */}
             <style>{`
-        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-      `}</style>
+                @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+            `}</style>
         </div>
     );
 }

@@ -137,6 +137,7 @@ async def get_facturas_en_tramite(
             "estado": f.estado,
             "status_updated_at": f.status_updated_at.isoformat() if f.status_updated_at else None,
             "observaciones": f.observaciones,
+            "url_factura": f.url_factura,
             "proveedor_id": f.proveedor_id,
             "proveedor_nombre": proveedor_nombre,
             "proveedor_nit": proveedor_nit,
