@@ -1207,12 +1207,6 @@ export default function FacturasPage() {
                     {/* Stats Cards */}
                     {stats && (
                         <>
-                            {/* Sin Oficina - static counter */}
-                            <div className="bg-yellow-50 border border-yellow-200 rounded-lg px-4 py-2 text-center">
-                                <div className="text-2xl font-bold text-yellow-700">{stats.pendientes}</div>
-                                <div className="text-xs text-yellow-600">Sin Oficina</div>
-                            </div>
-
                             {/* En Trámite - clickable filter for current month */}
                             <button
                                 onClick={() => {

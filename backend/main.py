@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 from contextlib import asynccontextmanager
 from database import engine, Base
-from routers import contracts, payments, facturas, consolidado, reportes, oficinas_oracle, archivo_plano, feedback, asistente
+from routers import contracts, payments, pagos, facturas, consolidado, reportes, oficinas_oracle, archivo_plano, feedback, asistente
 from middleware.auth import APIKeyMiddleware
 
 @asynccontextmanager
@@ -39,6 +39,7 @@ app.add_middleware(
 
 app.include_router(contracts.router, prefix="/api", tags=["contratos"])
 app.include_router(payments.router, prefix="/api", tags=["pagos"])
+app.include_router(pagos.router, prefix="/api", tags=["pagos-modulo"])
 app.include_router(facturas.router, prefix="/api", tags=["facturas"])
 app.include_router(consolidado.router, prefix="/api", tags=["consolidado"])
 app.include_router(reportes.router, prefix="/api", tags=["reportes"])
