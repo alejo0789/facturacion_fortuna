@@ -228,6 +228,19 @@ async def generar_consolidado_programacion(
 
     ws_info = wb['info']
 
+    # --- Configurar conexión a Oracle para traer el detalle exacto de Manager ---
+    import sys
+    sys.path.append('..')
+    from oracle_database import get_oracle_connection
+    
+    oracle_conn = None
+    oracle_cursor = None
+    try:
+        oracle_conn = get_oracle_connection()
+        oracle_cursor = oracle_conn.cursor()
+    except Exception as e:
+        print(f"⚠ Warning: No se pudo conectar a Oracle para leer los detalles desde Manager: {e}")
+
     # ── Clear old data rows in 'info' (row 1 = headers, keep untouched) ──
     for row_idx in range(2, ws_info.max_row + 1):
         for col_idx in range(1, 12):      # columns A–K
@@ -244,6 +257,24 @@ async def generar_consolidado_programacion(
         observaciones    = factura.observaciones or ""
         doc_contable     = extract_doc_contable(observaciones)
 
+        # Buscar el detalle exacto en Manager si tenemos documento contable
+        observacion_excel = observaciones
+        if doc_contable and oracle_cursor:
+            match = re.search(r'([A-Za-z0-9]+)-(\d+)', doc_contable)
+            if match:
+                tipo_doc = match.group(1).upper()
+                try:
+                    num_doc = int(match.group(2))
+                    oracle_cursor.execute(
+                        "SELECT DOCDETALLE FROM MANAGER.MNGDOC WHERE DOCTIPO = :tipo AND DOCNUMERO = :numero",
+                        {'tipo': tipo_doc, 'numero': num_doc}
+                    )
+                    mngdoc_row = oracle_cursor.fetchone()
+                    if mngdoc_row and mngdoc_row[0]:
+                        observacion_excel = str(mngdoc_row[0]).strip()
+                except Exception as e:
+                    print(f"Error consultando detalle en Manager para {doc_contable}: {e}")
+
         ws_info.cell(row=info_row, column=1).value  = item_num          # A: ITEM
         ws_info.cell(row=info_row, column=2).value  = valor             # B: VALOR NETO A PAGAR
         ws_info.cell(row=info_row, column=3).value  = numero_factura    # C: No. FACTURA
@@ -253,7 +284,7 @@ async def generar_consolidado_programacion(
         # G (col 7) BANCO          → blank, user fills
         # H (col 8) TIPO DE CUENTA → blank, user fills
         # I (col 9) CUENTA         → blank, user fills
-        ws_info.cell(row=info_row, column=10).value = observaciones      # J: OBSERVACIÓN
+        ws_info.cell(row=info_row, column=10).value = observacion_excel  # J: OBSERVACIÓN (DE MANAGER)
         ws_info.cell(row=info_row, column=11).value = doc_contable       # K: DOCUMENTO CONTABLE
 
     # ── Update header text in 'consolidado' (safe: only text cells, no images) ──
@@ -277,6 +308,15 @@ async def generar_consolidado_programacion(
     output.seek(0)
 
     encoded_filename = quote(filename)
+    
+    # Cerrar conexion de oracle si se abrio
+    if oracle_cursor:
+        try: oracle_cursor.close()
+        except: pass
+    if oracle_conn:
+        try: oracle_conn.close()
+        except: pass
+
     return StreamingResponse(
         output,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

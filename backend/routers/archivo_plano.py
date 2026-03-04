@@ -33,6 +33,7 @@ class OficinaArchivoPlano(BaseModel):
 
 class FacturaArchivoPlano(BaseModel):
     """Invoice with its offices for flat file generation"""
+    id: Optional[int] = None
     numero_factura: Optional[str] = None
     fecha_factura: Optional[date] = None  # For extracting month
     oficinas: List[OficinaArchivoPlano]
@@ -1355,8 +1356,37 @@ async def insertar_causacion_manager(request: CausacionInsertRequest):
             })
             total_mngmcn += 1
         
-        # Commit all changes
+        # Commit all changes to Oracle
         connection.commit()
+        
+        # Now update our local database to save the Documento Contable (DC07-XXX)
+        try:
+            from database import SessionLocal
+            from models import Factura
+            import re
+            from sqlalchemy import select
+            
+            async with SessionLocal() as db_local:
+                for factura_index, factura in enumerate(request.facturas):
+                    if factura.id:
+                        f_numedoc = request.numedoc + factura_index
+                        doc_str = f"DC07-{f_numedoc}"
+                        
+                        stmt = select(Factura).where(Factura.id == factura.id)
+                        res = await db_local.execute(stmt)
+                        f_db = res.scalar_one_or_none()
+                        
+                        if f_db:
+                            obs = f_db.observaciones or ""
+                            # Update only if it doesn't already have it
+                            if not re.search(r'DC\w*-[\d]+([-\d]*)', obs, re.IGNORECASE):
+                                if obs:
+                                    f_db.observaciones = f"{obs.strip()} | Ref Doc: {doc_str}"
+                                else:
+                                    f_db.observaciones = f"Ref Doc: {doc_str}"
+                await db_local.commit()
+        except Exception as local_db_error:
+            print(f"Warning: Failed to update local DB with documento_contable: {local_db_error}")
         
         numedoc_final = request.numedoc + len(request.facturas) - 1
         
