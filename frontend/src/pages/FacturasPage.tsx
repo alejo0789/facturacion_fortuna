@@ -3354,46 +3354,14 @@ export default function FacturasPage() {
                                                 if (!confirmed) return;
 
                                                 try {
-                                                    // Prepare the request body matching the preview request
-                                                    const selectedFacturasData = facturas.filter(f => selectedFacturaIds.has(f.id));
-
-                                                    const facturasForRequest: Array<{
-                                                        id?: number;
-                                                        numero_factura: string;
-                                                        fecha_factura: string | null;
-                                                        oficinas: Array<{ cod_oficina: string; valor: number; nombre_oficina: string }>;
-                                                    }> = [];
-
-                                                    for (const factura of selectedFacturasData) {
-                                                        const oficinas: Array<{ cod_oficina: string; valor: number; nombre_oficina: string }> = [];
-                                                        if (factura.oficinas_asignadas && factura.oficinas_asignadas.length > 0) {
-                                                            for (const oa of factura.oficinas_asignadas) {
-                                                                if (oa.oficina?.cod_oficina && oa.valor) {
-                                                                    oficinas.push({
-                                                                        cod_oficina: oa.oficina.cod_oficina,
-                                                                        valor: oa.valor,
-                                                                        nombre_oficina: oa.oficina.nombre || oa.oficina.cod_oficina
-                                                                    });
-                                                                }
-                                                            }
-                                                        }
-                                                        if (oficinas.length > 0) {
-                                                            facturasForRequest.push({
-                                                                id: factura.id,
-                                                                numero_factura: factura.numero_factura || '',
-                                                                fecha_factura: factura.fecha_factura || null,
-                                                                oficinas: oficinas
-                                                            });
-                                                        }
-                                                    }
-
                                                     const requestBody = {
+                                                        fecha_causacion: causacionPreviewData.fecha_causacion,
                                                         proveedor_nit: causacionPreviewData.proveedor_nit,
                                                         proveedor_nombre: causacionPreviewData.proveedor_nombre,
                                                         tiene_iva: causacionPreviewData.tiene_iva,
                                                         porcentaje_retefuente: causacionPreviewData.porcentaje_retefuente,
                                                         numedoc: causacionPreviewData.numedoc_inicial,
-                                                        facturas: facturasForRequest
+                                                        facturas: causacionPreviewData.facturas
                                                     };
 
                                                     const res = await fetch(`${API_URL}/causacion-manager/insertar`, {

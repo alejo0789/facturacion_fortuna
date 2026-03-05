@@ -749,6 +749,7 @@ class CausacionRowPreview(BaseModel):
 
 class CausacionFacturaPreview(BaseModel):
     """Preview for a single factura"""
+    id: Optional[int] = None
     numero_factura: str
     numedoc: int
     rows: List[CausacionRowPreview]
@@ -938,6 +939,7 @@ async def preview_causacion_manager(request: CausacionManagerPreviewRequest):
         factura_creditos += valor_balance
         
         facturas_preview.append(CausacionFacturaPreview(
+            id=factura.id,
             numero_factura=factura.numero_factura or f"Factura {factura_index + 1}",
             numedoc=factura_numedoc,
             rows=rows_preview,
@@ -976,7 +978,7 @@ class CausacionInsertRequest(BaseModel):
     fecha_causacion: Optional[date] = None
     tiene_iva: bool = True
     porcentaje_retefuente: float = 0
-    facturas: List[FacturaArchivoPlano]
+    facturas: List[CausacionFacturaPreview]
     numedoc: int
 
 
@@ -1022,27 +1024,16 @@ async def insertar_causacion_manager(request: CausacionInsertRequest):
         cursor = connection.cursor()
         
         for factura_index, factura in enumerate(request.facturas):
-            if not factura.oficinas:
+            if not factura.rows:
                 continue
             
             factura_numedoc = request.numedoc + factura_index
             
-            # Get first office info for the header
-            first_oficina = factura.oficinas[0]
-            ccosto_raw = await get_centro_costo(first_oficina.cod_oficina)
-            ccosto = ccosto_raw if ccosto_raw else "."
-            destino = clean_oficina_code(first_oficina.cod_oficina)
-            
-            # Build detalle for header
-            nombre_oficina = first_oficina.nombre_oficina or first_oficina.cod_oficina
-            mes_factura = get_month_name_spanish(factura.fecha_factura) if factura.fecha_factura else ""
-            detalle = build_detalle(
-                numero_factura=factura.numero_factura or '',
-                nombre_oficina=nombre_oficina,
-                mes_factura=mes_factura,
-                proveedor_nit=request.proveedor_nit,
-                num_contrato=first_oficina.num_contrato
-            )
+            # Get data for header from the first row of the preview
+            first_row = factura.rows[0]
+            ccosto = first_row.ccosto if first_row.ccosto else "."
+            destino = first_row.destino if first_row.destino else "."
+            detalle_cabecera = first_row.detalle if first_row.detalle else f"FACT {factura.numero_factura}"
             
             # === INSERT INTO MNGDOC (Header) ===
             cursor.execute("""
@@ -1068,182 +1059,21 @@ async def insertar_causacion_manager(request: CausacionInsertRequest):
             """, {
                 'numedoc': factura_numedoc,
                 'fecha': fecha_str,
-                'nit': request.proveedor_nit,
+                'nit': request.provider_nit if hasattr(request, 'provider_nit') else request.proveedor_nit,
                 'ccosto': ccosto,
                 'destino': destino,
-                'detalle': detalle[:2000]  # Max 2000 chars
+                'detalle': detalle_cabecera[:2000]
             })
             total_mngdoc += 1
             
-            # === Process each oficina for MNGMCN (Details) ===
-            reg_counter = 0
-            factura_valor_base = 0
-            factura_iva = 0
-            
-            for oficina in factura.oficinas:
-                ccosto_raw = await get_centro_costo(oficina.cod_oficina)
-                ccosto = ccosto_raw if ccosto_raw else "."
-                destino = clean_oficina_code(oficina.cod_oficina)
-                nombre_oficina = oficina.nombre_oficina or oficina.cod_oficina
-                mes_factura = get_month_name_spanish(factura.fecha_factura) if factura.fecha_factura else ""
+            # === Process rows exactly as received from preview ===
+            for row in factura.rows:
+                debito = row.valor if row.tipo_movimiento == "DEBITO" else 0
+                credito = row.valor if row.tipo_movimiento == "CREDITO" else 0
                 
-                detalle = build_detalle(
-                    numero_factura=factura.numero_factura or '',
-                    nombre_oficina=nombre_oficina,
-                    mes_factura=mes_factura,
-                    proveedor_nit=request.proveedor_nit,
-                    num_contrato=oficina.num_contrato
-                )
-                
-                valor = float(oficina.valor)
+                # Check if it is the counterparty row (23355002) for saldo
+                saldocr = credito if str(row.cuenta).strip() == "23355002" else 0
 
-                # Calculate base value
-                if request.tiene_iva:
-                    valor_base = round(valor / 1.19, 2)
-                    valor_iva = round(valor - valor_base, 2)
-                else:
-                    valor_base = valor
-                    valor_iva = 0
-
-                factura_valor_base += valor_base
-                factura_iva += valor_iva
-
-                # Check special single-account rule
-                cuenta_unica = get_cuenta_unica(request.proveedor_nit, oficina.num_contrato)
-
-                if cuenta_unica:
-                    # Special case: 100% of valor_base to single account
-                    reg_counter += 1
-                    cursor.execute("""
-                        INSERT INTO MANAGER.MNGMCN (
-                            MCNEMPRESA, MCNCLASE, MCNVINKEY, MCNTIPODOC, MCNNUMEDOC, MCNREG, MCNFECHA,
-                            MCNCLACRU1, MCNTIPCRU1, MCNNUMCRU1, MCNCUOCRU1, MCNSUCURS, MCNCUENTA, MCNVINCULA,
-                            MCNSUCVIN, MCNCCOSTO, MCNDESTINO, MCNVENDE, MCNCOBRA, MCNZONA, MCNFECINI, MCNPLAZO,
-                            MCNVALDEBI, MCNVALCRED, MCNTASA, MCNBASE, MCNCLACRU2, MCNTIPCRU2, MCNNUMCRU2, MCNCUOCRU2,
-                            MCNSALDODB, MCNSALDOCR, MCNNEWUSER, MCNNEWFEC, MCNMODUSER, MCNMODFEC, MCNBODEGA,
-                            MCNPROPADR, MCNPRODUCT, MCNCANTI_O, MCNUNI_O, MCNPARCI_O, MCNCANTID, MCNUNIDAD,
-                            MCNPRECIOB, MCNFACTOR, MCNDCTO1, MCNDCTO2, MCNDCTO3, MCNDCTO4, MCNIMPOCON, MCNPRCOSVT,
-                            MCNIVATIPO, MCNIVAPORC, MNCNIVAINC, MCNCOSTORE, MCNDIMEORI, MCNINDINV, MCNLOTEPRO,
-                            MCNPRECIOX, MCNREF1, MCNREF2, MCNESTADO, MCNDETALLE, MCNFTE, MCNTPREG
-                        ) VALUES (
-                            '101', '0000', '.', 'DC07', :numedoc, :reg, TO_DATE(:fecha, 'YYYY-MM-DD'),
-                            '0000', 'DC07', :numedoc, 0, '.', :cuenta, :nit,
-                            '.', :ccosto, :destino, '.', '.', '.', TO_DATE(:fecha, 'YYYY-MM-DD'), 0,
-                            :valdebi, 0, 0, 0, ' ', ' ', 0, 0,
-                            0, 0, 'WEBAPP', SYSDATE, 'WEBAPP', SYSDATE, '.',
-                            '.', '.', 0, '.', 0, 0, '.',
-                            0, 1, 0, 0, 0, 0, 0, 0,
-                            '.', 0, 0, 0, 0, '.', '.',
-                            0, '.', '.', 'a', :detalle, '.', 1
-                        )
-                    """, {
-                        'numedoc': factura_numedoc,
-                        'reg': reg_counter,
-                        'fecha': fecha_str,
-                        'nit': request.proveedor_nit,
-                        'cuenta': cuenta_unica,
-                        'ccosto': ccosto,
-                        'destino': destino,
-                        'valdebi': valor_base,
-                        'detalle': detalle[:4000]
-                    })
-                    total_mngmcn += 1
-
-                else:
-                    # Normal 70/30 split
-                    valor_70 = round(valor_base * 0.70, 2)
-                    valor_30 = round(valor_base * 0.30, 2)
-
-                    # Row 1: Account 61350513 - 70% DEBITO
-                    reg_counter += 1
-                    cursor.execute("""
-                        INSERT INTO MANAGER.MNGMCN (
-                            MCNEMPRESA, MCNCLASE, MCNVINKEY, MCNTIPODOC, MCNNUMEDOC, MCNREG, MCNFECHA,
-                            MCNCLACRU1, MCNTIPCRU1, MCNNUMCRU1, MCNCUOCRU1, MCNSUCURS, MCNCUENTA, MCNVINCULA,
-                            MCNSUCVIN, MCNCCOSTO, MCNDESTINO, MCNVENDE, MCNCOBRA, MCNZONA, MCNFECINI, MCNPLAZO,
-                            MCNVALDEBI, MCNVALCRED, MCNTASA, MCNBASE, MCNCLACRU2, MCNTIPCRU2, MCNNUMCRU2, MCNCUOCRU2,
-                            MCNSALDODB, MCNSALDOCR, MCNNEWUSER, MCNNEWFEC, MCNMODUSER, MCNMODFEC, MCNBODEGA,
-                            MCNPROPADR, MCNPRODUCT, MCNCANTI_O, MCNUNI_O, MCNPARCI_O, MCNCANTID, MCNUNIDAD,
-                            MCNPRECIOB, MCNFACTOR, MCNDCTO1, MCNDCTO2, MCNDCTO3, MCNDCTO4, MCNIMPOCON, MCNPRCOSVT,
-                            MCNIVATIPO, MCNIVAPORC, MNCNIVAINC, MCNCOSTORE, MCNDIMEORI, MCNINDINV, MCNLOTEPRO,
-                            MCNPRECIOX, MCNREF1, MCNREF2, MCNESTADO, MCNDETALLE, MCNFTE, MCNTPREG
-                        ) VALUES (
-                            '101', '0000', '.', 'DC07', :numedoc, :reg, TO_DATE(:fecha, 'YYYY-MM-DD'),
-                            '0000', 'DC07', :numedoc, 0, '.', '61350513', :nit,
-                            '.', :ccosto, :destino, '.', '.', '.', TO_DATE(:fecha, 'YYYY-MM-DD'), 0,
-                            :valdebi, 0, 0, 0, ' ', ' ', 0, 0,
-                            0, 0, 'WEBAPP', SYSDATE, 'WEBAPP', SYSDATE, '.',
-                            '.', '.', 0, '.', 0, 0, '.',
-                            0, 1, 0, 0, 0, 0, 0, 0,
-                            '.', 0, 0, 0, 0, '.', '.',
-                            0, '.', '.', 'a', :detalle, '.', 1
-                        )
-                    """, {
-                        'numedoc': factura_numedoc,
-                        'reg': reg_counter,
-                        'fecha': fecha_str,
-                        'nit': request.proveedor_nit,
-                        'ccosto': ccosto,
-                        'destino': destino,
-                        'valdebi': valor_70,
-                        'detalle': detalle[:4000]
-                    })
-                    total_mngmcn += 1
-
-                    # Row 2: Account 61700360 - 30% DEBITO
-                    reg_counter += 1
-                    cursor.execute("""
-                        INSERT INTO MANAGER.MNGMCN (
-                            MCNEMPRESA, MCNCLASE, MCNVINKEY, MCNTIPODOC, MCNNUMEDOC, MCNREG, MCNFECHA,
-                            MCNCLACRU1, MCNTIPCRU1, MCNNUMCRU1, MCNCUOCRU1, MCNSUCURS, MCNCUENTA, MCNVINCULA,
-                            MCNSUCVIN, MCNCCOSTO, MCNDESTINO, MCNVENDE, MCNCOBRA, MCNZONA, MCNFECINI, MCNPLAZO,
-                            MCNVALDEBI, MCNVALCRED, MCNTASA, MCNBASE, MCNCLACRU2, MCNTIPCRU2, MCNNUMCRU2, MCNCUOCRU2,
-                            MCNSALDODB, MCNSALDOCR, MCNNEWUSER, MCNNEWFEC, MCNMODUSER, MCNMODFEC, MCNBODEGA,
-                            MCNPROPADR, MCNPRODUCT, MCNCANTI_O, MCNUNI_O, MCNPARCI_O, MCNCANTID, MCNUNIDAD,
-                            MCNPRECIOB, MCNFACTOR, MCNDCTO1, MCNDCTO2, MCNDCTO3, MCNDCTO4, MCNIMPOCON, MCNPRCOSVT,
-                            MCNIVATIPO, MCNIVAPORC, MNCNIVAINC, MCNCOSTORE, MCNDIMEORI, MCNINDINV, MCNLOTEPRO,
-                            MCNPRECIOX, MCNREF1, MCNREF2, MCNESTADO, MCNDETALLE, MCNFTE, MCNTPREG
-                        ) VALUES (
-                            '101', '0000', '.', 'DC07', :numedoc, :reg, TO_DATE(:fecha, 'YYYY-MM-DD'),
-                            '0000', 'DC07', :numedoc, 0, '.', '61700360', :nit,
-                            '.', :ccosto, :destino, '.', '.', '.', TO_DATE(:fecha, 'YYYY-MM-DD'), 0,
-                            :valdebi, 0, 0, 0, ' ', ' ', 0, 0,
-                            0, 0, 'WEBAPP', SYSDATE, 'WEBAPP', SYSDATE, '.',
-                            '.', '.', 0, '.', 0, 0, '.',
-                            0, 1, 0, 0, 0, 0, 0, 0,
-                            '.', 0, 0, 0, 0, '.', '.',
-                            0, '.', '.', 'a', :detalle, '.', 1
-                        )
-                    """, {
-                        'numedoc': factura_numedoc,
-                        'reg': reg_counter,
-                        'fecha': fecha_str,
-                        'nit': request.proveedor_nit,
-                        'ccosto': ccosto,
-                        'destino': destino,
-                        'valdebi': valor_30,
-                        'detalle': detalle[:4000]
-                    })
-                    total_mngmcn += 1
-            
-            # Get last office info for summary rows
-            last_oficina = factura.oficinas[-1]
-            last_ccosto_raw = await get_centro_costo(last_oficina.cod_oficina)
-            last_ccosto = last_ccosto_raw if last_ccosto_raw else "."
-            last_destino = clean_oficina_code(last_oficina.cod_oficina)
-            last_nombre = last_oficina.nombre_oficina or last_oficina.cod_oficina
-            last_mes = get_month_name_spanish(factura.fecha_factura) if factura.fecha_factura else ""
-            last_detalle = build_detalle(
-                numero_factura=factura.numero_factura or '',
-                nombre_oficina=last_nombre,
-                mes_factura=last_mes,
-                proveedor_nit=request.proveedor_nit,
-                num_contrato=last_oficina.num_contrato
-            )
-            
-            # Row: IVA (DEBITO) - Account 24081003
-            if request.tiene_iva and factura_iva > 0:
-                reg_counter += 1
                 cursor.execute("""
                     INSERT INTO MANAGER.MNGMCN (
                         MCNEMPRESA, MCNCLASE, MCNVINKEY, MCNTIPODOC, MCNNUMEDOC, MCNREG, MCNFECHA,
@@ -1257,48 +1087,10 @@ async def insertar_causacion_manager(request: CausacionInsertRequest):
                         MCNPRECIOX, MCNREF1, MCNREF2, MCNESTADO, MCNDETALLE, MCNFTE, MCNTPREG
                     ) VALUES (
                         '101', '0000', '.', 'DC07', :numedoc, :reg, TO_DATE(:fecha, 'YYYY-MM-DD'),
-                        '0000', 'DC07', :numedoc, 0, '.', '24081003', :nit,
-                        '.', :ccosto, '.', '.', '.', '.', TO_DATE(:fecha, 'YYYY-MM-DD'), 0,
-                        :valdebi, 0, 19, :base, ' ', ' ', 0, 0,
-                        0, 0, 'WEBAPP', SYSDATE, 'WEBAPP', SYSDATE, '.',
-                        '.', '.', 0, '.', 0, 0, '.',
-                        0, 1, 0, 0, 0, 0, 0, 0,
-                        '.', 0, 0, 0, 0, '.', '.',
-                        0, '.', '.', 'a', :detalle, '.', 1
-                    )
-                """, {
-                    'numedoc': factura_numedoc,
-                    'reg': reg_counter,
-                    'fecha': fecha_str,
-                    'nit': request.proveedor_nit,
-                    'ccosto': last_ccosto,
-                    'valdebi': factura_iva,
-                    'base': factura_valor_base,
-                    'detalle': last_detalle[:4000]
-                })
-                total_mngmcn += 1
-            
-            # Row: Retefuente (CREDITO) - Account 23652501
-            valor_retefuente = round(factura_valor_base * (request.porcentaje_retefuente / 100), 2) if request.porcentaje_retefuente > 0 else 0
-            if valor_retefuente > 0:
-                reg_counter += 1
-                cursor.execute("""
-                    INSERT INTO MANAGER.MNGMCN (
-                        MCNEMPRESA, MCNCLASE, MCNVINKEY, MCNTIPODOC, MCNNUMEDOC, MCNREG, MCNFECHA,
-                        MCNCLACRU1, MCNTIPCRU1, MCNNUMCRU1, MCNCUOCRU1, MCNSUCURS, MCNCUENTA, MCNVINCULA,
-                        MCNSUCVIN, MCNCCOSTO, MCNDESTINO, MCNVENDE, MCNCOBRA, MCNZONA, MCNFECINI, MCNPLAZO,
-                        MCNVALDEBI, MCNVALCRED, MCNTASA, MCNBASE, MCNCLACRU2, MCNTIPCRU2, MCNNUMCRU2, MCNCUOCRU2,
-                        MCNSALDODB, MCNSALDOCR, MCNNEWUSER, MCNNEWFEC, MCNMODUSER, MCNMODFEC, MCNBODEGA,
-                        MCNPROPADR, MCNPRODUCT, MCNCANTI_O, MCNUNI_O, MCNPARCI_O, MCNCANTID, MCNUNIDAD,
-                        MCNPRECIOB, MCNFACTOR, MCNDCTO1, MCNDCTO2, MCNDCTO3, MCNDCTO4, MCNIMPOCON, MCNPRCOSVT,
-                        MCNIVATIPO, MCNIVAPORC, MNCNIVAINC, MCNCOSTORE, MCNDIMEORI, MCNINDINV, MCNLOTEPRO,
-                        MCNPRECIOX, MCNREF1, MCNREF2, MCNESTADO, MCNDETALLE, MCNFTE, MCNTPREG
-                    ) VALUES (
-                        '101', '0000', '.', 'DC07', :numedoc, :reg, TO_DATE(:fecha, 'YYYY-MM-DD'),
-                        '0000', 'DC07', :numedoc, 0, '.', '23652501', :nit,
+                        '0000', 'DC07', :numedoc, 0, '.', :cuenta, :nit,
                         '.', :ccosto, :destino, '.', '.', '.', TO_DATE(:fecha, 'YYYY-MM-DD'), 0,
-                        0, :valcred, 0, 0, ' ', ' ', 0, 0,
-                        0, 0, 'WEBAPP', SYSDATE, 'WEBAPP', SYSDATE, '.',
+                        :valdebi, :valcred, 0, 0, ' ', ' ', 0, 0,
+                        0, :saldocr, 'WEBAPP', SYSDATE, 'WEBAPP', SYSDATE, '.',
                         '.', '.', 0, '.', 0, 0, '.',
                         0, 1, 0, 0, 0, 0, 0, 0,
                         '.', 0, 0, 0, 0, '.', '.',
@@ -1306,55 +1098,18 @@ async def insertar_causacion_manager(request: CausacionInsertRequest):
                     )
                 """, {
                     'numedoc': factura_numedoc,
-                    'reg': reg_counter,
+                    'reg': row.row_num,
                     'fecha': fecha_str,
                     'nit': request.proveedor_nit,
-                    'ccosto': last_ccosto,
-                    'destino': last_destino,
-                    'valcred': valor_retefuente,
-                    'detalle': last_detalle[:4000]
+                    'cuenta': row.cuenta,
+                    'ccosto': row.ccosto if row.ccosto else ".",
+                    'destino': row.destino if row.destino else ".",
+                    'valdebi': debito,
+                    'valcred': credito,
+                    'saldocr': saldocr,
+                    'detalle': row.detalle[:4000]
                 })
                 total_mngmcn += 1
-            
-            # Row: Balance (CREDITO) - Account 23355002
-            total_debitos = factura_valor_base + factura_iva
-            valor_balance = total_debitos - valor_retefuente
-            
-            reg_counter += 1
-            cursor.execute("""
-                INSERT INTO MANAGER.MNGMCN (
-                    MCNEMPRESA, MCNCLASE, MCNVINKEY, MCNTIPODOC, MCNNUMEDOC, MCNREG, MCNFECHA,
-                    MCNCLACRU1, MCNTIPCRU1, MCNNUMCRU1, MCNCUOCRU1, MCNSUCURS, MCNCUENTA, MCNVINCULA,
-                    MCNSUCVIN, MCNCCOSTO, MCNDESTINO, MCNVENDE, MCNCOBRA, MCNZONA, MCNFECINI, MCNPLAZO,
-                    MCNVALDEBI, MCNVALCRED, MCNTASA, MCNBASE, MCNCLACRU2, MCNTIPCRU2, MCNNUMCRU2, MCNCUOCRU2,
-                    MCNSALDODB, MCNSALDOCR, MCNNEWUSER, MCNNEWFEC, MCNMODUSER, MCNMODFEC, MCNBODEGA,
-                    MCNPROPADR, MCNPRODUCT, MCNCANTI_O, MCNUNI_O, MCNPARCI_O, MCNCANTID, MCNUNIDAD,
-                    MCNPRECIOB, MCNFACTOR, MCNDCTO1, MCNDCTO2, MCNDCTO3, MCNDCTO4, MCNIMPOCON, MCNPRCOSVT,
-                    MCNIVATIPO, MCNIVAPORC, MNCNIVAINC, MCNCOSTORE, MCNDIMEORI, MCNINDINV, MCNLOTEPRO,
-                    MCNPRECIOX, MCNREF1, MCNREF2, MCNESTADO, MCNDETALLE, MCNFTE, MCNTPREG
-                ) VALUES (
-                    '101', '0000', '.', 'DC07', :numedoc, :reg, TO_DATE(:fecha, 'YYYY-MM-DD'),
-                    '0000', 'DC07', :numedoc, 0, '.', '23355002', :nit,
-                    '.', :ccosto, :destino, '.', '.', '.', TO_DATE(:fecha, 'YYYY-MM-DD'), 0,
-                    0, :valcred, 0, 0, ' ', ' ', 0, 0,
-                    0, :saldocr, 'WEBAPP', SYSDATE, 'WEBAPP', SYSDATE, '.',
-                    '.', '.', 0, '.', 0, 0, '.',
-                    0, 1, 0, 0, 0, 0, 0, 0,
-                    '.', 0, 0, 0, 0, '.', '.',
-                    0, '.', '.', 'a', :detalle, '.', 1
-                )
-            """, {
-                'numedoc': factura_numedoc,
-                'reg': reg_counter,
-                'fecha': fecha_str,
-                'nit': request.proveedor_nit,
-                'ccosto': last_ccosto,
-                'destino': last_destino,
-                'valcred': valor_balance,
-                'saldocr': valor_balance,
-                'detalle': last_detalle[:4000]
-            })
-            total_mngmcn += 1
         
         # Commit all changes to Oracle
         connection.commit()
@@ -1377,13 +1132,8 @@ async def insertar_causacion_manager(request: CausacionInsertRequest):
                         f_db = res.scalar_one_or_none()
                         
                         if f_db:
-                            # Update observations
-                            obs = f_db.observaciones or ""
-                            if not re.search(r'DC\w*-[\d]+([-\d]*)', obs, re.IGNORECASE):
-                                if obs:
-                                    f_db.observaciones = f"{obs.strip()} | Ref Doc: {doc_str}"
-                                else:
-                                    f_db.observaciones = f"Ref Doc: {doc_str}"
+                            # Update observations with the ACTUAL detail from the preview
+                            f_db.observaciones = f"{detalle_cabecera} | Ref Doc: {doc_str}"
                                     
                             # Update status to EN TRAMITE
                             f_db.estado = "EN TRAMITE"

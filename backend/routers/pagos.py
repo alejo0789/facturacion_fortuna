@@ -196,8 +196,6 @@ async def get_facturas_en_tramite(
             conn = get_oracle_connection()
             cursor = conn.cursor()
             
-            oracle_details = {}  # {key: first_detail_found}
-            
             from collections import defaultdict
             grouped = defaultdict(list)
             for t, n in docs_to_check:
@@ -231,20 +229,6 @@ async def get_facturas_en_tramite(
                             pagados_set.add(key)
                         elif dimeori_o is not None and float(dimeori_o) > 0:
                             aprobados_set.add(key)
-                            
-                    # Query MNGDOC specifically for the detail
-                    query_doc = f"""
-                        SELECT DOCTIPO, DOCNUMERO, DOCDETALLE
-                        FROM MANAGER.MNGDOC
-                        WHERE DOCTIPO = '{t}'
-                          AND DOCNUMERO IN ({nums_str})
-                    """
-                    cursor.execute(query_doc)
-                    for row_doc in cursor.fetchall():
-                        tipo_d, num_d, detalle_d = row_doc
-                        key = f"{str(tipo_d).strip()}-{int(num_d)}"
-                        if detalle_d:
-                            oracle_details[key] = str(detalle_d).strip()
 
             cursor.close()
             conn.close()
@@ -263,10 +247,6 @@ async def get_facturas_en_tramite(
                 es_aprobado = key in aprobados_set
                 es_pagada = key in pagados_set
                 
-                # IF WE HAVE A DETAIL FROM MANAGER, OVERWRITE LOCAL OBSERVATION
-                if key in oracle_details:
-                    r["observaciones"] = oracle_details[key]
-        
         r["es_aprobado_manager"] = es_aprobado
         r["es_pagada_manager"] = es_pagada
 
