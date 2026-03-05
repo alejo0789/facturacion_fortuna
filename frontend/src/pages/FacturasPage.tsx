@@ -103,8 +103,8 @@ export default function FacturasPage() {
 
     const navigate = useNavigate();
 
-    // Multi-select for consolidado
-    const [selectedFacturaIds, setSelectedFacturaIds] = useState<Set<number>>(new Set());
+    // Multi-select for consolidado and causacion (persists across pages)
+    const [selectedFacturas, setSelectedFacturas] = useState<Map<number, Factura>>(new Map());
     const [generatingConsolidado, setGeneratingConsolidado] = useState(false);
 
     // Archivo Plano generation
@@ -133,6 +133,7 @@ export default function FacturasPage() {
         detalle: string;
     };
     type CausacionFacturaPreview = {
+        id?: number | null;
         numero_factura: string;
         numedoc: number;
         rows: CausacionRowPreview[];
@@ -253,43 +254,53 @@ export default function FacturasPage() {
         }
     };
 
-    // Toggle factura selection
-    const toggleFacturaSelection = (facturaId: number) => {
-        setSelectedFacturaIds(prev => {
-            const newSet = new Set(prev);
-            if (newSet.has(facturaId)) {
-                newSet.delete(facturaId);
+    // Toggle factura selection - UPDATED TO PERSIST ACROSS PAGES
+    const toggleFacturaSelection = (factura: Factura) => {
+        const facturaId = factura.id;
+        setSelectedFacturas(prev => {
+            const newMap = new Map(prev);
+            if (newMap.has(facturaId)) {
+                newMap.delete(facturaId);
             } else {
-                newSet.add(facturaId);
+                newMap.set(facturaId, factura);
             }
-            return newSet;
+            return newMap;
         });
     };
 
     // Select/deselect all visible facturas
     const toggleSelectAll = () => {
-        if (selectedFacturaIds.size === facturas.length) {
-            setSelectedFacturaIds(new Set());
-        } else {
-            setSelectedFacturaIds(new Set(facturas.map(f => f.id)));
-        }
+        // Find how many visible ones are already in our selection map
+        const visibleSelectedCount = facturas.filter(f => selectedFacturas.has(f.id)).length;
+
+        setSelectedFacturas(prev => {
+            const newMap = new Map(prev);
+            if (visibleSelectedCount === facturas.length) {
+                // If all visible are selected, deselect all visible on this page but leave others from other pages
+                facturas.forEach(f => newMap.delete(f.id));
+            } else {
+                // Otherwise, ensure all visible on this page are selected
+                facturas.forEach(f => newMap.set(f.id, f));
+            }
+            return newMap;
+        });
     };
 
     // Clear selection
     const clearSelection = () => {
-        setSelectedFacturaIds(new Set());
+        setSelectedFacturas(new Map());
     };
 
     // Generate consolidado Excel
     const generateConsolidado = async () => {
-        if (selectedFacturaIds.size === 0) return;
+        if (selectedFacturas.size === 0) return;
 
         setGeneratingConsolidado(true);
         try {
             const res = await fetch(`${API_URL}/consolidado/generar`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ factura_ids: Array.from(selectedFacturaIds) })
+                body: JSON.stringify({ factura_ids: Array.from(selectedFacturas.keys()) })
             });
 
             if (res.ok) {
@@ -344,10 +355,10 @@ export default function FacturasPage() {
 
     // Generate Archivo Plano Excel
     const generateArchivoPlano = async () => {
-        if (selectedFacturaIds.size === 0) return;
+        if (selectedFacturas.size === 0) return;
 
-        // Get selected facturas
-        const selectedFacturasData = facturas.filter(f => selectedFacturaIds.has(f.id));
+        // Get selected facturas (ALL of them, not just visible)
+        const selectedFacturasData = Array.from(selectedFacturas.values());
 
         // Validate: all must be from same proveedor
         const proveedores = new Set(selectedFacturasData.map(f => f.proveedor_id));
@@ -439,10 +450,10 @@ export default function FacturasPage() {
 
     // Open Causacion Manager modal
     const openCausacionModal = async () => {
-        if (selectedFacturaIds.size === 0) return;
+        if (selectedFacturas.size === 0) return;
 
-        // Get selected facturas
-        const selectedFacturasData = facturas.filter(f => selectedFacturaIds.has(f.id));
+        // Get selected facturas (ALL of them, not just visible)
+        const selectedFacturasData = Array.from(selectedFacturas.values());
 
         // Validate: all must be from same proveedor
         const proveedores = new Set(selectedFacturasData.map(f => f.proveedor_id));
@@ -531,7 +542,7 @@ export default function FacturasPage() {
         setLoadingCausacionPreview(true);
 
         try {
-            const selectedFacturasData = facturas.filter(f => selectedFacturaIds.has(f.id));
+            const selectedFacturasData = Array.from(selectedFacturas.values());
             const firstFactura = selectedFacturasData[0];
             const proveedorNit = firstFactura.proveedor?.nit || '';
             const proveedorNombre = firstFactura.proveedor?.nombre || '';
@@ -611,7 +622,7 @@ export default function FacturasPage() {
         setIsArchivoPlanoModalOpen(false);
 
         try {
-            const selectedFacturasData = facturas.filter(f => selectedFacturaIds.has(f.id));
+            const selectedFacturasData = Array.from(selectedFacturas.values());
             const firstFactura = selectedFacturasData[0];
             const proveedorNit = firstFactura.proveedor?.nit || '';
             const proveedorNombre = firstFactura.proveedor?.nombre || '';
@@ -1280,13 +1291,13 @@ export default function FacturasPage() {
             </div>
 
             {/* Floating Action Panel - 3 buttons */}
-            {selectedFacturaIds.size > 0 && (
+            {selectedFacturas.size > 0 && (
                 <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-2 bg-gray-900 text-white p-4 rounded-xl shadow-2xl">
                     {/* Header with count */}
                     <div className="flex items-center justify-between gap-4 pb-2 border-b border-gray-700">
                         <div className="flex items-center gap-2">
                             <span className="bg-emerald-500 px-2 py-1 rounded-lg font-bold text-sm">
-                                {selectedFacturaIds.size}
+                                {selectedFacturas.size}
                             </span>
                             <span className="text-sm text-gray-300">facturas seleccionadas</span>
                         </div>
@@ -1474,23 +1485,26 @@ export default function FacturasPage() {
                         <label className="flex items-center gap-3 cursor-pointer select-none">
                             <input
                                 type="checkbox"
-                                checked={selectedFacturaIds.size === facturas.length && facturas.length > 0}
+                                checked={facturas.every(f => selectedFacturas.has(f.id)) && facturas.length > 0}
                                 ref={(el) => {
-                                    if (el) el.indeterminate = selectedFacturaIds.size > 0 && selectedFacturaIds.size < facturas.length;
+                                    if (el) {
+                                        const visibleSelectedCount = facturas.filter(f => selectedFacturas.has(f.id)).length;
+                                        el.indeterminate = visibleSelectedCount > 0 && visibleSelectedCount < facturas.length;
+                                    }
                                 }}
                                 onChange={toggleSelectAll}
                                 className="w-5 h-5 text-emerald-600 rounded border-gray-300 focus:ring-emerald-500 cursor-pointer"
                             />
                             <span className="text-sm font-medium text-gray-700">
-                                {selectedFacturaIds.size === 0
-                                    ? `Seleccionar todas (${facturas.length})`
-                                    : selectedFacturaIds.size === facturas.length
-                                        ? `Todas seleccionadas (${facturas.length})`
-                                        : `${selectedFacturaIds.size} de ${facturas.length} seleccionadas`
+                                {selectedFacturas.size === 0
+                                    ? `Seleccionar todas en esta página (${facturas.length})`
+                                    : facturas.every(f => selectedFacturas.has(f.id))
+                                        ? `Todas visibles seleccionadas (${facturas.length})`
+                                        : `${facturas.filter(f => selectedFacturas.has(f.id)).length} de ${facturas.length} visibles seleccionadas (${selectedFacturas.size} en total)`
                                 }
                             </span>
                         </label>
-                        {selectedFacturaIds.size > 0 && (
+                        {selectedFacturas.size > 0 && (
                             <button
                                 onClick={clearSelection}
                                 className="text-xs text-gray-400 hover:text-gray-600 transition-colors flex items-center gap-1"
@@ -1498,7 +1512,7 @@ export default function FacturasPage() {
                                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                                 </svg>
-                                Limpiar selección
+                                Limpiar selección ({selectedFacturas.size})
                             </button>
                         )}
                     </div>
@@ -1512,15 +1526,15 @@ export default function FacturasPage() {
                     facturas.map((f) => (
                         <div
                             key={f.id}
-                            className={`card hover:shadow-xl transition-shadow duration-300 border-l-4 ${getBorderColor(f.estado)} ${selectedFacturaIds.has(f.id) ? 'ring-2 ring-emerald-500 ring-offset-2' : ''}`}
+                            className={`card hover:shadow-xl transition-shadow duration-300 border-l-4 ${getBorderColor(f.estado)} ${selectedFacturas.has(f.id) ? 'ring-2 ring-emerald-500 ring-offset-2' : ''}`}
                         >
                             <div className="flex flex-col md:flex-row justify-between gap-4">
                                 {/* Selection Checkbox */}
                                 <div className="flex items-start">
                                     <input
                                         type="checkbox"
-                                        checked={selectedFacturaIds.has(f.id)}
-                                        onChange={() => toggleFacturaSelection(f.id)}
+                                        checked={selectedFacturas.has(f.id)}
+                                        onChange={() => toggleFacturaSelection(f)}
                                         className="w-5 h-5 text-emerald-600 rounded border-gray-300 focus:ring-emerald-500 cursor-pointer mt-1"
                                     />
                                 </div>
@@ -3380,7 +3394,9 @@ export default function FacturasPage() {
                                                             `Registros MNGMCN: ${result.total_registros_mngmcn}`
                                                         );
                                                         setIsCausacionModalOpen(false);
-                                                        setSelectedFacturaIds(new Set());
+                                                        setSelectedFacturas(new Map());
+                                                        fetchFacturas(search, page);
+                                                        fetchStats();
                                                     } else {
                                                         alert(
                                                             `❌ ERROR EN CAUSACIÓN\n\n` +

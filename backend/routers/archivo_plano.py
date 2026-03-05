@@ -1127,16 +1127,20 @@ async def insertar_causacion_manager(request: CausacionInsertRequest):
                         f_numedoc = request.numedoc + factura_index
                         doc_str = f"DC07-{f_numedoc}"
                         
+                        # Get THIS factura's specific detail from its first row
+                        current_f_detalle = factura.rows[0].detalle if factura.rows and factura.rows[0].detalle else f"FACT {factura.numero_factura}"
+                        
                         stmt = select(Factura).where(Factura.id == factura.id)
                         res = await db_local.execute(stmt)
                         f_db = res.scalar_one_or_none()
                         
                         if f_db:
+                            from datetime import datetime
                             # Update observations with the ACTUAL detail from the preview
-                            f_db.observaciones = f"{detalle_cabecera} | Ref Doc: {doc_str}"
-                                    
-                            # Update status to EN TRAMITE
-                            f_db.estado = "EN TRAMITE"
+                            f_db.observaciones = f"{current_f_detalle} | Ref Doc: {doc_str}"
+                            # Update status to EN_TRAMITE (with underscore) and timestamp
+                            f_db.estado = "EN_TRAMITE"
+                            f_db.status_updated_at = datetime.now()
                             
                 await db_local.commit()
         except Exception as local_db_error:

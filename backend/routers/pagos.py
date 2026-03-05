@@ -196,6 +196,8 @@ async def get_facturas_en_tramite(
             conn = get_oracle_connection()
             cursor = conn.cursor()
             
+            oracle_details = {}  # {key: MCNDETALLE from account 23355002}
+            
             from collections import defaultdict
             grouped = defaultdict(list)
             for t, n in docs_to_check:
@@ -208,13 +210,13 @@ async def get_facturas_en_tramite(
                     nums_str = ','.join(map(str, chunk))
                     
                     query = f"""
-                        SELECT M.MCNTIPODOC, M.MCNNUMEDOC, M.MCNDIMEORI, 0 as IS_NB01
+                        SELECT M.MCNTIPODOC, M.MCNNUMEDOC, M.MCNDIMEORI, 0 as IS_NB01, M.MCNDETALLE
                         FROM MANAGER.MNGMCN M
                         WHERE M.MCNTIPODOC = '{t}' 
                           AND M.MCNNUMEDOC IN ({nums_str})
                           AND TRIM(M.MCNCUENTA) = '23355002'
                         UNION ALL
-                        SELECT M.MCNTIPCRU2, M.MCNNUMCRU2, 0 as MCNDIMEORI, 1 as IS_NB01
+                        SELECT M.MCNTIPCRU2, M.MCNNUMCRU2, 0 as MCNDIMEORI, 1 as IS_NB01, '' as MCNDETALLE
                         FROM MANAGER.MNGMCN M
                         WHERE M.MCNTIPODOC = 'NB01' 
                           AND M.MCNTIPCRU2 = '{t}' 
@@ -222,13 +224,16 @@ async def get_facturas_en_tramite(
                     """
                     cursor.execute(query)
                     for row_or in cursor.fetchall():
-                        tipo_o, num_o, dimeori_o, is_nb01 = row_or
+                        tipo_o, num_o, dimeori_o, is_nb01, mcn_detalle = row_or
                         key = f"{str(tipo_o).strip()}-{int(num_o)}"
                         
                         if is_nb01 == 1:
                             pagados_set.add(key)
-                        elif dimeori_o is not None and float(dimeori_o) > 0:
-                            aprobados_set.add(key)
+                        else:
+                            if mcn_detalle:
+                                oracle_details[key] = str(mcn_detalle).strip()
+                            if dimeori_o is not None and float(dimeori_o) > 0:
+                                aprobados_set.add(key)
 
             cursor.close()
             conn.close()
@@ -246,6 +251,10 @@ async def get_facturas_en_tramite(
                 key = f"{match.group(1).upper()}-{int(match.group(2))}"
                 es_aprobado = key in aprobados_set
                 es_pagada = key in pagados_set
+                
+                # OVERWRITE observation with the detailed account line from Manager
+                if key in oracle_details:
+                    r["observaciones"] = oracle_details[key]
                 
         r["es_aprobado_manager"] = es_aprobado
         r["es_pagada_manager"] = es_pagada
