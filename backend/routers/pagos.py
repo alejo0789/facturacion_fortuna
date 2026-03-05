@@ -75,8 +75,9 @@ def extract_doc_contable(obs: str) -> str:
     """Extract documento contable code (e.g. DC07-1666) from observaciones text."""
     if not obs:
         return ""
-    m = re.search(r'DC\w*-[\d]+([-\d]*)', obs, re.IGNORECASE)
-    return m.group(0) if m else ""
+    # Improved regex: looks for DC followed by digits, or DC with hyphen and digits
+    m = re.search(r'DC\w*[-\s]?\d+', obs, re.IGNORECASE)
+    return m.group(0).upper() if m else ""
 
 
 # ---------------------------------------------------------------------------
@@ -252,8 +253,10 @@ async def get_facturas_en_tramite(
                 es_aprobado = key in aprobados_set
                 es_pagada = key in pagados_set
                 
-                # OVERWRITE observation with the detailed account line from Manager
-                if key in oracle_details:
+                # IMPROVED: ONLY overwrite if current observation doesn't already have the DC reference
+                # This preserves your edited details (e.g. "Factura Claro...")
+                current_obs = r.get("observaciones") or ""
+                if key in oracle_details and "Ref Doc:" not in current_obs:
                     r["observaciones"] = oracle_details[key]
                 
         r["es_aprobado_manager"] = es_aprobado

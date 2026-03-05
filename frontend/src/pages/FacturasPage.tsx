@@ -549,6 +549,7 @@ export default function FacturasPage() {
 
             // Build facturas array with grouped offices
             const facturasForRequest: Array<{
+                id: number;
                 numero_factura: string;
                 fecha_factura: string | null;
                 oficinas: Array<{ cod_oficina: string; valor: number; nombre_oficina: string }>;
@@ -570,6 +571,7 @@ export default function FacturasPage() {
                 }
                 if (oficinas.length > 0) {
                     facturasForRequest.push({
+                        id: factura.id,
                         numero_factura: factura.numero_factura || '',
                         fecha_factura: factura.fecha_factura || null,
                         oficinas: oficinas
