@@ -544,7 +544,7 @@ export default function FacturasPage() {
             }> = [];
 
             for (const factura of selectedFacturasData) {
-                const oficinas: Array<{ cod_oficina: string; valor: number; nombre_oficina: string }> = [];
+                const oficinas: Array<{ cod_oficina: string; valor: number; nombre_oficina: string; num_contrato?: string }> = [];
                 if (factura.oficinas_asignadas && factura.oficinas_asignadas.length > 0) {
                     for (const oa of factura.oficinas_asignadas) {
                         if (oa.oficina?.cod_oficina && oa.valor) {
@@ -583,6 +583,14 @@ export default function FacturasPage() {
 
             if (res.ok) {
                 const data = await res.json();
+
+                // Formatear la fecha de hoy a YYYY-MM-DD para el input de fecha
+                const today = new Date();
+                const year = today.getFullYear();
+                const month = String(today.getMonth() + 1).padStart(2, '0');
+                const day = String(today.getDate()).padStart(2, '0');
+                data.fecha_causacion = `${year}-${month}-${day}`;
+
                 setCausacionPreviewData(data);
                 setShowCausacionTable(true);
             } else {
@@ -929,11 +937,6 @@ export default function FacturasPage() {
         } finally {
             setAssigning(false);
         }
-    };
-
-    const openPdfViewer = (url: string) => {
-        setPdfUrl(url);
-        setIsPdfModalOpen(true);
     };
 
     const cambiarEstado = async (factura: Factura, nuevoEstado: string) => {
@@ -2798,7 +2801,22 @@ export default function FacturasPage() {
                                         </div>
                                         <div className="bg-blue-50 rounded-lg p-4">
                                             <div className="text-xs text-blue-600 uppercase font-medium">Fecha Causación</div>
-                                            <div className="text-lg font-bold text-blue-800">{causacionPreviewData.fecha_causacion}</div>
+                                            <div className="mt-1">
+                                                <input
+                                                    type="date"
+                                                    max={new Date().toISOString().split('T')[0]}
+                                                    value={
+                                                        causacionPreviewData.fecha_causacion.includes('/')
+                                                            ? causacionPreviewData.fecha_causacion.split('/').reverse().join('-')
+                                                            : causacionPreviewData.fecha_causacion
+                                                    }
+                                                    onChange={(e) => {
+                                                        const newVal = e.target.value;
+                                                        setCausacionPreviewData(prev => prev ? { ...prev, fecha_causacion: newVal } : prev);
+                                                    }}
+                                                    className="w-full px-2 py-1 text-sm font-bold text-blue-800 bg-white border border-blue-200 rounded focus:ring-2 focus:ring-blue-500 outline-none"
+                                                />
+                                            </div>
                                         </div>
                                         <div className="bg-green-50 rounded-lg p-4">
                                             <div className="text-xs text-green-600 uppercase font-medium">NUMEDOC</div>
@@ -2836,6 +2854,7 @@ export default function FacturasPage() {
                                                             <th className="px-3 py-2 text-left font-medium text-gray-600">Destino</th>
                                                             <th className="px-3 py-2 text-right font-medium text-gray-600">Valor</th>
                                                             <th className="px-3 py-2 text-left font-medium text-gray-600 min-w-[400px]">Detalle</th>
+                                                            <th className="px-3 py-2 text-center font-medium text-gray-600">Acciones</th>
                                                         </tr>
                                                     </thead>
                                                     <tbody className="divide-y divide-gray-100">
@@ -3067,6 +3086,53 @@ export default function FacturasPage() {
                                                                             </div>
                                                                         )}
                                                                     </td>
+                                                                    {/* Acciones */}
+                                                                    <td className="px-3 py-2 text-center">
+                                                                        <button
+                                                                            onClick={() => {
+                                                                                setCausacionPreviewData(prev => {
+                                                                                    if (!prev) return prev;
+                                                                                    const newFacturas = [...prev.facturas];
+                                                                                    const currentFactura = { ...newFacturas[idx] };
+                                                                                    const currentRows = [...currentFactura.rows];
+
+                                                                                    // Remove row
+                                                                                    currentRows.splice(rowIdx, 1);
+
+                                                                                    // Recalculate totals
+                                                                                    let debitos = 0;
+                                                                                    let creditos = 0;
+                                                                                    currentRows.forEach((r, idxr) => {
+                                                                                        r.row_num = idxr + 1; // Update row numbers
+                                                                                        if (r.tipo_movimiento === 'DEBITO') debitos += r.valor;
+                                                                                        else creditos += r.valor;
+                                                                                    });
+
+                                                                                    currentFactura.rows = currentRows;
+                                                                                    currentFactura.total_debitos = debitos;
+                                                                                    currentFactura.total_creditos = creditos;
+                                                                                    newFacturas[idx] = currentFactura;
+
+                                                                                    const totalDebitos = newFacturas.reduce((sum, f) => sum + f.total_debitos, 0);
+                                                                                    const totalCreditos = newFacturas.reduce((sum, f) => sum + f.total_creditos, 0);
+
+                                                                                    return {
+                                                                                        ...prev,
+                                                                                        facturas: newFacturas,
+                                                                                        total_debitos: totalDebitos,
+                                                                                        total_creditos: totalCreditos,
+                                                                                        balance: totalDebitos - totalCreditos
+                                                                                    };
+                                                                                });
+                                                                            }}
+                                                                            className="p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
+                                                                            title="Eliminar fila"
+                                                                        >
+                                                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                                                            </svg>
+                                                                        </button>
+                                                                    </td>
                                                                 </tr>
                                                             );
                                                         })}
@@ -3080,9 +3146,43 @@ export default function FacturasPage() {
                                                                 ${factura.total_debitos.toLocaleString('es-CO')} / ${factura.total_creditos.toLocaleString('es-CO')}
                                                             </td>
                                                             <td></td>
+                                                            <td></td>
                                                         </tr>
                                                     </tfoot>
                                                 </table>
+                                            </div>
+                                            <div className="bg-gray-50 border-t border-gray-200 px-4 py-2">
+                                                <button
+                                                    onClick={() => {
+                                                        setCausacionPreviewData(prev => {
+                                                            if (!prev) return prev;
+                                                            const newFacturas = [...prev.facturas];
+                                                            const currentFactura = { ...newFacturas[idx] };
+                                                            const currentRows = [...currentFactura.rows];
+
+                                                            const newRowNum = currentRows.length + 1;
+                                                            currentRows.push({
+                                                                row_num: newRowNum,
+                                                                cuenta: '',
+                                                                tipo_movimiento: 'DEBITO',
+                                                                ccosto: '',
+                                                                destino: '',
+                                                                valor: 0,
+                                                                detalle: `FACT ${factura.numero_factura}`
+                                                            });
+
+                                                            currentFactura.rows = currentRows;
+                                                            newFacturas[idx] = currentFactura;
+                                                            return { ...prev, facturas: newFacturas };
+                                                        });
+                                                    }}
+                                                    className="text-sm text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1 transition-colors"
+                                                >
+                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                                                    </svg>
+                                                    Agregar Cuenta
+                                                </button>
                                             </div>
                                         </div>
                                     ))}

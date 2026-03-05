@@ -201,3 +201,6 @@ config.local.json
 # API keys / credentials
 credentials.json
 service-account.json
+
+# Oracle Snapshot DB (Too large for Git)
+backend/oracle_snapshot.sql
