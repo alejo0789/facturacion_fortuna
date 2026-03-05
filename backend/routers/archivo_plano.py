@@ -1377,16 +1377,20 @@ async def insertar_causacion_manager(request: CausacionInsertRequest):
                         f_db = res.scalar_one_or_none()
                         
                         if f_db:
+                            # Update observations
                             obs = f_db.observaciones or ""
-                            # Update only if it doesn't already have it
                             if not re.search(r'DC\w*-[\d]+([-\d]*)', obs, re.IGNORECASE):
                                 if obs:
                                     f_db.observaciones = f"{obs.strip()} | Ref Doc: {doc_str}"
                                 else:
                                     f_db.observaciones = f"Ref Doc: {doc_str}"
+                                    
+                            # Update status to EN TRAMITE
+                            f_db.estado = "EN TRAMITE"
+                            
                 await db_local.commit()
         except Exception as local_db_error:
-            print(f"Warning: Failed to update local DB with documento_contable: {local_db_error}")
+            print(f"Warning: Failed to update local DB with documento_contable/estado: {local_db_error}")
         
         numedoc_final = request.numedoc + len(request.facturas) - 1
         
