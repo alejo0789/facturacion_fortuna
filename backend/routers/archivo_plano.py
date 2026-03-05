@@ -55,24 +55,27 @@ class ArchivoPlanoRequest(BaseModel):
 def clean_oficina_code(cod_oficina: str) -> str:
     """
     Remove internal suffix from office code if present.
-    Example: '001_INT_1' -> '001'
+    Example: '001_INT_1' -> '001', '107-1' -> '107'
     """
     if not cod_oficina:
-        return cod_oficina
-    upper_cod = cod_oficina.upper()
-    # REGLA DE EMERGENCIA: Si el código es de la serie 001, forzar 001
-    if "001_INT" in upper_cod:
-        return "001"
+        return ""
         
+    upper_cod = str(cod_oficina).upper().strip()
+    
+    # Rule 1: Remove _INT_ suffix
     if "_INT_" in upper_cod:
-        # Split using the uppercase version to find the position, but slice the original
         idx = upper_cod.find("_INT_")
-        res = cod_oficina[:idx]
-        # REGLA ESPECIAL: Si lo que queda es '001', asegurar que no haya colas
-        if res.strip() == "001":
-            return "001"
-        return res
-    return cod_oficina
+        upper_cod = upper_cod[:idx]
+    
+    # Rule 2: Remove hyphens (sometimes local codes have sub-office suffix)
+    if "-" in upper_cod:
+        idx = upper_cod.find("-")
+        upper_cod = upper_cod[:idx]
+        
+    # Final check: Clean and ensure it's not too long for CHAR(10)
+    return upper_cod[:10].strip()
+        
+
 
 
 def extract_codigo_for_oracle(cod_oficina: str) -> str:
@@ -1035,6 +1038,20 @@ async def insertar_causacion_manager(request: CausacionInsertRequest):
             destino = first_row.destino if first_row.destino else "."
             detalle_cabecera = first_row.detalle if first_row.detalle else f"FACT {factura.numero_factura}"
             
+            # === IMPROVED: Pre-validate Header ccosto and destino ===
+            # Ensure DOCCCOSTO exists in MNGCCO
+            cursor.execute("SELECT COUNT(*) FROM MANAGER.MNGCCO WHERE TRIM(CCOCODIGO) = :c", {'c': ccosto})
+            if cursor.fetchone()[0] == 0:
+                print(f"Warning: CC '{ccosto}' not found. Using '.' in header.")
+                ccosto = "."
+                
+            # Ensure DOCDESTINO exists in MNGDNO
+            cursor.execute("SELECT COUNT(*) FROM MANAGER.MNGDNO WHERE TRIM(DNOCODIGO) = :d", {'d': destino})
+            if cursor.fetchone()[0] == 0:
+                print(f"Warning: Destination '{destino}' not found. Using '.' in header.")
+                destino = "."
+
+
             # === INSERT INTO MNGDOC (Header) ===
             cursor.execute("""
                 INSERT INTO MANAGER.MNGDOC (
@@ -1059,7 +1076,7 @@ async def insertar_causacion_manager(request: CausacionInsertRequest):
             """, {
                 'numedoc': factura_numedoc,
                 'fecha': fecha_str,
-                'nit': request.provider_nit if hasattr(request, 'provider_nit') else request.proveedor_nit,
+                'nit': (request.provider_nit if hasattr(request, 'provider_nit') else request.proveedor_nit).strip(),
                 'ccosto': ccosto,
                 'destino': destino,
                 'detalle': detalle_cabecera[:2000]
@@ -1073,6 +1090,20 @@ async def insertar_causacion_manager(request: CausacionInsertRequest):
                 
                 # Check if it is the counterparty row (23355002) for saldo
                 saldocr = credito if str(row.cuenta).strip() == "23355002" else 0
+
+                row_ccosto = row.ccosto if row.ccosto else "."
+                row_destino = row.destino if row.destino else "."
+
+                # Validate row ccosto
+                cursor.execute("SELECT COUNT(*) FROM MANAGER.MNGCCO WHERE TRIM(CCOCODIGO) = :c", {'c': row_ccosto})
+                if cursor.fetchone()[0] == 0:
+                    row_ccosto = "."
+                    
+                # Validate row destino
+                cursor.execute("SELECT COUNT(*) FROM MANAGER.MNGDNO WHERE TRIM(DNOCODIGO) = :d", {'d': row_destino})
+                if cursor.fetchone()[0] == 0:
+                    row_destino = "."
+
 
                 cursor.execute("""
                     INSERT INTO MANAGER.MNGMCN (
@@ -1100,10 +1131,10 @@ async def insertar_causacion_manager(request: CausacionInsertRequest):
                     'numedoc': factura_numedoc,
                     'reg': row.row_num,
                     'fecha': fecha_str,
-                    'nit': request.proveedor_nit,
+                    'nit': (request.provider_nit if hasattr(request, 'provider_nit') else request.proveedor_nit).strip(),
                     'cuenta': row.cuenta,
-                    'ccosto': row.ccosto if row.ccosto else ".",
-                    'destino': row.destino if row.destino else ".",
+                    'ccosto': row_ccosto,
+                    'destino': row_destino,
                     'valdebi': debito,
                     'valcred': credito,
                     'saldocr': saldocr,
