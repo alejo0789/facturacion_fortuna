@@ -1,7 +1,7 @@
 """
 Busca en produccion (MANAMED) cual NB01 cancela el DC07-1700.
 Estrategias:
-  A) NB01 con debito a 23355002 por el valor exacto ($370,512.61)
+  A) NB01 con debito, a 23355002 por el valor exacto ($370,512.61)
   B) NB01 con DOCVINCULA = NIT del proveedor (900971687)
   C) NB01 con debito a 23355002 alrededor de la fecha del DC07-1700
   D) Cualquier MCN con cuenta 23355002 debito cruzando con algo cercano al valor
