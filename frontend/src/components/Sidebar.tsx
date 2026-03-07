@@ -130,6 +130,27 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
             {/* Navigation */}
             <nav className="p-2">
+                <ul className="space-y-1 mb-4">
+                    <li>
+                        <a
+                            href="https://saman.lafortuna.com.co/#/home"
+                            className={`group relative flex items-center gap-2 px-2 py-2 rounded-lg transition-all duration-200 overflow-hidden text-slate-300 hover:text-white hover:bg-slate-800/80`}
+                            title={collapsed ? 'Volver a Céntrica' : undefined}
+                        >
+                            <div className="relative z-10 w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 bg-slate-800 group-hover:bg-slate-700 border border-slate-700 group-hover:border-slate-600">
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11 15l-3-3m0 0l3-3m-3 3h8M3 12a9 9 0 1118 0 9 9 0 01-18 0z" />
+                                </svg>
+                            </div>
+                            {!collapsed && (
+                                <div className="relative z-10 flex-1 min-w-0">
+                                    <div className="font-bold text-sm tracking-wide">CÉNTRICA</div>
+                                </div>
+                            )}
+                        </a>
+                    </li>
+                </ul>
+
                 {!collapsed && (
                     <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2 px-2">
                         Menú
