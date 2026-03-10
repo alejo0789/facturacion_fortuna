@@ -784,9 +784,9 @@ async def crear_nota_bancaria(req: NotaBancariaRequest, db: AsyncSession = Depen
         # 4. Insertar Cabecera MNGDOC
         cursor.execute('''
             INSERT INTO MANAGER.MNGDOC (
-                DOCTIPO, DOCNUMERO, DOCFECHA, DOCNEWUSER, DOCESTADO, DOCVINCULA, DOCDETALLE
+                DOCEMPRESA, DOCTIPO, DOCNUMERO, DOCFECHA, DOCNEWUSER, DOCESTADO, DOCVINCULA, DOCDETALLE
             ) VALUES (
-                'NB01', :1, SYSDATE, 'WEBAPP  ', 'a', :2, :3
+                '101', 'NB01', :1, SYSDATE, 'WEBAPP  ', 'a', :2, :3
             )
         ''', (nb_num, nit_cabecera.ljust(15), req.detalle[:100]))
         

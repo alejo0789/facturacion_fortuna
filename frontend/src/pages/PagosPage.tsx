@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { formatCOP } from '../utils/format';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
@@ -828,9 +828,8 @@ export default function PagosPage() {
                                             : idx % 2 === 0 ? '#fff' : '#f9fafb';
 
                                         return (
-                                            <>
+                                            <React.Fragment key={f.id}>
                                                 <tr
-                                                    key={f.id}
                                                     style={{
                                                         background: rowBg,
                                                         transition: 'background 0.15s',
@@ -1175,7 +1174,7 @@ export default function PagosPage() {
                                                         </td>
                                                     </tr>
                                                 )}
-                                            </>
+                                            </React.Fragment>
                                         );
                                     })}
                                 </tbody>
