@@ -781,14 +781,24 @@ async def crear_nota_bancaria(req: NotaBancariaRequest, db: AsyncSession = Depen
         cursor.execute("SELECT NVL(MAX(DOCNUMERO), 0) + 1 FROM MANAGER.MNGDOC WHERE DOCTIPO = 'NB01'")
         nb_num = int(cursor.fetchone()[0])
         
-        # 4. Insertar Cabecera MNGDOC
+        # 4. Insertar Cabecera MNGDOC (todas las columnas NOT NULL requeridas por Manager)
         cursor.execute('''
             INSERT INTO MANAGER.MNGDOC (
-                DOCEMPRESA, DOCTIPO, DOCNUMERO, DOCFECHA, DOCNEWUSER, DOCESTADO, DOCVINCULA, DOCDETALLE
+                DOCEMPRESA, DOCCLASE, DOCVINKEY, DOCTIPO, DOCNUMERO, DOCSUCURS,
+                DOCFECHA, DOCVINCULA, DOCSUCVIN, DOCCCOSTO, DOCDESTINO, DOCLOTE,
+                DOCVENDE, DOCZONA, DOCCOBRA, DOCPOSTFEC, DOCNEWUSER, DOCNEWFEC,
+                DOCMODUSER, DOCMODFEC, DOCESTADO, DOCDETALLE
             ) VALUES (
-                '101', 'NB01', :1, SYSDATE, 'WEBAPP  ', 'a', :2, :3
+                '101', '0000', '.', 'NB01', :nb_num, '.',
+                SYSDATE, :vincula, '.', '.', '.', '.',
+                '.', '.', '.', SYSDATE, 'WEBAPP  ', SYSDATE,
+                'WEBAPP  ', SYSDATE, 'a', :detalle
             )
-        ''', (nb_num, nit_cabecera.ljust(15), req.detalle[:100]))
+        ''', {
+            'nb_num': nb_num,
+            'vincula': nit_cabecera.ljust(15),
+            'detalle': req.detalle[:100]
+        })
         
         total_pagar = 0.0
         registro_actual = 1
