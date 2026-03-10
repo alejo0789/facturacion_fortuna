@@ -229,13 +229,14 @@ async def get_facturas_en_tramite(
                             aprobados_set.add(key)
 
                     # ── Query 2: NB01 que ya pagaron estos documentos ──
-                    # Predicado en (MCNTIPODOC='NB01', MCNTIPCRU2, MCNNUMCRU2)
+                    # ROWNUM limita el scan incluso sin índice en MCNTIPCRU2
                     q2 = f"""
                         SELECT M.MCNTIPCRU2, M.MCNNUMCRU2
                         FROM MANAGER.MNGMCN M
                         WHERE M.MCNTIPODOC = 'NB01'
                           AND M.MCNTIPCRU2 = '{t}'
                           AND M.MCNNUMCRU2 IN ({nums_str})
+                          AND ROWNUM <= 2000
                     """
                     cursor.execute(q2)
                     for row_or in cursor.fetchall():
@@ -475,10 +476,10 @@ def get_manager_causation_details(documento_contable: str):
         cursor = connection.cursor()
         
         # MNGDOC = header (we can check if it exists)
-        # MNGMCN = details (this is what the user wants: Cuenta, Tipo, C.Costo, Destino, Valor, Detalle)
-        
-        # ── Query 1: Filas del documento original (DC07-XXXX) ──────────────────
-        # Query directo sin CTE ni JOIN — usa índice en (MCNTIPODOC, MCNNUMEDOC)
+        # MNGMCN = details (cuenta, tipo, ccosto, destino, valor, detalle)
+
+        # ── Query 1: Filas del documento original (DC07-XXXX) ────────────────
+        # Usa el índice primario en (MCNTIPODOC, MCNNUMEDOC) → muy rápido
         cursor.execute("""
             SELECT
                 MCNCUENTA,
@@ -497,27 +498,47 @@ def get_manager_causation_details(documento_contable: str):
         """, {'tipo': tipo_doc, 'numero': numero_doc})
         rows_doc = cursor.fetchall()
 
-        # ── Query 2: NB01 que cruzan este documento (MCNTIPCRU2/MCNNUMCRU2) ──
-        # Query separado — usa índice en (MCNTIPCRU2, MCNNUMCRU2) si existe
-        cursor.execute("""
-            SELECT
-                MCNCUENTA,
-                MCNTIPODOC,
-                MCNCCOSTO,
-                MCNDESTINO,
-                MCNVALDEBI,
-                MCNVALCRED,
-                MCNDETALLE,
-                MCNINDINV,
-                MCNDIMEORI,
-                MCNNUMEDOC
-            FROM MANAGER.MNGMCN
-            WHERE MCNTIPCRU2 = :tipo AND MCNNUMCRU2 = :numero
-            ORDER BY MCNTIPODOC, MCNNUMEDOC, MCNREG
-        """, {'tipo': tipo_doc, 'numero': numero_doc})
-        rows_nb = cursor.fetchall()
+        # ── Query 2: NB01 relacionados — con timeout para no bloquear ─────────
+        # MCNTIPCRU2/MCNNUMCRU2 pueden no tener índice → full-scan potencial.
+        # Se ejecuta en thread con timeout de 8s; si tarda más, se omite.
+        rows_nb = []
+        rows_nb_result = []
+        nb_timeout_reached = False
 
-        # Combinar: primero el documento original, luego los NB01 relacionados
+        def _fetch_nb01():
+            try:
+                from oracle_database import get_oracle_connection as _get_conn
+                nb_conn = _get_conn()
+                nb_cur = nb_conn.cursor()
+                # Limitar a 50 filas NB01; en la práctica son 1-6 por factura
+                nb_cur.execute("""
+                    SELECT
+                        MCNCUENTA, MCNTIPODOC, MCNCCOSTO, MCNDESTINO,
+                        MCNVALDEBI, MCNVALCRED, MCNDETALLE,
+                        MCNINDINV, MCNDIMEORI, MCNNUMEDOC
+                    FROM MANAGER.MNGMCN
+                    WHERE MCNTIPODOC = 'NB01'
+                      AND MCNTIPCRU2 = :tipo
+                      AND MCNNUMCRU2 = :numero
+                      AND ROWNUM <= 50
+                    ORDER BY MCNNUMEDOC, MCNREG
+                """, {'tipo': tipo_doc, 'numero': numero_doc})
+                rows_nb_result.extend(nb_cur.fetchall())
+                nb_cur.close()
+                nb_conn.close()
+            except Exception as nb_err:
+                print(f"NB01 query error (non-fatal): {nb_err}")
+
+        nb_thread = threading.Thread(target=_fetch_nb01, daemon=True)
+        nb_thread.start()
+        nb_thread.join(timeout=8)  # esperar máximo 8 segundos
+        if nb_thread.is_alive():
+            nb_timeout_reached = True
+            print(f"⚠ NB01 query timed out for {documento_contable} — returning without NB data")
+        else:
+            rows_nb = rows_nb_result
+
+        # Combinar: primero el documento original, luego NB01 si llegaron
         rows = rows_doc + rows_nb
         
         if not rows:
@@ -569,7 +590,8 @@ def get_manager_causation_details(documento_contable: str):
             "documento": documento_contable,
             "es_aprobado": es_aprobado,
             "saldo_pendiente": saldo_cxp,
-            "pagado": saldo_cxp <= 0.01 and len(detalles) > 0, 
+            "pagado": saldo_cxp <= 0.01 and len(detalles) > 0,
+            "nb_timeout": nb_timeout_reached,  # True si la consulta NB01 tardó demasiado
             "data": detalles
         }
         
