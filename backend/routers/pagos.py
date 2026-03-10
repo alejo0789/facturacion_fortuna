@@ -812,18 +812,20 @@ async def crear_nota_bancaria(req: NotaBancariaRequest, db: AsyncSession = Depen
             tipo_fac = match.group(1).upper()
             num_fac = int(match.group(2))
             
-            # Consultar Ccosto y Destino original de esta factura
+            # Consultar Ccosto, Destino, NIT y DOCCLASE del documento original
             cursor.execute('''
-                SELECT M.MCNCCOSTO, M.MCNDESTINO, D.DOCVINCULA
+                SELECT M.MCNCCOSTO, M.MCNDESTINO, D.DOCVINCULA, D.DOCCLASE
                 FROM MANAGER.MNGMCN M
                 JOIN MANAGER.MNGDOC D ON M.MCNTIPODOC = D.DOCTIPO AND M.MCNNUMEDOC = D.DOCNUMERO
                 WHERE M.MCNTIPODOC = :tfac AND M.MCNNUMEDOC = :nfac AND M.MCNCUENTA LIKE '2335%' AND ROWNUM = 1
             ''', {'tfac': tipo_fac, 'nfac': num_fac})
             c_info = cursor.fetchone()
             
-            cc_orig = c_info[0].strip() if c_info and c_info[0] else '.'
-            ds_orig = c_info[1].strip() if c_info and c_info[1] else '.'
-            nit_fac = c_info[2].strip() if c_info and c_info[2] else nit_cabecera
+            cc_orig   = c_info[0].strip() if c_info and c_info[0] else '.'
+            ds_orig   = c_info[1].strip() if c_info and c_info[1] else '.'
+            nit_fac   = c_info[2].strip() if c_info and c_info[2] else nit_cabecera
+            # DOCCLASE del doc original: 'DCS1' para DSEA, '0000' para DC07, etc.
+            clase_orig = c_info[3].strip() if c_info and c_info[3] else '0000'
             
             # A. Insert Detalle Débito (CxP - referencia a la factura)
             cursor.execute('''
@@ -846,7 +848,7 @@ async def crear_nota_bancaria(req: NotaBancariaRequest, db: AsyncSession = Depen
                     :cc, :dst,
                     :val, 0, 0,
                     '0000', 'NB01', :num, :reg,
-                    '0000', :tfac, :nfac, 0,
+                    :clase_orig, :tfac, :nfac, 0,
                     :det, 'E', 0,
                     '.', '.', 'a', 0
                 )
@@ -856,7 +858,8 @@ async def crear_nota_bancaria(req: NotaBancariaRequest, db: AsyncSession = Depen
                 'det': req.detalle[:100],
                 'cc': cc_orig.ljust(10), 'dst': ds_orig.ljust(10),
                 'tfac': tipo_fac.ljust(4), 'nfac': num_fac,
-                'nit': nit_fac.ljust(15)
+                'nit': nit_fac.ljust(15),
+                'clase_orig': clase_orig.ljust(4)
             })
             
             registro_actual += 1
@@ -893,6 +896,22 @@ async def crear_nota_bancaria(req: NotaBancariaRequest, db: AsyncSession = Depen
                 'det': req.detalle[:100],
                 'cc': req.ccosto.ljust(10), 'dst': req.destino.ljust(10),
                 'nit': nit_fac.ljust(15)
+            })
+            
+            # C. UPDATE documento original: marcar como pagado (MCNDIMEORI = valor pagado)
+            # Esto hace que desaparezca del listado de pendientes en Manager/SAMD
+            cursor.execute('''
+                UPDATE MANAGER.MNGMCN
+                SET MCNDIMEORI = MCNDIMEORI + :val,
+                    MCNMODUSER = 'WEBAPP  ',
+                    MCNMODFEC  = SYSDATE
+                WHERE MCNTIPODOC = :tfac
+                  AND MCNNUMEDOC = :nfac
+                  AND MCNCUENTA LIKE '2335%'
+            ''', {
+                'val': item.valor_pagar,
+                'tfac': tipo_fac,
+                'nfac': num_fac
             })
             
             total_pagar += item.valor_pagar

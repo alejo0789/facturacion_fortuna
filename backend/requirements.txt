@@ -10,3 +10,4 @@ pandas
 Pillow
 oracledb
 httpx
+reportlab
