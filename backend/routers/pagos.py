@@ -825,51 +825,73 @@ async def crear_nota_bancaria(req: NotaBancariaRequest, db: AsyncSession = Depen
             ds_orig = c_info[1].strip() if c_info and c_info[1] else '.'
             nit_fac = c_info[2].strip() if c_info and c_info[2] else nit_cabecera
             
-            # A. Insert Detalle Débito (Referenciando cada factura)
+            # A. Insert Detalle Débito (CxP - referencia a la factura)
             cursor.execute('''
                 INSERT INTO MANAGER.MNGMCN (
-                    MCNTIPODOC, MCNNUMEDOC, MCNREG, 
-                    MCNCUENTA, MCNVALDEBI, MCNVALCRED,
-                    MCNDETALLE, MCNINDINV, MCNDIMEORI, MCNCCOSTO, MCNDESTINO,
+                    MCNEMPRESA, MCNCLASE, MCNVINKEY,
+                    MCNTIPODOC, MCNNUMEDOC, MCNREG,
+                    MCNFECHA, MCNFECINI,
+                    MCNCUENTA, MCNVINCULA,
+                    MCNCCOSTO, MCNDESTINO,
+                    MCNVALDEBI, MCNVALCRED, MCNPLAZO,
                     MCNCLACRU1, MCNTIPCRU1, MCNNUMCRU1, MCNCUOCRU1,
                     MCNCLACRU2, MCNTIPCRU2, MCNNUMCRU2, MCNCUOCRU2,
-                    MCNEMPRESA, MCNESTADO, MCNFECINI, MCNPLAZO, MCNREF1, MCNREF2, MCNVINCULA
+                    MCNDETALLE, MCNINDINV, MCNDIMEORI,
+                    MCNREF1, MCNREF2, MCNESTADO, MCNTPREG
                 ) VALUES (
-                    'NB01', :num, :reg, 
-                    '23355002      ', :val, 0,
-                    :det, 'E', 0, :cc, :dst,
-                    '    ', 'NB01', :num, 0,
+                    '101', '0000', '.',
+                    'NB01', :num, :reg,
+                    SYSDATE, SYSDATE,
+                    '23355002      ', :nit,
+                    :cc, :dst,
+                    :val, 0, 0,
+                    '0000', 'NB01', :num, :reg,
                     '0000', :tfac, :nfac, 0,
-                    '101', 'a', SYSDATE, 0, '.', '.', :nit
+                    :det, 'E', 0,
+                    '.', '.', 'a', 0
                 )
             ''', {
-                'num': nb_num, 'reg': registro_actual, 'val': item.valor_pagar, 'det': req.detalle[:100], 
+                'num': nb_num, 'reg': registro_actual,
+                'val': item.valor_pagar,
+                'det': req.detalle[:100],
                 'cc': cc_orig.ljust(10), 'dst': ds_orig.ljust(10),
-                'tfac': tipo_fac.ljust(4), 'nfac': num_fac, 'nit': nit_fac.ljust(15)
+                'tfac': tipo_fac.ljust(4), 'nfac': num_fac,
+                'nit': nit_fac.ljust(15)
             })
             
             registro_actual += 1
             
-            # B. Insert Detalle Crédito (Salida de Banco para ESTA factura)
+            # B. Insert Detalle Crédito (Salida de banco)
             cursor.execute('''
                 INSERT INTO MANAGER.MNGMCN (
-                    MCNTIPODOC, MCNNUMEDOC, MCNREG, 
-                    MCNCUENTA, MCNVALDEBI, MCNVALCRED,
-                    MCNDETALLE, MCNINDINV, MCNDIMEORI, MCNCCOSTO, MCNDESTINO,
+                    MCNEMPRESA, MCNCLASE, MCNVINKEY,
+                    MCNTIPODOC, MCNNUMEDOC, MCNREG,
+                    MCNFECHA, MCNFECINI,
+                    MCNCUENTA, MCNVINCULA,
+                    MCNCCOSTO, MCNDESTINO,
+                    MCNVALDEBI, MCNVALCRED, MCNPLAZO,
                     MCNCLACRU1, MCNTIPCRU1, MCNNUMCRU1, MCNCUOCRU1,
                     MCNCLACRU2, MCNTIPCRU2, MCNNUMCRU2, MCNCUOCRU2,
-                    MCNEMPRESA, MCNESTADO, MCNFECINI, MCNPLAZO, MCNREF1, MCNREF2, MCNVINCULA
+                    MCNDETALLE, MCNINDINV, MCNDIMEORI,
+                    MCNREF1, MCNREF2, MCNESTADO, MCNTPREG
                 ) VALUES (
-                    'NB01', :num, :reg, 
-                    :cta, 0, :val,
-                    :det, 'E', 0, :cc, :dst,
-                    '    ', '    ', 0, 0,
-                    '    ', '    ', 0, 0,
-                    '101', 'a', SYSDATE, 0, '.', '.', :nit
+                    '101', '0000', '.',
+                    'NB01', :num, :reg,
+                    SYSDATE, SYSDATE,
+                    :cta, :nit,
+                    :cc, :dst,
+                    0, :val, 0,
+                    '.', '.', 0, 0,
+                    '.', '.', 0, 0,
+                    :det, 'E', 0,
+                    '.', '.', 'a', 0
                 )
             ''', {
-                'num': nb_num, 'reg': registro_actual, 'cta': req.cuenta_banco.ljust(14), 'val': item.valor_pagar, 
-                'det': req.detalle[:100], 'cc': req.ccosto.ljust(10), 'dst': req.destino.ljust(10), 
+                'num': nb_num, 'reg': registro_actual,
+                'cta': req.cuenta_banco.ljust(14),
+                'val': item.valor_pagar,
+                'det': req.detalle[:100],
+                'cc': req.ccosto.ljust(10), 'dst': req.destino.ljust(10),
                 'nit': nit_fac.ljust(15)
             })
             
