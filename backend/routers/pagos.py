@@ -209,32 +209,39 @@ async def get_facturas_en_tramite(
                 for i in range(0, len(nums), chunk_size):
                     chunk = nums[i:i+chunk_size]
                     nums_str = ','.join(map(str, chunk))
-                    
-                    query = f"""
-                        SELECT M.MCNTIPODOC, M.MCNNUMEDOC, M.MCNDIMEORI, 0 as IS_NB01, M.MCNDETALLE
+
+                    # ── Query 1: Estado aprobación en cuenta 23355002 (doc original) ──
+                    # Predicado exacto en (MCNTIPODOC, MCNNUMEDOC) → puede usar índice
+                    q1 = f"""
+                        SELECT M.MCNTIPODOC, M.MCNNUMEDOC, M.MCNDIMEORI, M.MCNDETALLE
                         FROM MANAGER.MNGMCN M
-                        WHERE M.MCNTIPODOC = '{t}' 
+                        WHERE M.MCNTIPODOC = '{t}'
                           AND M.MCNNUMEDOC IN ({nums_str})
                           AND TRIM(M.MCNCUENTA) = '23355002'
-                        UNION ALL
-                        SELECT M.MCNTIPCRU2, M.MCNNUMCRU2, 0 as MCNDIMEORI, 1 as IS_NB01, '' as MCNDETALLE
+                    """
+                    cursor.execute(q1)
+                    for row_or in cursor.fetchall():
+                        tipo_o, num_o, dimeori_o, mcn_detalle = row_or
+                        key = f"{str(tipo_o).strip()}-{int(num_o)}"
+                        if mcn_detalle:
+                            oracle_details[key] = str(mcn_detalle).strip()
+                        if dimeori_o is not None and float(dimeori_o) > 0:
+                            aprobados_set.add(key)
+
+                    # ── Query 2: NB01 que ya pagaron estos documentos ──
+                    # Predicado en (MCNTIPODOC='NB01', MCNTIPCRU2, MCNNUMCRU2)
+                    q2 = f"""
+                        SELECT M.MCNTIPCRU2, M.MCNNUMCRU2
                         FROM MANAGER.MNGMCN M
-                        WHERE M.MCNTIPODOC = 'NB01' 
-                          AND M.MCNTIPCRU2 = '{t}' 
+                        WHERE M.MCNTIPODOC = 'NB01'
+                          AND M.MCNTIPCRU2 = '{t}'
                           AND M.MCNNUMCRU2 IN ({nums_str})
                     """
-                    cursor.execute(query)
+                    cursor.execute(q2)
                     for row_or in cursor.fetchall():
-                        tipo_o, num_o, dimeori_o, is_nb01, mcn_detalle = row_or
+                        tipo_o, num_o = row_or
                         key = f"{str(tipo_o).strip()}-{int(num_o)}"
-                        
-                        if is_nb01 == 1:
-                            pagados_set.add(key)
-                        else:
-                            if mcn_detalle:
-                                oracle_details[key] = str(mcn_detalle).strip()
-                            if dimeori_o is not None and float(dimeori_o) > 0:
-                                aprobados_set.add(key)
+                        pagados_set.add(key)
 
             cursor.close()
             conn.close()
@@ -470,34 +477,48 @@ def get_manager_causation_details(documento_contable: str):
         # MNGDOC = header (we can check if it exists)
         # MNGMCN = details (this is what the user wants: Cuenta, Tipo, C.Costo, Destino, Valor, Detalle)
         
-        query = """
-            WITH related_docs AS (
-                SELECT MCNTIPODOC, MCNNUMEDOC
-                FROM MANAGER.MNGMCN
-                WHERE MCNTIPODOC = :tipo AND MCNNUMEDOC = :numero
-                UNION
-                SELECT MCNTIPODOC, MCNNUMEDOC
-                FROM MANAGER.MNGMCN
-                WHERE MCNTIPCRU2 = :tipo AND MCNNUMCRU2 = :numero
-            )
-            SELECT 
-                M.MCNCUENTA, 
-                M.MCNTIPODOC, 
-                M.MCNCCOSTO, 
-                M.MCNDESTINO, 
-                M.MCNVALDEBI, 
-                M.MCNVALCRED, 
-                M.MCNDETALLE,
-                M.MCNINDINV,
-                M.MCNDIMEORI,
-                M.MCNNUMEDOC
-            FROM MANAGER.MNGMCN M
-            JOIN related_docs R ON M.MCNTIPODOC = R.MCNTIPODOC AND M.MCNNUMEDOC = R.MCNNUMEDOC
-            ORDER BY CASE WHEN M.MCNTIPODOC = :tipo THEN 1 ELSE 2 END, M.MCNTIPODOC, M.MCNNUMEDOC, M.MCNREG
-        """
-        
-        cursor.execute(query, {'tipo': tipo_doc, 'numero': numero_doc})
-        rows = cursor.fetchall()
+        # ── Query 1: Filas del documento original (DC07-XXXX) ──────────────────
+        # Query directo sin CTE ni JOIN — usa índice en (MCNTIPODOC, MCNNUMEDOC)
+        cursor.execute("""
+            SELECT
+                MCNCUENTA,
+                MCNTIPODOC,
+                MCNCCOSTO,
+                MCNDESTINO,
+                MCNVALDEBI,
+                MCNVALCRED,
+                MCNDETALLE,
+                MCNINDINV,
+                MCNDIMEORI,
+                MCNNUMEDOC
+            FROM MANAGER.MNGMCN
+            WHERE MCNTIPODOC = :tipo AND MCNNUMEDOC = :numero
+            ORDER BY MCNREG
+        """, {'tipo': tipo_doc, 'numero': numero_doc})
+        rows_doc = cursor.fetchall()
+
+        # ── Query 2: NB01 que cruzan este documento (MCNTIPCRU2/MCNNUMCRU2) ──
+        # Query separado — usa índice en (MCNTIPCRU2, MCNNUMCRU2) si existe
+        cursor.execute("""
+            SELECT
+                MCNCUENTA,
+                MCNTIPODOC,
+                MCNCCOSTO,
+                MCNDESTINO,
+                MCNVALDEBI,
+                MCNVALCRED,
+                MCNDETALLE,
+                MCNINDINV,
+                MCNDIMEORI,
+                MCNNUMEDOC
+            FROM MANAGER.MNGMCN
+            WHERE MCNTIPCRU2 = :tipo AND MCNNUMCRU2 = :numero
+            ORDER BY MCNTIPODOC, MCNNUMEDOC, MCNREG
+        """, {'tipo': tipo_doc, 'numero': numero_doc})
+        rows_nb = cursor.fetchall()
+
+        # Combinar: primero el documento original, luego los NB01 relacionados
+        rows = rows_doc + rows_nb
         
         if not rows:
             return {
