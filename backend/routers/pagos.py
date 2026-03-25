@@ -898,18 +898,19 @@ async def crear_nota_bancaria(req: NotaBancariaRequest, db: AsyncSession = Depen
                 'nit': nit_fac.ljust(15)
             })
             
-            # C. UPDATE documento original: marcar como pagado (MCNDIMEORI = valor pagado)
-            # Esto hace que desaparezca del listado de pendientes en Manager/SAMD
+            # C. UPDATE documento original: marcar MCNINDINV='E' (ejecutado/pagado)
+            # Esto es lo que Manager hace nativamente al crear una NB:
+            # MCNINDINV='E' saca el documento del listado de pendientes en SAMD/Manager.
+            # MCNDIMEORI ya fue seteado en el paso de "aprobar" (no tocar aquí).
             cursor.execute('''
                 UPDATE MANAGER.MNGMCN
-                SET MCNDIMEORI = MCNDIMEORI + :val,
+                SET MCNINDINV  = 'E',
                     MCNMODUSER = 'WEBAPP  ',
                     MCNMODFEC  = SYSDATE
                 WHERE MCNTIPODOC = :tfac
                   AND MCNNUMEDOC = :nfac
                   AND MCNCUENTA LIKE '2335%'
             ''', {
-                'val': item.valor_pagar,
                 'tfac': tipo_fac,
                 'nfac': num_fac
             })

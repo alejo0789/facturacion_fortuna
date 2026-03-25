@@ -270,7 +270,8 @@ async def get_factura(db: AsyncSession, factura_id: int):
             selectinload(models.Factura.oficina),
             selectinload(models.Factura.contrato),
             selectinload(models.Factura.oficinas_asignadas).selectinload(models.FacturaOficina.oficina),
-            selectinload(models.Factura.oficinas_asignadas).selectinload(models.FacturaOficina.contrato)
+            selectinload(models.Factura.oficinas_asignadas).selectinload(models.FacturaOficina.contrato).selectinload(models.Contrato.proveedor),
+            selectinload(models.Factura.oficinas_asignadas).selectinload(models.FacturaOficina.contrato).selectinload(models.Contrato.oficina)
         )
         .filter(models.Factura.id == factura_id)
     )
@@ -292,7 +293,8 @@ async def get_facturas(db: AsyncSession, skip: int = 0, limit: int = 100,
             selectinload(models.Factura.oficina),
             selectinload(models.Factura.contrato),
             selectinload(models.Factura.oficinas_asignadas).selectinload(models.FacturaOficina.oficina),
-            selectinload(models.Factura.oficinas_asignadas).selectinload(models.FacturaOficina.contrato)
+            selectinload(models.Factura.oficinas_asignadas).selectinload(models.FacturaOficina.contrato).selectinload(models.Contrato.proveedor),
+            selectinload(models.Factura.oficinas_asignadas).selectinload(models.FacturaOficina.contrato).selectinload(models.Contrato.oficina)
         )
         .outerjoin(models.Proveedor)
         .outerjoin(models.Oficina)
@@ -501,7 +503,8 @@ async def get_factura_oficinas(db: AsyncSession, factura_id: int):
         select(models.FacturaOficina)
         .options(
             selectinload(models.FacturaOficina.oficina),
-            selectinload(models.FacturaOficina.contrato)
+            selectinload(models.FacturaOficina.contrato).selectinload(models.Contrato.proveedor),
+            selectinload(models.FacturaOficina.contrato).selectinload(models.Contrato.oficina)
         )
         .filter(models.FacturaOficina.factura_id == factura_id)
     )
@@ -556,7 +559,8 @@ async def add_oficina_to_factura(db: AsyncSession, factura_id: int, oficina_id: 
         select(models.FacturaOficina)
         .options(
             selectinload(models.FacturaOficina.oficina),
-            selectinload(models.FacturaOficina.contrato)
+            selectinload(models.FacturaOficina.contrato).selectinload(models.Contrato.proveedor),
+            selectinload(models.FacturaOficina.contrato).selectinload(models.Contrato.oficina)
         )
         .filter(models.FacturaOficina.id == db_item.id)
     )
