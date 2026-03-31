@@ -206,6 +206,7 @@ async def get_report_data(
             'ciudad': contrato.oficina.ciudad if contrato.oficina else '',
             'tipo': contrato.tipo or '',
             'num_contrato': contrato.num_contrato or '',
+            'estado_contrato': contrato.estado or '',
             'tipo_plan': contrato.tipo_plan or '',
             'tipo_canal': contrato.tipo_canal or '',
             'valor_mensual': float(contrato.valor_mensual) if contrato.valor_mensual else 0,
@@ -248,6 +249,7 @@ async def get_report_data(
                     'ciudad': fo_info.oficina.ciudad if fo_info.oficina else '',
                     'tipo': '',
                     'num_contrato': 'SIN CONTRATO',
+                    'estado_contrato': 'SIN CONTRATO',
                     'tipo_plan': '',
                     'tipo_canal': '',
                     'valor_mensual': 0,
@@ -298,6 +300,7 @@ def create_excel_report(data: List[dict], months: List[tuple], titulo: str = "Re
         'Ciudad',
         'Tipo',
         'Número Contrato',
+        'Estado del Contrato',
         'Tipo Plan',
         'Tipo Canal',
         'Valor Mensual'
@@ -355,6 +358,7 @@ def create_excel_report(data: List[dict], months: List[tuple], titulo: str = "Re
         ws.cell(row=row_num, column=col, value=item['ciudad']).border = thin_border; col += 1
         ws.cell(row=row_num, column=col, value=item['tipo']).border = thin_border; col += 1
         ws.cell(row=row_num, column=col, value=item['num_contrato']).border = thin_border; col += 1
+        ws.cell(row=row_num, column=col, value=item['estado_contrato']).border = thin_border; col += 1
         ws.cell(row=row_num, column=col, value=item['tipo_plan']).border = thin_border; col += 1
         ws.cell(row=row_num, column=col, value=item['tipo_canal']).border = thin_border; col += 1
         

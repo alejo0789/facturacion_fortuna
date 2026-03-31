@@ -46,6 +46,7 @@ interface ReportRow {
     ciudad: string;
     tipo: string;
     num_contrato: string;
+    estado_contrato: string;
     tipo_plan: string;
     tipo_canal: string;
     valor_mensual: number;
@@ -778,6 +779,7 @@ export default function ReportesPage() {
                                     <th className="px-4 py-3 text-left font-semibold text-gray-700">Ciudad</th>
                                     <th className="px-4 py-3 text-left font-semibold text-gray-700">Tipo</th>
                                     <th className="px-4 py-3 text-left font-semibold text-gray-700">Contrato</th>
+                                    <th className="px-4 py-3 text-left font-semibold text-gray-700">Estado</th>
                                     <th className="px-4 py-3 text-right font-semibold text-gray-700">Valor Mensual</th>
                                     {preview.meses.map(m => (
                                         <th key={`${m.year}-${m.month}`} className="px-4 py-3 text-right font-semibold text-gray-700 bg-green-50">
@@ -804,6 +806,15 @@ export default function ReportesPage() {
                                             </span>
                                         </td>
                                         <td className="px-4 py-3 font-mono text-gray-700">{row.num_contrato}</td>
+                                        <td className="px-4 py-3">
+                                            <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                                                row.estado_contrato === 'ACTIVO' ? 'bg-green-100 text-green-800' : 
+                                                row.estado_contrato === 'CANCELADO' ? 'bg-red-100 text-red-800' : 
+                                                'bg-gray-100 text-gray-600'
+                                            }`}>
+                                                {row.estado_contrato || '-'}
+                                            </span>
+                                        </td>
                                         <td className="px-4 py-3 text-right font-semibold text-gray-900">{formatCurrency(row.valor_mensual)}</td>
                                         {preview.meses.map(m => {
                                             const key = `${m.year}-${String(m.month).padStart(2, '0')}`;
