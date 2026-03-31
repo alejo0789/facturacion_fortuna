@@ -44,6 +44,7 @@ interface ReportRow {
     nombre_oficina: string;
     direccion: string;
     ciudad: string;
+    zona: string;
     tipo: string;
     num_contrato: string;
     estado_contrato: string;
@@ -777,6 +778,7 @@ export default function ReportesPage() {
                                     <th className="px-4 py-3 text-left font-semibold text-gray-700">Proveedor</th>
                                     <th className="px-4 py-3 text-left font-semibold text-gray-700">Oficina</th>
                                     <th className="px-4 py-3 text-left font-semibold text-gray-700">Ciudad</th>
+                                    <th className="px-4 py-3 text-left font-semibold text-gray-700">Zona</th>
                                     <th className="px-4 py-3 text-left font-semibold text-gray-700">Tipo</th>
                                     <th className="px-4 py-3 text-left font-semibold text-gray-700">Contrato</th>
                                     <th className="px-4 py-3 text-left font-semibold text-gray-700">Estado</th>
@@ -800,6 +802,7 @@ export default function ReportesPage() {
                                             <div className="text-xs text-gray-500">{row.cod_oficina}</div>
                                         </td>
                                         <td className="px-4 py-3 text-gray-600">{row.ciudad}</td>
+                                        <td className="px-4 py-3 text-gray-600">{row.zona}</td>
                                         <td className="px-4 py-3">
                                             <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${row.tipo === 'Fijo' ? 'bg-blue-100 text-blue-800' : row.tipo === 'Movil' ? 'bg-purple-100 text-purple-800' : row.tipo === 'Colaboracion' ? 'bg-yellow-100 text-yellow-800' : row.tipo === 'Leasing' ? 'bg-orange-100 text-orange-800' : 'bg-gray-100 text-gray-600'}`}>
                                                 {row.tipo || '-'}

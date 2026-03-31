@@ -204,6 +204,7 @@ async def get_report_data(
             'nombre_oficina': contrato.oficina.nombre if contrato.oficina else '',
             'direccion': contrato.oficina.direccion if contrato.oficina else '',
             'ciudad': contrato.oficina.ciudad if contrato.oficina else '',
+            'zona': contrato.oficina.zona if contrato.oficina else '',
             'tipo': contrato.tipo or '',
             'num_contrato': contrato.num_contrato or '',
             'estado_contrato': contrato.estado or '',
@@ -247,6 +248,7 @@ async def get_report_data(
                     'nombre_oficina': fo_info.oficina.nombre if fo_info.oficina else '',
                     'direccion': fo_info.oficina.direccion if fo_info.oficina else '',
                     'ciudad': fo_info.oficina.ciudad if fo_info.oficina else '',
+                    'zona': fo_info.oficina.zona if fo_info.oficina else '',
                     'tipo': '',
                     'num_contrato': 'SIN CONTRATO',
                     'estado_contrato': 'SIN CONTRATO',
@@ -298,6 +300,7 @@ def create_excel_report(data: List[dict], months: List[tuple], titulo: str = "Re
         'Nombre Oficina',
         'Dirección',
         'Ciudad',
+        'Zona',
         'Tipo',
         'Número Contrato',
         'Estado del Contrato',
@@ -356,6 +359,7 @@ def create_excel_report(data: List[dict], months: List[tuple], titulo: str = "Re
         ws.cell(row=row_num, column=col, value=item['nombre_oficina']).border = thin_border; col += 1
         ws.cell(row=row_num, column=col, value=item['direccion']).border = thin_border; col += 1
         ws.cell(row=row_num, column=col, value=item['ciudad']).border = thin_border; col += 1
+        ws.cell(row=row_num, column=col, value=item['zona']).border = thin_border; col += 1
         ws.cell(row=row_num, column=col, value=item['tipo']).border = thin_border; col += 1
         ws.cell(row=row_num, column=col, value=item['num_contrato']).border = thin_border; col += 1
         ws.cell(row=row_num, column=col, value=item['estado_contrato']).border = thin_border; col += 1
