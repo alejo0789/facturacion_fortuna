@@ -828,6 +828,9 @@ async def crear_nota_bancaria(req: NotaBancariaRequest, db: AsyncSession = Depen
             clase_orig = c_info[3].strip() if c_info and c_info[3] else '0000'
             
             # A. Insert Detalle Débito (CxP - referencia a la factura)
+            # MCNFTE='w' es CRÍTICO: activa el trigger TG_MNGMCN_INSERT_CRUCE que
+            # actualiza automáticamente MCNSALDODB y MCNSALDOCR de la factura original,
+            # lo cual hace que desaparezca del listado de cuentas por pagar en Manager.
             cursor.execute('''
                 INSERT INTO MANAGER.MNGMCN (
                     MCNEMPRESA, MCNCLASE, MCNVINKEY,
@@ -839,7 +842,7 @@ async def crear_nota_bancaria(req: NotaBancariaRequest, db: AsyncSession = Depen
                     MCNCLACRU1, MCNTIPCRU1, MCNNUMCRU1, MCNCUOCRU1,
                     MCNCLACRU2, MCNTIPCRU2, MCNNUMCRU2, MCNCUOCRU2,
                     MCNDETALLE, MCNINDINV, MCNDIMEORI,
-                    MCNREF1, MCNREF2, MCNESTADO, MCNTPREG
+                    MCNREF1, MCNREF2, MCNESTADO, MCNTPREG, MCNFTE
                 ) VALUES (
                     '101', '0000', '.',
                     'NB01', :num, :reg,
@@ -850,7 +853,7 @@ async def crear_nota_bancaria(req: NotaBancariaRequest, db: AsyncSession = Depen
                     '0000', 'NB01', :num, :reg,
                     :clase_orig, :tfac, :nfac, 0,
                     :det, 'E', 0,
-                    '.', '.', 'a', 0
+                    '.', '.', 'a', 0, 'w'
                 )
             ''', {
                 'num': nb_num, 'reg': registro_actual,
