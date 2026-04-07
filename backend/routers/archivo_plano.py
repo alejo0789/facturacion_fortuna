@@ -367,8 +367,15 @@ async def generate_rows_for_oficina(
 
     # Calculate base value (without IVA if applicable)
     if tiene_iva:
-        valor_base = round(valor / 1.19, 0)
-        valor_iva = round(valor - valor_base, 0)
+        if proveedor_nit == "901073256":
+            # REGLA ESPECIAL: T = B * 1.23 (Base + 19% IVA + 4% Rete)
+            # Bruto (B) = T / 1.23, IVA = B * 0.19
+            valor_base = round(valor / 1.23, 0)
+            valor_iva = round(valor_base * 0.19, 0)
+        else:
+            # Regla normal: Base = T / 1.19, IVA = T - Base
+            valor_base = round(valor / 1.19, 0)
+            valor_iva = round(valor - valor_base, 0)
     else:
         valor_base = valor
         valor_iva = 0
@@ -467,7 +474,11 @@ def create_final_summary_rows(
     
     # Calculate retefuente based on percentage (0%, 4%, or 6%) - SOBRE VALOR BASE SIN IVA
     # Round to integer as requested
-    valor_retefuente = round(total_valor_base * (porcentaje_retefuente / 100), 0) if porcentaje_retefuente > 0 else 0
+    if last_office_info.get("vinculado") == "901073256":
+        # NIT 901073256 fixed rules (4% Rete calculated on special base)
+        valor_retefuente = round(total_valor_base * 0.04, 0)
+    else:
+        valor_retefuente = round(total_valor_base * (porcentaje_retefuente / 100), 0) if porcentaje_retefuente > 0 else 0
     
     # Calculate balance: total debitos + IVA - retefuente
     # Calculations are already integers or rounded to integers
@@ -827,8 +838,13 @@ async def preview_causacion_manager(request: CausacionManagerPreviewRequest):
 
             # Calculate base value
             if request.tiene_iva:
-                valor_base = round(valor / 1.19, 0)
-                valor_iva = round(valor - valor_base, 0)
+                if request.proveedor_nit == "901073256":
+                    # REGLA ESPECIAL: Bruto (B) = T / 1.23, IVA = B * 0.19
+                    valor_base = round(valor / 1.23, 0)
+                    valor_iva = round(valor_base * 0.19, 0)
+                else:
+                    valor_base = round(valor / 1.19, 0)
+                    valor_iva = round(valor - valor_base, 0)
             else:
                 valor_base = valor
                 valor_iva = 0
@@ -914,7 +930,10 @@ async def preview_causacion_manager(request: CausacionManagerPreviewRequest):
             factura_debitos += factura_iva
         
         # Retefuente row (CREDITO) - SOBRE VALOR BASE SIN IVA
-        valor_retefuente = round(factura_valor_base * (request.porcentaje_retefuente / 100), 0) if request.porcentaje_retefuente > 0 else 0
+        if request.proveedor_nit == "901073256":
+            valor_retefuente = round(factura_valor_base * 0.04, 0)
+        else:
+            valor_retefuente = round(factura_valor_base * (request.porcentaje_retefuente / 100), 0) if request.porcentaje_retefuente > 0 else 0
         if valor_retefuente > 0:
             rows_preview.append(CausacionRowPreview(
                 row_num=row_counter,
