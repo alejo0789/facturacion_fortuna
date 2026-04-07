@@ -368,9 +368,9 @@ async def generate_rows_for_oficina(
     # Calculate base value (without IVA if applicable)
     if tiene_iva:
         if proveedor_nit == "901073256":
-            # REGLA ESPECIAL: T = B * 1.23 (Base + 19% IVA + 4% Rete)
-            # Bruto (B) = T / 1.23, IVA = B * 0.19
-            valor_base = round(valor / 1.23, 0)
+            # REGLA ESPECIAL: T = B * 1.15 (Base + 19% IVA - 4% Rete)
+            # Bruto (B) = T / 1.15, IVA = B * 0.19
+            valor_base = round(valor / 1.15, 0)
             valor_iva = round(valor_base * 0.19, 0)
         else:
             # Regla normal: Base = T / 1.19, IVA = T - Base
@@ -839,8 +839,8 @@ async def preview_causacion_manager(request: CausacionManagerPreviewRequest):
             # Calculate base value
             if request.tiene_iva:
                 if request.proveedor_nit == "901073256":
-                    # REGLA ESPECIAL: Bruto (B) = T / 1.23, IVA = B * 0.19
-                    valor_base = round(valor / 1.23, 0)
+                    # REGLA ESPECIAL: Bruto (B) = T / 1.15, IVA = B * 0.19
+                    valor_base = round(valor / 1.15, 0)
                     valor_iva = round(valor_base * 0.19, 0)
                 else:
                     valor_base = round(valor / 1.19, 0)
