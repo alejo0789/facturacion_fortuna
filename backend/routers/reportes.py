@@ -200,6 +200,7 @@ async def get_report_data(
         row = {
             'nit_proveedor': contrato.proveedor.nit if contrato.proveedor else '',
             'nombre_proveedor': contrato.proveedor.nombre if contrato.proveedor else '',
+            'nombre_comercial': contrato.proveedor.nombre_comercial if contrato.proveedor else '',
             'cod_oficina': contrato.oficina.cod_oficina if contrato.oficina else '',
             'nombre_oficina': contrato.oficina.nombre if contrato.oficina else '',
             'direccion': contrato.oficina.direccion if contrato.oficina else '',
@@ -244,6 +245,7 @@ async def get_report_data(
                 row = {
                     'nit_proveedor': fo_info.factura.proveedor.nit if fo_info.factura and fo_info.factura.proveedor else '',
                     'nombre_proveedor': fo_info.factura.proveedor.nombre if fo_info.factura and fo_info.factura.proveedor else '',
+                    'nombre_comercial': fo_info.factura.proveedor.nombre_comercial if fo_info.factura and fo_info.factura.proveedor else '',
                     'cod_oficina': fo_info.oficina.cod_oficina if fo_info.oficina else '',
                     'nombre_oficina': fo_info.oficina.nombre if fo_info.oficina else '',
                     'direccion': fo_info.oficina.direccion if fo_info.oficina else '',
@@ -296,6 +298,7 @@ def create_excel_report(data: List[dict], months: List[tuple], titulo: str = "Re
     static_headers = [
         'NIT Proveedor',
         'Nombre Proveedor',
+        'Nombre Comercial',
         'Código Oficina',
         'Nombre Oficina',
         'Dirección',
@@ -355,6 +358,7 @@ def create_excel_report(data: List[dict], months: List[tuple], titulo: str = "Re
         # Static columns
         ws.cell(row=row_num, column=col, value=item['nit_proveedor']).border = thin_border; col += 1
         ws.cell(row=row_num, column=col, value=item['nombre_proveedor']).border = thin_border; col += 1
+        ws.cell(row=row_num, column=col, value=item.get('nombre_comercial', '')).border = thin_border; col += 1
         ws.cell(row=row_num, column=col, value=item['cod_oficina']).border = thin_border; col += 1
         ws.cell(row=row_num, column=col, value=item['nombre_oficina']).border = thin_border; col += 1
         ws.cell(row=row_num, column=col, value=item['direccion']).border = thin_border; col += 1

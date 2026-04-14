@@ -40,6 +40,7 @@ interface MonthData {
 interface ReportRow {
     nit_proveedor: string;
     nombre_proveedor: string;
+    nombre_comercial?: string;
     cod_oficina: string;
     nombre_oficina: string;
     direccion: string;
@@ -776,6 +777,7 @@ export default function ReportesPage() {
                             <thead className="bg-gray-50 border-b">
                                 <tr>
                                     <th className="px-4 py-3 text-left font-semibold text-gray-700">Proveedor</th>
+                                    <th className="px-4 py-3 text-left font-semibold text-gray-700">Nombre Comercial</th>
                                     <th className="px-4 py-3 text-left font-semibold text-gray-700">Oficina</th>
                                     <th className="px-4 py-3 text-left font-semibold text-gray-700">Ciudad</th>
                                     <th className="px-4 py-3 text-left font-semibold text-gray-700">Zona</th>
@@ -796,6 +798,9 @@ export default function ReportesPage() {
                                         <td className="px-4 py-3">
                                             <div className="font-medium text-gray-900">{row.nombre_proveedor}</div>
                                             <div className="text-xs text-gray-500">{row.nit_proveedor}</div>
+                                        </td>
+                                        <td className="px-4 py-3 text-gray-600">
+                                            {row.nombre_comercial || '-'}
                                         </td>
                                         <td className="px-4 py-3">
                                             <div className="font-medium text-gray-800">{row.nombre_oficina}</div>
