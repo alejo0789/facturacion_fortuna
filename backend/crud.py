@@ -97,6 +97,7 @@ async def get_contratos(db: AsyncSession, skip: int = 0, limit: int = 100, searc
                 models.Proveedor.nombre_comercial.ilike(f"%{search}%"),
                 models.Proveedor.nit.ilike(f"%{search}%"),
                 models.Oficina.nombre.ilike(f"%{search}%"),
+                models.Oficina.cod_oficina.ilike(f"%{search}%"),
                 models.Contrato.num_contrato.ilike(f"%{search}%"),
                 models.Contrato.titular_nombre.ilike(f"%{search}%"),
                 models.Contrato.tipo.ilike(f"%{search}%"),
