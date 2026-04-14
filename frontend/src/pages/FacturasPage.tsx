@@ -873,6 +873,7 @@ export default function FacturasPage() {
             oficina_id: oa.oficina_id,
             oficina_nombre: oa.oficina?.nombre || '',
             oficina_ciudad: oa.oficina?.ciudad || '',
+            contrato_id: oa.contrato_id || oa.contrato?.id || null,
             contrato_num: oa.contrato?.num_contrato,
             contrato_estado: oa.contrato?.estado,
             valor: oa.valor?.toString() || '0'
@@ -1901,8 +1902,8 @@ export default function FacturasPage() {
                                 Oficinas seleccionadas ({oficinasSeleccionadas.length}):
                             </div>
                             <div className="space-y-2">
-                                {oficinasSeleccionadas.map((os) => (
-                                    <div key={`${os.oficina_id}-${os.contrato_id || 'nocontract'}`} className="flex items-center gap-2 bg-white rounded p-2 border border-green-200">
+                                {oficinasSeleccionadas.map((os, idx) => (
+                                    <div key={`${os.oficina_id}-${os.contrato_id || 'nocontract'}-${idx}`} className="flex items-center gap-2 bg-white rounded p-2 border border-green-200">
                                         <div className="flex-1 min-w-0">
                                             <div className="font-medium text-gray-900 text-sm truncate">{os.oficina_nombre}</div>
                                             <div className="text-xs text-gray-500">{os.oficina_ciudad} • {os.contrato_num || 'Sin contrato'}</div>
