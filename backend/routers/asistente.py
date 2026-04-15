@@ -4,7 +4,7 @@ from typing import List, Optional, Dict
 import httpx
 import os
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 router = APIRouter()
 
@@ -46,11 +46,14 @@ async def search_emails_async(query: SearchQuery):
         created_at=datetime.now()
     )
 
+    # Sumar un día para que n8n incluya todo el día final (boundary exclusivo)
+    end_date_inclusive = query.end_date + timedelta(days=1)
+
     payload = {
         "requestId": request_id, 
         "email": query.email,
-        "startDate": f"{query.start_date.isoformat()}T00:00:00Z",
-        "endDate": f"{query.end_date.isoformat()}T23:59:59Z",
+        "startDate": query.start_date.isoformat(),
+        "endDate": end_date_inclusive.isoformat(),
         # Callback URL for n8n to post back results
         # IMPORTANT: This must be accessible from the internet/n8n instance
         # If running locally, you need a tunnel like ngrok.
