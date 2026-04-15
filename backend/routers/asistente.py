@@ -49,8 +49,8 @@ async def search_emails_async(query: SearchQuery):
     payload = {
         "requestId": request_id, 
         "email": query.email,
-        "startDate": query.start_date.isoformat(),
-        "endDate": f"{query.end_date.isoformat()}T23:59:59",
+        "startDate": f"{query.start_date.isoformat()}T00:00:00Z",
+        "endDate": f"{query.end_date.isoformat()}T23:59:59Z",
         # Callback URL for n8n to post back results
         # IMPORTANT: This must be accessible from the internet/n8n instance
         # If running locally, you need a tunnel like ngrok.
