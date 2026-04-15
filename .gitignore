@@ -204,3 +204,8 @@ service-account.json
 
 # Oracle Snapshot DB (Too large for Git)
 backend/oracle_snapshot.sql
+
+# User request: exclude from github but keep local
+*.pdf
+*.md
+*.sql
