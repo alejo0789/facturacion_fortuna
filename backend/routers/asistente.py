@@ -50,7 +50,7 @@ async def search_emails_async(query: SearchQuery):
         "requestId": request_id, 
         "email": query.email,
         "startDate": query.start_date.isoformat(),
-        "endDate": query.end_date.isoformat(),
+        "endDate": f"{query.end_date.isoformat()}T23:59:59",
         # Callback URL for n8n to post back results
         # IMPORTANT: This must be accessible from the internet/n8n instance
         # If running locally, you need a tunnel like ngrok.

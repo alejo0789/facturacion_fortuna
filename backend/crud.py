@@ -336,7 +336,7 @@ async def get_facturas(db: AsyncSession, skip: int = 0, limit: int = 100,
             query = query.filter(fecha_col >= fecha_desde_dt)
 
         if fecha_hasta:
-            fecha_hasta_dt = datetime.strptime(fecha_hasta, '%Y-%m-%d').replace(hour=23, minute=59, second=59)
+            fecha_hasta_dt = datetime.strptime(fecha_hasta, '%Y-%m-%d').replace(hour=23, minute=59, second=59, microsecond=999999)
             query = query.filter(fecha_col <= fecha_hasta_dt)
     
     # Oficina filter - check both legacy oficina_id and new oficinas_asignadas
