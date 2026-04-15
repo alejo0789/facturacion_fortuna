@@ -113,8 +113,8 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                         </svg>
                     </div>
                     <div>
-                        <h1 className="text-sm font-bold text-white leading-tight">La Fortuna</h1>
-                        <p className="text-[10px] text-slate-400">Proveedores</p>
+                        <h1 className="text-sm font-bold text-white leading-tight">Facturación Céntrica</h1>
+                        <p className="text-[10px] text-slate-400">Control de Proveedores</p>
                     </div>
                 </div>
                 <button
