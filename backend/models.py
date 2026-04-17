@@ -4,19 +4,28 @@ from database import Base
 
 class Proveedor(Base):
     __tablename__ = "proveedores"
-    
+
     id = Column(Integer, primary_key=True, index=True)
-    nit = Column(String(50), unique=True, nullable=False)
+    empresa_id = Column(Integer, ForeignKey("empresas.id", ondelete="RESTRICT"), nullable=True, index=True)
+    nit = Column(String(50), nullable=False)
     nombre = Column(String(255), nullable=False)
     nombre_comercial = Column(String(255), nullable=True)  # Commercial name (optional)
-    
+
+    # NOTA: el índice único original (nit global) se migra a (empresa_id, nit)
+    # para permitir que el mismo NIT exista en distintas empresas. La constraint
+    # queda declarada a nivel de tabla (ver __table_args__).
+    __table_args__ = (
+        UniqueConstraint('empresa_id', 'nit', name='uq_proveedor_empresa_nit'),
+    )
+
     # Relationships
     contratos = relationship("Contrato", back_populates="proveedor")
 
 class Oficina(Base):
     __tablename__ = "oficinas"
-    
+
     id = Column(Integer, primary_key=True, index=True)
+    empresa_id = Column(Integer, ForeignKey("empresas.id", ondelete="RESTRICT"), nullable=True, index=True)
     cod_oficina = Column(String(50))
     nombre = Column(String(255))
     tipo_sitio = Column(String(100))
@@ -29,8 +38,9 @@ class Oficina(Base):
 
 class Contrato(Base):
     __tablename__ = "contratos"
-    
+
     id = Column(Integer, primary_key=True, index=True)
+    empresa_id = Column(Integer, ForeignKey("empresas.id", ondelete="RESTRICT"), nullable=True, index=True)
     proveedor_id = Column(Integer, ForeignKey("proveedores.id"))
     oficina_id = Column(Integer, ForeignKey("oficinas.id"))
     
@@ -70,8 +80,9 @@ class Contrato(Base):
 
 class Pago(Base):
     __tablename__ = "pagos"
-    
+
     id = Column(Integer, primary_key=True, index=True)
+    empresa_id = Column(Integer, ForeignKey("empresas.id", ondelete="RESTRICT"), nullable=True, index=True)
     contrato_id = Column(Integer, ForeignKey("contratos.id"))
     numero_factura = Column(String(50))
     fecha_pago = Column(Date)
@@ -88,9 +99,10 @@ class Factura(Base):
     Multiple oficinas can be assigned via FacturaOficina, each with its own value
     """
     __tablename__ = "facturas"
-    
+
     id = Column(Integer, primary_key=True, index=True)
-    
+    empresa_id = Column(Integer, ForeignKey("empresas.id", ondelete="RESTRICT"), nullable=True, index=True)
+
     # Relations - proveedor required
     proveedor_id = Column(Integer, ForeignKey("proveedores.id"), nullable=False)
     
@@ -134,9 +146,10 @@ class FacturaOficina(Base):
     Each assignment has its own value and can detect the corresponding contrato
     """
     __tablename__ = "factura_oficinas"
-    
+
     id = Column(Integer, primary_key=True, index=True)
-    
+    empresa_id = Column(Integer, ForeignKey("empresas.id", ondelete="RESTRICT"), nullable=True, index=True)
+
     # Relations
     factura_id = Column(Integer, ForeignKey("facturas.id", ondelete="CASCADE"), nullable=False)
     oficina_id = Column(Integer, ForeignKey("oficinas.id"), nullable=False)
@@ -163,8 +176,9 @@ class FacturaOficina(Base):
 class FacturaUpload(Base):
     """Tracks PDF uploads and their processing status by n8n"""
     __tablename__ = "factura_uploads"
-    
+
     id = Column(Integer, primary_key=True, index=True)
+    empresa_id = Column(Integer, ForeignKey("empresas.id", ondelete="RESTRICT"), nullable=True, index=True)
     upload_id = Column(String(50), unique=True, index=True, nullable=False)  # UUID for tracking
     filename = Column(String(255))
     original_filename = Column(String(255))
@@ -193,9 +207,10 @@ class ProveedorFeedback(Base):
     The N8N agent can query this before processing new invoices.
     """
     __tablename__ = "proveedor_feedback"
-    
+
     id = Column(Integer, primary_key=True, index=True)
-    
+    empresa_id = Column(Integer, ForeignKey("empresas.id", ondelete="RESTRICT"), nullable=True, index=True)
+
     # Relations
     proveedor_id = Column(Integer, ForeignKey("proveedores.id"), nullable=False)
     factura_id = Column(Integer, ForeignKey("facturas.id", ondelete="SET NULL"), nullable=True)  # Optional link to specific invoice
@@ -216,8 +231,9 @@ class ContratoAuditoria(Base):
     Historical record of deleted contracts to maintain traceability in invoices.
     """
     __tablename__ = "contrato_auditoria"
-    
+
     id = Column(Integer, primary_key=True, index=True)
+    empresa_id = Column(Integer, ForeignKey("empresas.id", ondelete="RESTRICT"), nullable=True, index=True)
     original_id = Column(Integer)
     num_contrato = Column(String(100))
     proveedor_nit = Column(String(50))

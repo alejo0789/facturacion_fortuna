@@ -209,3 +209,8 @@ backend/oracle_snapshot.sql
 *.pdf
 *.md
 *.sql
+
+# Excepciones — archivos del proyecto que SÍ deben ir al repo (rama saas-multitenant)
+!README.md
+!backend/.env.example
+!backend/migrations/*.sql

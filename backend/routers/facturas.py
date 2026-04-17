@@ -23,7 +23,7 @@ import io
 import uuid
 import zipfile
 import tempfile
-import schemas, crud
+import models, schemas, crud
 from database import get_db
 
 router = APIRouter()

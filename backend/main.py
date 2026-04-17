@@ -1,42 +1,141 @@
+"""
+Punto de entrada FastAPI.
+
+Esta versión agrega la capa SaaS multi-tenant sobre la aplicación existente:
+- Nuevos routers: auth, empresas, usuarios
+- Middleware dual: JWT Bearer + X-API-Key (acepta tanto la API_KEY global
+  legada como las api_keys por Empresa)
+- En el arranque se siembra la Firma y Empresa por defecto (La Fortuna) y
+  el superadmin del .env. Además se ejecuta el backfill de `empresa_id`
+  sobre las tablas existentes que aún no lo tienen asignado.
+"""
+import logging
+from contextlib import asynccontextmanager
+
+import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-import uvicorn
-from contextlib import asynccontextmanager
-from database import engine, Base
-from routers import contracts, payments, pagos, facturas, consolidado, reportes, oficinas_oracle, archivo_plano, feedback, asistente
-from middleware.auth import APIKeyMiddleware
+from sqlalchemy import select, text
+
+from database import engine, Base, SessionLocal
+from core.config import settings
+from core.security import hash_password
+
+# Routers — los modelos se importan implícitamente al importar los routers,
+# pero además registramos explícitamente models y models_tenant para que
+# Base.metadata incluya TODAS las tablas antes del create_all.
+import models  # noqa: F401  (registra modelos existentes en Base.metadata)
+import models_tenant  # noqa: F401  (registra Firma/Empresa/Usuario/UsuarioEmpresa)
+
+from routers import (
+    contracts, payments, pagos, facturas, consolidado,
+    reportes, oficinas_oracle, archivo_plano, feedback, asistente,
+    auth, empresas, usuarios,
+)
+from middleware.auth_dual import AuthDualMiddleware
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
+
+
+async def _seed_defaults():
+    """Siembra Firma/Empresa por defecto, superadmin, y backfillea empresa_id."""
+    from models_tenant import Firma, Empresa, Usuario
+
+    async with SessionLocal() as db:
+        # --- Firma por defecto ---
+        firma = (await db.execute(
+            select(Firma).where(Firma.nit == settings.DEFAULT_FIRMA_NIT)
+        )).scalar_one_or_none()
+        if not firma:
+            firma = Firma(
+                nombre=settings.DEFAULT_FIRMA_NOMBRE,
+                nit=settings.DEFAULT_FIRMA_NIT,
+            )
+            db.add(firma)
+            await db.flush()
+            logger.info("Seed: Firma por defecto creada (%s)", firma.nombre)
+
+        # --- Empresa por defecto ---
+        empresa = (await db.execute(
+            select(Empresa).where(Empresa.nit == settings.DEFAULT_EMPRESA_NIT)
+        )).scalar_one_or_none()
+        if not empresa:
+            empresa = Empresa(
+                firma_id=firma.id,
+                nombre=settings.DEFAULT_EMPRESA_NOMBRE,
+                nit=settings.DEFAULT_EMPRESA_NIT,
+                sidebar_title=settings.DEFAULT_EMPRESA_NOMBRE,
+            )
+            db.add(empresa)
+            await db.flush()
+            logger.info("Seed: Empresa por defecto creada (id=%s)", empresa.id)
+
+        # --- Superadmin ---
+        admin = (await db.execute(
+            select(Usuario).where(Usuario.email == settings.SUPERADMIN_EMAIL)
+        )).scalar_one_or_none()
+        if not admin:
+            admin = Usuario(
+                email=settings.SUPERADMIN_EMAIL,
+                nombre="Super Admin",
+                password_hash=hash_password(settings.SUPERADMIN_PASSWORD),
+                es_superadmin=True,
+                activo=True,
+                firma_id=firma.id,
+            )
+            db.add(admin)
+            logger.info("Seed: superadmin creado (%s)", settings.SUPERADMIN_EMAIL)
+
+        await db.commit()
+
+        # --- Backfill empresa_id en tablas existentes ---
+        backfill_tables = [
+            "proveedores", "oficinas", "contratos", "pagos",
+            "facturas", "factura_oficinas", "factura_uploads",
+            "proveedor_feedback", "contrato_auditoria",
+        ]
+        for tbl in backfill_tables:
+            try:
+                await db.execute(text(
+                    f"UPDATE {tbl} SET empresa_id = :eid WHERE empresa_id IS NULL"
+                ), {"eid": empresa.id})
+            except Exception as e:
+                logger.warning("Backfill omitido para %s: %s", tbl, e)
+        await db.commit()
+        logger.info("Backfill de empresa_id completado para %d tablas", len(backfill_tables))
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: Create tables if they don't exist (useful for dev)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    await _seed_defaults()
     yield
-    # Shutdown
 
-app = FastAPI(title="Supplier Service API", lifespan=lifespan)
 
-# IMPORTANTE: Los middlewares se ejecutan en orden INVERSO
-# El último agregado se ejecuta primero
-
-# API Key Authentication Middleware (se ejecuta DESPUÉS de CORS)
-app.add_middleware(APIKeyMiddleware)
-
-# CORS - Configuración para desarrollo y producción (se ejecuta PRIMERO)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://192.168.2.91:5173",
-        "https://saman.lafortuna.com.co",
-        "http://saman.lafortuna.com.co"
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-    expose_headers=["*"]
+app = FastAPI(
+    title=settings.APP_NAME,
+    version=settings.APP_VERSION,
+    lifespan=lifespan,
 )
 
+# CORS (se ejecuta primero)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins_list,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Empresa-Id", "X-API-Key"],
+    expose_headers=["Content-Disposition"],
+)
+
+# ---- Routers de identidad ----
+app.include_router(auth.router, prefix="/api", tags=["auth"])
+app.include_router(empresas.router, prefix="/api", tags=["empresas"])
+app.include_router(usuarios.router, prefix="/api", tags=["usuarios"])
+
+# ---- Routers de negocio (preservados de la versión original) ----
 app.include_router(contracts.router, prefix="/api", tags=["contratos"])
 app.include_router(payments.router, prefix="/api", tags=["pagos"])
 app.include_router(pagos.router, prefix="/api", tags=["pagos-modulo"])
@@ -48,9 +147,16 @@ app.include_router(archivo_plano.router, prefix="/api", tags=["archivo-plano"])
 app.include_router(feedback.router, prefix="/api", tags=["feedback"])
 app.include_router(asistente.router, prefix="/api", tags=["asistente"])
 
+
 @app.get("/")
 def read_root():
-    return {"message": "Supplier Service API is running"}
+    return {"message": f"{settings.APP_NAME} v{settings.APP_VERSION}"}
+
+
+# Envolvemos la app con el middleware ASGI dual (JWT + API Key).
+# Uvicorn debe apuntar a `main:application`.
+application = AuthDualMiddleware(app)
+
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("main:application", host="0.0.0.0", port=8000, reload=True)

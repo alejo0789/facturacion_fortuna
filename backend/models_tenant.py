@@ -1,0 +1,151 @@
+"""
+Modelos de identidad multi-tenant: Firma, Empresa, Usuario, UsuarioEmpresa.
+
+Reutilizan la misma Base declarativa que models.py (importada desde
+database.py) para que todas las tablas se creen en el mismo metadata.
+
+TenantMixin se expone para que otros modelos (existentes y nuevos) puedan
+heredar `empresa_id` de forma consistente.
+"""
+import uuid
+from sqlalchemy import (
+    Column, Integer, String, Boolean, DateTime, Text, ForeignKey,
+    UniqueConstraint, func,
+)
+from sqlalchemy.orm import relationship
+
+from database import Base
+
+
+class TenantMixin:
+    """Añade empresa_id a cualquier modelo para aislamiento multi-tenant.
+
+    Se deja nullable=True para permitir la migración gradual en datos
+    preexistentes (serán backfilleados con la empresa por defecto).
+    """
+    empresa_id = Column(
+        Integer,
+        ForeignKey("empresas.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
+
+
+class Firma(Base):
+    """Firma contadora — suscriptor del SaaS (cuenta "dueño")."""
+    __tablename__ = "firmas"
+
+    id = Column(Integer, primary_key=True, index=True)
+    nombre = Column(String(255), nullable=False)
+    nit = Column(String(50), unique=True, nullable=False)
+    direccion = Column(String(255))
+    telefono = Column(String(50))
+    email = Column(String(255))
+    logo_url = Column(String(500))
+    plan_suscripcion = Column(String(50), default="basico")
+    activa = Column(Boolean, default=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+    empresas = relationship("Empresa", back_populates="firma")
+    usuarios = relationship("Usuario", back_populates="firma")
+
+
+class Empresa(Base):
+    """Empresa cliente — el tenant. Una Firma puede tener N Empresas."""
+    __tablename__ = "empresas"
+
+    id = Column(Integer, primary_key=True, index=True)
+    firma_id = Column(Integer, ForeignKey("firmas.id"), nullable=False, index=True)
+
+    # Identidad
+    nombre = Column(String(255), nullable=False)
+    nombre_comercial = Column(String(255))
+    nit = Column(String(50), nullable=False)
+    digito_verificacion = Column(String(5))
+    direccion = Column(String(255))
+    ciudad = Column(String(100))
+    departamento = Column(String(100))
+    telefono = Column(String(50))
+    email = Column(String(255))
+    representante_legal = Column(String(255))
+
+    # Régimen fiscal
+    regimen_tributario = Column(String(100), default="Regimen Ordinario")
+    moneda = Column(String(10), default="COP")
+    pais = Column(String(100), default="Colombia")
+    responsable_iva = Column(Boolean, default=True)
+
+    # Conexión Oracle opcional por-tenant (reemplaza vars de entorno globales)
+    oracle_host = Column(String(255))
+    oracle_port = Column(Integer, default=1521)
+    oracle_service = Column(String(100))
+    oracle_user = Column(String(100))
+    oracle_password_enc = Column(Text)
+    oracle_enabled = Column(Boolean, default=False)
+
+    # Webhooks n8n configurables por empresa
+    n8n_webhook_url = Column(String(500))
+    n8n_search_webhook = Column(String(500))
+    n8n_process_webhook = Column(String(500))
+
+    # Almacenamiento de archivos
+    storage_type = Column(String(20), default="local")  # local, ftp, s3
+    storage_path = Column(String(500), default="./storage/facturas")
+    ftp_host = Column(String(255))
+    ftp_port = Column(Integer, default=21)
+    ftp_user = Column(String(100))
+    ftp_password_enc = Column(Text)
+
+    # Branding UI
+    sidebar_title = Column(String(100))
+    sidebar_subtitle = Column(String(100))
+    external_system_name = Column(String(100))
+    external_system_url = Column(String(500))
+    logo_url = Column(String(500))
+
+    # API Key propia para integraciones externas / n8n
+    api_key = Column(String(100), unique=True, default=lambda: str(uuid.uuid4()))
+
+    activa = Column(Boolean, default=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+    firma = relationship("Firma", back_populates="empresas")
+    usuarios = relationship("UsuarioEmpresa", back_populates="empresa")
+
+
+class Usuario(Base):
+    """Usuario del sistema con autenticación JWT."""
+    __tablename__ = "usuarios"
+
+    id = Column(Integer, primary_key=True, index=True)
+    firma_id = Column(Integer, ForeignKey("firmas.id"), nullable=True, index=True)
+    email = Column(String(255), unique=True, nullable=False, index=True)
+    nombre = Column(String(255), nullable=False)
+    password_hash = Column(String(255), nullable=False)
+    es_superadmin = Column(Boolean, default=False)
+    activo = Column(Boolean, default=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+    firma = relationship("Firma", back_populates="usuarios")
+    empresas = relationship("UsuarioEmpresa", back_populates="usuario")
+
+
+class UsuarioEmpresa(Base):
+    """Relación N a N usuario↔empresa con rol.
+
+    Roles soportados: ADMIN, CONTADOR, AUDITOR, FACTURACION, CONTABILIDAD,
+    PRODUCTOS, VENTAS, SOLO_LECTURA.
+    """
+    __tablename__ = "usuario_empresa"
+
+    id = Column(Integer, primary_key=True, index=True)
+    usuario_id = Column(Integer, ForeignKey("usuarios.id", ondelete="CASCADE"), nullable=False)
+    empresa_id = Column(Integer, ForeignKey("empresas.id", ondelete="CASCADE"), nullable=False)
+    rol = Column(String(50), nullable=False, default="SOLO_LECTURA")
+
+    __table_args__ = (
+        UniqueConstraint("usuario_id", "empresa_id", name="uq_usuario_empresa"),
+    )
+
+    usuario = relationship("Usuario", back_populates="empresas")
+    empresa = relationship("Empresa", back_populates="usuarios")
