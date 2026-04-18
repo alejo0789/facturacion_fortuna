@@ -17,6 +17,11 @@
  *   /app/reportes             → ReportesPage
  *   /app/asistente-buscador   → AsistenteBuscadorPage
  *   /app/mi-equipo            → MiEquipoPage
+ *   /app/puc                  → PUCPage
+ *   /app/asientos             → AsientosPage
+ *   /app/libro-mayor          → LibroMayorPage
+ *   /app/balance              → BalancePage
+ *   /app/impuestos            → ImpuestosPage
  */
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useState } from 'react';
@@ -35,6 +40,11 @@ import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import LandingPage from './pages/LandingPage';
 import MiEquipoPage from './pages/MiEquipoPage';
+import PUCPage from './pages/PUCPage';
+import AsientosPage from './pages/AsientosPage';
+import LibroMayorPage from './pages/LibroMayorPage';
+import BalancePage from './pages/BalancePage';
+import ImpuestosPage from './pages/ImpuestosPage';
 
 function AppShell() {
     const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -56,6 +66,11 @@ function AppShell() {
                     <Route path="reportes" element={<ReportesPage />} />
                     <Route path="asistente-buscador" element={<AsistenteBuscadorPage />} />
                     <Route path="mi-equipo" element={<MiEquipoPage />} />
+                    <Route path="puc" element={<PUCPage />} />
+                    <Route path="asientos" element={<AsientosPage />} />
+                    <Route path="libro-mayor" element={<LibroMayorPage />} />
+                    <Route path="balance" element={<BalancePage />} />
+                    <Route path="impuestos" element={<ImpuestosPage />} />
                     <Route path="*" element={<Navigate to="/app" replace />} />
                 </Routes>
             </main>

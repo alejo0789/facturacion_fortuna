@@ -59,6 +59,36 @@ const navItems = [
         color: 'from-rose-500 to-rose-600',
     },
     {
+        to: '/app/puc',
+        label: 'PUC',
+        icon: 'M4 6h16M4 10h16M4 14h16M4 18h16',
+        color: 'from-indigo-500 to-indigo-600',
+    },
+    {
+        to: '/app/asientos',
+        label: 'Asientos',
+        icon: 'M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253',
+        color: 'from-sky-500 to-sky-600',
+    },
+    {
+        to: '/app/libro-mayor',
+        label: 'Libro Mayor',
+        icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4',
+        color: 'from-cyan-500 to-cyan-600',
+    },
+    {
+        to: '/app/balance',
+        label: 'Balance',
+        icon: 'M3 6l3 1m0 0l-3 9a5.002 5.002 0 006.001 0M6 7l3 9M6 7l6-2m6 2l3-1m-3 1l-3 9a5.002 5.002 0 006.001 0M18 7l3 9m-3-9l-6-2m0-2v2m0 16V5m0 16H9m3 0h3',
+        color: 'from-emerald-500 to-emerald-600',
+    },
+    {
+        to: '/app/impuestos',
+        label: 'Impuestos',
+        icon: 'M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z',
+        color: 'from-amber-500 to-orange-600',
+    },
+    {
         to: '/app/mi-equipo',
         label: 'Mi equipo',
         icon: 'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z',
