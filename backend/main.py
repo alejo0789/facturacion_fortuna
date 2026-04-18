@@ -26,13 +26,17 @@ from core.security import hash_password
 # Base.metadata incluya TODAS las tablas antes del create_all.
 import models  # noqa: F401  (registra modelos existentes en Base.metadata)
 import models_tenant  # noqa: F401  (registra Firma/Empresa/Usuario/UsuarioEmpresa)
+import models_contabilidad  # noqa: F401  (registra PUC/Periodos/Asientos/Banca)
+import models_impuestos  # noqa: F401  (registra ConfigImpuesto/Tarifa/Retencion)
 
 from routers import (
     contracts, payments, pagos, facturas, consolidado,
     reportes, oficinas_oracle, archivo_plano, feedback, asistente,
     auth, empresas, usuarios,
+    contabilidad, impuestos,
 )
 from middleware.auth_dual import AuthDualMiddleware
+from populate_puc import clonar_puc
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -105,6 +109,53 @@ async def _seed_defaults():
         await db.commit()
         logger.info("Backfill de empresa_id completado para %d tablas", len(backfill_tables))
 
+        # --- Seed PUC para la empresa por defecto ---
+        from models_contabilidad import CuentaPUC
+        count_puc = (await db.execute(
+            select(CuentaPUC).where(CuentaPUC.empresa_id == empresa.id).limit(1)
+        )).scalar_one_or_none()
+        if not count_puc:
+            insertadas = await clonar_puc(empresa.id, db)
+            await db.commit()
+            logger.info("Seed: PUC cargado (%d cuentas) para empresa %s", insertadas, empresa.id)
+
+        # --- Seed configuración de impuestos por defecto ---
+        from decimal import Decimal as _Dec
+        from models_impuestos import ConfiguracionImpuesto, TarifaImpuesto
+        default_impuestos = [
+            ("IVA", "240810", _Dec("19.00"), "IVA descontable 19%"),
+            ("RETEFUENTE", "236540", _Dec("4.00"), "Retefuente compras 4%"),
+            ("RETEIVA", "236701", _Dec("15.00"), "ReteIVA 15%"),
+            ("RETEICA", "236805", _Dec("0.414"), "ReteICA 4.14x1000"),
+        ]
+        for tipo, cuenta, tarifa, desc in default_impuestos:
+            existente = (await db.execute(
+                select(ConfiguracionImpuesto).where(
+                    ConfiguracionImpuesto.empresa_id == empresa.id,
+                    ConfiguracionImpuesto.tipo == tipo,
+                )
+            )).scalar_one_or_none()
+            if existente:
+                continue
+            config = ConfiguracionImpuesto(
+                empresa_id=empresa.id,
+                tipo=tipo,
+                cuenta_puc=cuenta,
+                descripcion=desc,
+                activo=True,
+            )
+            db.add(config)
+            await db.flush()
+            db.add(TarifaImpuesto(
+                configuracion_id=config.id,
+                concepto="default",
+                tarifa_pct=tarifa,
+                base_minima=_Dec("0"),
+                es_default=True,
+            ))
+        await db.commit()
+        logger.info("Seed: configuración de impuestos por defecto lista")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -146,6 +197,10 @@ app.include_router(oficinas_oracle.router, prefix="/api", tags=["oficinas-oracle
 app.include_router(archivo_plano.router, prefix="/api", tags=["archivo-plano"])
 app.include_router(feedback.router, prefix="/api", tags=["feedback"])
 app.include_router(asistente.router, prefix="/api", tags=["asistente"])
+
+# ---- Módulo contable (Iteración 2) ----
+app.include_router(contabilidad.router, prefix="/api", tags=["contabilidad"])
+app.include_router(impuestos.router, prefix="/api", tags=["impuestos"])
 
 
 @app.get("/")

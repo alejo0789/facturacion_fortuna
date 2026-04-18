@@ -1,176 +1,268 @@
-from sqlalchemy import Column, Integer, String, Date, DateTime, Numeric, ForeignKey, Text, Boolean, func
+"""
+Modelos contables multi-tenant — Iteración 2 (Motor Contable).
+
+Basado en Decreto 2649/2650 (Colombia) y portado desde facturacion_fortuna_general.
+Todos los modelos contables están scopeados por empresa_id (TenantMixin).
+
+Incluye:
+  - CuentaPUC            → Plan Único de Cuentas por empresa
+  - PeriodoContable      → Periodos mensuales ABIERTO/CERRADO por empresa
+  - AsientoContable      → Cabecera del comprobante
+  - LineaAsiento         → Detalle débito/crédito (scopeado vía asiento padre)
+  - CuentaBancaria       → Cuentas bancarias por empresa (para conciliación Fase 3)
+  - ExtractoBancario     → Extractos importados
+  - TransaccionBancaria  → Movimientos del extracto
+  - ReglaConciliacion    → Reglas automáticas Banco → Asiento
+"""
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    Date,
+    DateTime,
+    Numeric,
+    Text,
+    Boolean,
+    ForeignKey,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import relationship
+
 from database import Base
+from models_tenant import TenantMixin
 
-class CuentaContable(Base):
+
+# ==========================================================
+# Plan Único de Cuentas
+# ==========================================================
+class CuentaPUC(TenantMixin, Base):
     """
-    Plan Único de Cuentas (PUC) - Colombia.
-    Catálogo central de todas las cuentas.
+    Plan Único de Cuentas Colombiano (Decreto 2649/2650).
+    Cada empresa tiene su propia copia del PUC (clonado al crear la empresa).
     """
-    __tablename__ = "cuentas_contables"
-    
+    __tablename__ = "cuenta_puc"
+
     id = Column(Integer, primary_key=True, index=True)
-    codigo = Column(String(20), unique=True, index=True, nullable=False) # e.g. "111005"
+    codigo = Column(String(20), nullable=False, index=True)
     nombre = Column(String(255), nullable=False)
-    
-    # Clase: 1-Activo, 2-Pasivo, 3-Patrimonio, 4-Ingresos, 5-Gastos, 6-Costos
-    clase = Column(String(50))
-    
-    # DÉBITO o CRÉDITO
-    naturaleza = Column(String(20), nullable=False)
-    
-    # True si es de movimiento (recibe transacciones) o False si es cuenta mayor (solo agrupa)
-    es_movimiento = Column(Boolean, default=True)
-    
-    # Si la legislación colombiana exige asociarle un NIT (Proveedor/Cliente) a la transacción
-    requiere_tercero = Column(Boolean, default=False)
-    
-    # Self-referencing para jerarquías (Cuenta Padre)
-    cuenta_padre_id = Column(Integer, ForeignKey("cuentas_contables.id"), nullable=True)
-    activa = Column(Boolean, default=True)
-    
-    # Relationships
-    subcuentas = relationship("CuentaContable", backref="cuenta_padre", remote_side=[id])
-    movimientos = relationship("MovimientoContable", back_populates="cuenta")
 
+    # DEBITO o CREDITO
+    naturaleza = Column(String(10), nullable=False)
 
-class AsientoContable(Base):
-    """
-    Cabecera del Comprobante (Journal Entry).
-    Representa un evento contable completo (factura, pago, nota de ajuste).
-    """
-    __tablename__ = "asientos_contables"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    numero_comprobante = Column(String(50), unique=True, index=True) # Ej. CE-001, FC-123
-    fecha = Column(Date, nullable=False)
-    descripcion = Column(Text, nullable=False)
-    
-    # BORRADOR, ASENTADO, ANULADO
-    estado = Column(String(50), default="BORRADOR")
-    
-    # Para trazabilidad con los módulos existentes
-    origen_tipo = Column(String(50), nullable=True) # "Factura", "Pago", "Conciliacion", "Manual"
-    origen_id = Column(Integer, nullable=True) # ID de la factura o el pago original
-    
+    # CLASE (1), GRUPO (2), CUENTA (4), SUBCUENTA (6), AUXILIAR (8+)
+    nivel = Column(String(20), nullable=False)
+
+    padre_codigo = Column(String(20), nullable=True, index=True)
+
+    # Solo las cuentas auxiliares permiten movimientos
+    permite_movimiento = Column(Boolean, default=False, nullable=False)
+
+    # True si requiere NIT del tercero (retenciones, CxC, CxP)
+    requiere_tercero = Column(Boolean, default=False, nullable=False)
+
+    activa = Column(Boolean, default=True, nullable=False)
+
     created_at = Column(DateTime, server_default=func.now())
-    updated_at = Column(DateTime, onupdate=func.now())
-    
-    # Relationships
-    movimientos = relationship("MovimientoContable", back_populates="asiento", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        UniqueConstraint("empresa_id", "codigo", name="uq_puc_empresa_codigo"),
+    )
 
 
-class MovimientoContable(Base):
-    """
-    Detalle del Asiento Contable (Journal Entry Lines).
-    Cada línea contabiliza un único Débito o Crédito.
-    """
-    __tablename__ = "movimientos_contables"
-    
+# ==========================================================
+# Periodos contables
+# ==========================================================
+class PeriodoContable(TenantMixin, Base):
+    """Periodo contable mensual (1-12) o cierre anual (13)."""
+    __tablename__ = "periodo_contable"
+
     id = Column(Integer, primary_key=True, index=True)
-    asiento_id = Column(Integer, ForeignKey("asientos_contables.id"), nullable=False)
-    cuenta_id = Column(Integer, ForeignKey("cuentas_contables.id"), nullable=False)
-    
-    # Tercero asociado al movimiento (Opcional, pero requerido en Colombia para cuentas por cobrar/pagar, retenciones)
-    proveedor_id = Column(Integer, ForeignKey("proveedores.id"), nullable=True)
-    
-    debito = Column(Numeric(14, 2), default=0.0)
-    credito = Column(Numeric(14, 2), default=0.0)
-    
-    # La base técnica es usada frecuentemente en Colombia para retenciones (ej. retención sobre X base)
-    base_impuesto = Column(Numeric(14, 2), nullable=True)
-    descripcion_linea = Column(String(255), nullable=True)
-    
-    # Concepto de conciliación: Para cruzar con el banco
-    estado_conciliacion = Column(String(50), default="NO_CONCILIADO") # NO_CONCILIADO, CONCILIADO
-    
-    # Relationships
-    asiento = relationship("AsientoContable", back_populates="movimientos")
-    cuenta = relationship("CuentaContable", back_populates="movimientos")
-    proveedor = relationship("Proveedor") # Si es relacionado a un tercero.
+    anio = Column(Integer, nullable=False)
+    mes = Column(Integer, nullable=False)  # 1-12, 13=cierre anual
+
+    # ABIERTO | CERRADO
+    estado = Column(String(20), default="ABIERTO", nullable=False)
+
+    cerrado_por = Column(Integer, ForeignKey("usuarios.id"), nullable=True)
+    cerrado_en = Column(DateTime, nullable=True)
+
+    created_at = Column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("empresa_id", "anio", "mes", name="uq_periodo_empresa_anio_mes"),
+    )
 
 
-class CuentaBancaria(Base):
+# ==========================================================
+# Asientos contables
+# ==========================================================
+class AsientoContable(TenantMixin, Base):
     """
-    Cuentas físicas en instituciones financieras.
+    Cabecera del comprobante contable (journal entry).
+    La suma de débitos de sus líneas debe igualar la suma de créditos.
     """
-    __tablename__ = "cuentas_bancarias"
-    
+    __tablename__ = "asiento_contable"
+
     id = Column(Integer, primary_key=True, index=True)
-    banco = Column(String(100), nullable=False) # ej. Bancolombia
+    periodo_id = Column(Integer, ForeignKey("periodo_contable.id"), nullable=False, index=True)
+
+    # Número secuencial por empresa + periodo
+    numero = Column(Integer, nullable=False)
+
+    fecha = Column(Date, nullable=False, index=True)
+    descripcion = Column(Text, nullable=True)
+
+    # CAUSACION | PAGO | AJUSTE | APERTURA | CIERRE | MANUAL
+    tipo = Column(String(20), nullable=False)
+
+    # BORRADOR | APROBADO | ANULADO
+    estado = Column(String(20), default="BORRADOR", nullable=False)
+
+    # Trazabilidad con módulos operativos (opcional)
+    factura_id = Column(Integer, ForeignKey("facturas.id", ondelete="SET NULL"), nullable=True, index=True)
+    pago_id = Column(Integer, ForeignKey("pagos.id", ondelete="SET NULL"), nullable=True, index=True)
+
+    created_at = Column(DateTime, server_default=func.now())
+    created_by = Column(Integer, ForeignKey("usuarios.id"), nullable=True)
+
+    # Relationships
+    lineas = relationship(
+        "LineaAsiento",
+        back_populates="asiento",
+        cascade="all, delete-orphan",
+    )
+    periodo = relationship("PeriodoContable")
+
+    __table_args__ = (
+        UniqueConstraint("empresa_id", "periodo_id", "numero", name="uq_asiento_empresa_periodo_numero"),
+    )
+
+
+class LineaAsiento(Base):
+    """
+    Línea individual de débito o crédito.
+    No hereda TenantMixin — su tenancy viene del asiento padre (por cascade).
+    """
+    __tablename__ = "linea_asiento"
+
+    id = Column(Integer, primary_key=True, index=True)
+    asiento_id = Column(
+        Integer,
+        ForeignKey("asiento_contable.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    cuenta_codigo = Column(String(20), nullable=False, index=True)
+
+    # Tercero (NIT) — requerido para ciertas cuentas (retenciones, CxC, CxP)
+    nit_tercero = Column(String(50), nullable=True, index=True)
+
+    centro_costo = Column(String(50), nullable=True)
+
+    debito = Column(Numeric(15, 2), default=0, nullable=False)
+    credito = Column(Numeric(15, 2), default=0, nullable=False)
+
+    # Base técnica (ej: base gravable de la retención)
+    base_impuesto = Column(Numeric(15, 2), nullable=True)
+
+    detalle = Column(Text, nullable=True)
+
+    asiento = relationship("AsientoContable", back_populates="lineas")
+
+
+# ==========================================================
+# Conciliación bancaria (Fase 3 — ya scopeada por empresa)
+# ==========================================================
+class CuentaBancaria(TenantMixin, Base):
+    """Cuenta bancaria física de la empresa."""
+    __tablename__ = "cuenta_bancaria"
+
+    id = Column(Integer, primary_key=True, index=True)
+    banco = Column(String(100), nullable=False)
     numero_cuenta = Column(String(100), nullable=False)
-    tipo_cuenta = Column(String(50)) # Ahorros, Corriente
-    
-    # Cuenta PUC a la que está atada (e.g. 11100501)
-    cuenta_contable_id = Column(Integer, ForeignKey("cuentas_contables.id"), nullable=False)
-    
-    activa = Column(Boolean, default=True)
+    tipo_cuenta = Column(String(50), nullable=True)  # Ahorros | Corriente
+
+    # Cuenta PUC asociada (por código, scopeado por empresa)
+    cuenta_puc_codigo = Column(String(20), nullable=False)
+
+    activa = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("empresa_id", "banco", "numero_cuenta", name="uq_cuenta_bancaria_empresa"),
+    )
 
 
-class ExtractoBancario(Base):
-    """
-    Representa un documento/periodo importado del banco.
-    """
-    __tablename__ = "extractos_bancarios"
-    
+class ExtractoBancario(TenantMixin, Base):
+    """Extracto bancario importado."""
+    __tablename__ = "extracto_bancario"
+
     id = Column(Integer, primary_key=True, index=True)
-    cuenta_bancaria_id = Column(Integer, ForeignKey("cuentas_bancarias.id"), nullable=False)
-    
+    cuenta_bancaria_id = Column(Integer, ForeignKey("cuenta_bancaria.id"), nullable=False, index=True)
+
     fecha_inicio = Column(Date, nullable=False)
     fecha_fin = Column(Date, nullable=False)
-    saldo_inicial = Column(Numeric(14, 2), default=0.0)
-    saldo_final = Column(Numeric(14, 2), default=0.0)
-    
+    saldo_inicial = Column(Numeric(15, 2), default=0, nullable=False)
+    saldo_final = Column(Numeric(15, 2), default=0, nullable=False)
+
     archivo_origen = Column(String(255), nullable=True)
-    estado = Column(String(50), default="IMPORTADO") # IMPORTADO, PROCESANDO, CONCILIADO
-    
-    # Relationships
-    transacciones = relationship("TransaccionBancaria", back_populates="extracto", cascade="all, delete-orphan")
+    estado = Column(String(50), default="IMPORTADO", nullable=False)  # IMPORTADO | PROCESANDO | CONCILIADO
+
+    created_at = Column(DateTime, server_default=func.now())
+
+    transacciones = relationship(
+        "TransaccionBancaria",
+        back_populates="extracto",
+        cascade="all, delete-orphan",
+    )
 
 
 class TransaccionBancaria(Base):
-    """
-    Líneas / Transacciones físicas leídas del extracto.
-    """
-    __tablename__ = "transacciones_bancarias"
-    
+    """Transacción leída del extracto. Tenancy vía extracto padre."""
+    __tablename__ = "transaccion_bancaria"
+
     id = Column(Integer, primary_key=True, index=True)
-    extracto_id = Column(Integer, ForeignKey("extractos_bancarios.id"), nullable=False)
-    
+    extracto_id = Column(
+        Integer,
+        ForeignKey("extracto_bancario.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
     fecha = Column(Date, nullable=False)
     descripcion = Column(String(500), nullable=False)
-    referencia = Column(String(100), nullable=True) # Usualmente numérico
-    
-    monto = Column(Numeric(14, 2), nullable=False)
-    naturaleza = Column(String(20), nullable=False) # DEBITO (Salida de dinero), CREDITO (Entrada de dinero)
-    
-    estado_conciliacion = Column(String(50), default="NO_CONCILIADO") # NO_CONCILIADO, SUGERIDO, CONCILIADO
-    
-    # Si ya se concilió, se ata a un movimiento contable o pago
-    movimiento_contable_id = Column(Integer, ForeignKey("movimientos_contables.id"), nullable=True)
-    
-    # Relationships
+    referencia = Column(String(100), nullable=True)
+
+    monto = Column(Numeric(15, 2), nullable=False)
+    # DEBITO (salida) | CREDITO (entrada)
+    naturaleza = Column(String(20), nullable=False)
+
+    # NO_CONCILIADO | SUGERIDO | CONCILIADO
+    estado_conciliacion = Column(String(50), default="NO_CONCILIADO", nullable=False)
+
+    # Si se concilió, referencia a la línea contable
+    linea_asiento_id = Column(Integer, ForeignKey("linea_asiento.id"), nullable=True)
+
     extracto = relationship("ExtractoBancario", back_populates="transacciones")
-    movimiento_conciliado = relationship("MovimientoContable")
+    linea_conciliada = relationship("LineaAsiento")
 
 
-class ReglaConciliacion(Base):
-    """
-    Reglas personalizadas del sistema para automatizar la asociación Banco -> Asiento.
-    """
-    __tablename__ = "reglas_conciliacion"
-    
+class ReglaConciliacion(TenantMixin, Base):
+    """Regla automática para conciliación bancaria."""
+    __tablename__ = "regla_conciliacion"
+
     id = Column(Integer, primary_key=True, index=True)
     nombre = Column(String(100), nullable=False)
-    
-    # Condiciones (Guardadas en JSON u texto plano)
-    condicion_descripcion = Column(String(255), nullable=True) # Ej: CONTAINS "NOMINA"
-    condicion_monto_minimo = Column(Numeric(14, 2), nullable=True)
-    condicion_monto_maximo = Column(Numeric(14, 2), nullable=True)
-    
-    # Acción si cumple la regla
-    cuenta_contable_destino_id = Column(Integer, ForeignKey("cuentas_contables.id"), nullable=True)
-    crear_asiento_automatico = Column(Boolean, default=False)
-    prioridad = Column(Integer, default=10)
-    
-    activa = Column(Boolean, default=True)
+
+    condicion_descripcion = Column(String(255), nullable=True)
+    condicion_monto_minimo = Column(Numeric(15, 2), nullable=True)
+    condicion_monto_maximo = Column(Numeric(15, 2), nullable=True)
+
+    cuenta_puc_destino = Column(String(20), nullable=True)
+    crear_asiento_automatico = Column(Boolean, default=False, nullable=False)
+    prioridad = Column(Integer, default=10, nullable=False)
+
+    activa = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
