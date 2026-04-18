@@ -14,6 +14,7 @@ from core.security import (
 )
 from core.dependencies import get_current_user
 from models_tenant import Firma, Empresa, Usuario, UsuarioEmpresa
+from services.empresa_seed import seed_empresa_default
 from schemas_auth import (
     LoginRequest, RegisterRequest, TokenResponse, RefreshRequest,
     UserInfo, EmpresaInfo,
@@ -88,6 +89,16 @@ async def register(data: RegisterRequest, request: Request, db: AsyncSession = D
 
         db.add(UsuarioEmpresa(usuario_id=user.id, empresa_id=empresa.id, rol="ADMIN"))
         await db.flush()
+
+        # Seed inicial de contabilidad (PUC + configuraciones de impuesto).
+        # No falla el registro si el seed tiene un problema; se loguea y sigue.
+        try:
+            await seed_empresa_default(empresa.id, db)
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception(
+                "seed_empresa_default fallo para empresa_id=%s", empresa.id
+            )
 
         empresas_info.append(EmpresaInfo(
             id=empresa.id, nombre=empresa.nombre, nombre_comercial=empresa.nombre_comercial,

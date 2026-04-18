@@ -10,6 +10,7 @@ from database import get_db
 from core.dependencies import get_current_user, require_role
 from models_tenant import Empresa, UsuarioEmpresa
 from schemas_empresa import EmpresaCreate, EmpresaUpdate, EmpresaResponse
+from services.empresa_seed import seed_empresa_default
 
 
 router = APIRouter(prefix="/empresas", tags=["empresas"])
@@ -47,6 +48,17 @@ async def create_empresa(
         empresa_id=empresa.id,
         rol="ADMIN",
     ))
+
+    # Seed inicial de contabilidad (PUC + configuraciones de impuesto).
+    # No falla la creación de empresa si el seed tiene un problema; se loguea.
+    try:
+        await seed_empresa_default(empresa.id, db)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception(
+            "seed_empresa_default fallo para empresa_id=%s", empresa.id
+        )
+
     await db.commit()
     await db.refresh(empresa)
     return EmpresaResponse.model_validate(empresa)
@@ -99,6 +111,35 @@ async def update_empresa(
     await db.commit()
     await db.refresh(empresa)
     return EmpresaResponse.model_validate(empresa)
+
+
+@router.post("/{empresa_id}/seed-contabilidad")
+async def seed_contabilidad(
+    empresa_id: int,
+    current_user=Depends(require_role("ADMIN")),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Siembra (o completa) el PUC y las configuraciones de impuesto default
+    para una empresa existente. Idempotente: omite lo que ya existe.
+
+    Útil para empresas creadas antes de que el seed automático estuviera activo.
+    """
+    empresa = (await db.execute(select(Empresa).where(Empresa.id == empresa_id))).scalar_one_or_none()
+    if not empresa:
+        raise HTTPException(status_code=404, detail="Empresa no encontrada")
+
+    try:
+        resumen = await seed_empresa_default(empresa_id, db)
+        await db.commit()
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al sembrar contabilidad: {e}")
+
+    return {
+        "empresa_id": empresa_id,
+        "resumen": resumen,
+    }
 
 
 @router.post("/{empresa_id}/rotate-api-key", response_model=EmpresaResponse)
