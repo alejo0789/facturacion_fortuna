@@ -22,7 +22,14 @@ import re
 from urllib.parse import quote
 
 from database import get_db
+from core.dependencies import get_current_empresa, get_current_user
+from services.pago import crear_asiento_pago_factura, resolver_cuenta_banco_default
+from models_contabilidad import CuentaPUC
+from decimal import Decimal
+import logging
 import models
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -737,7 +744,12 @@ def get_parametros_nota_bancaria():
 
 
 @router.post("/pagos/crear-nota-bancaria")
-async def crear_nota_bancaria(req: NotaBancariaRequest, db: AsyncSession = Depends(get_db)):
+async def crear_nota_bancaria(
+    req: NotaBancariaRequest,
+    db: AsyncSession = Depends(get_db),
+    empresa=Depends(get_current_empresa),
+    current_user=Depends(get_current_user),
+):
     import sys
     sys.path.append('..')
     from oracle_database import get_oracle_connection
@@ -926,6 +938,7 @@ async def crear_nota_bancaria(req: NotaBancariaRequest, db: AsyncSession = Depen
         conn.commit()
         
         # 6. Actualizar estados en DB local
+        asientos_pago = []
         if facturas_ids_procesados:
             from sqlalchemy import update
             import models
@@ -935,12 +948,71 @@ async def crear_nota_bancaria(req: NotaBancariaRequest, db: AsyncSession = Depen
                 .values(estado='PAGADA', status_updated_at=datetime.datetime.utcnow())
             )
             await db.commit()
-            
+
+            # 7. Generar asientos contables PAGO (uno por factura)
+            # Resolver cuenta PUC: si la cuenta_banco de la NB coincide con una
+            # cuenta del PUC de la empresa, usarla; si no, caer al default.
+            cuenta_pago_codigo = (req.cuenta_banco or "").strip()
+            if cuenta_pago_codigo:
+                res = await db.execute(
+                    select(CuentaPUC.codigo).where(
+                        CuentaPUC.empresa_id == empresa.id,
+                        CuentaPUC.codigo == cuenta_pago_codigo,
+                    )
+                )
+                if not res.scalar_one_or_none():
+                    cuenta_pago_codigo = await resolver_cuenta_banco_default(empresa.id, db)
+            else:
+                cuenta_pago_codigo = await resolver_cuenta_banco_default(empresa.id, db)
+
+            # Traer las facturas recién pagadas con su proveedor
+            facturas_rs = await db.execute(
+                select(models.Factura)
+                .options(selectinload(models.Factura.proveedor))
+                .where(models.Factura.id.in_(facturas_ids_procesados))
+            )
+            for factura in facturas_rs.scalars().all():
+                proveedor_nit = factura.proveedor.nit if factura.proveedor else None
+                valor_en_nb = next(
+                    (i.valor_pagar for i in items_pago if i.factura_id == factura.id),
+                    None,
+                )
+                if not proveedor_nit or not valor_en_nb or valor_en_nb <= 0:
+                    continue
+                try:
+                    asiento = await crear_asiento_pago_factura(
+                        empresa_id=empresa.id,
+                        factura_id=factura.id,
+                        fecha_pago=datetime.now().date(),
+                        valor_pagado=Decimal(str(valor_en_nb)),
+                        proveedor_nit=proveedor_nit,
+                        descripcion=(
+                            f"Pago NB01-{nb_num} factura "
+                            f"{factura.numero_factura or factura.id} - NIT {proveedor_nit}"
+                        ),
+                        user_id=getattr(current_user, "id", None),
+                        db=db,
+                        cuenta_banco_codigo=cuenta_pago_codigo,
+                    )
+                    await db.commit()
+                    asientos_pago.append({
+                        "factura_id": factura.id,
+                        "asiento_id": asiento.id,
+                        "numero": asiento.numero,
+                    })
+                except Exception as e:
+                    await db.rollback()
+                    logger.warning(
+                        "Asiento PAGO fallo para factura_id=%s (NB01-%s): %s",
+                        factura.id, nb_num, e,
+                    )
+
         return {
-            "success": True, 
+            "success": True,
             "message": f"Nota Bancaria NB01-{nb_num} creada exitosamente con {len(items_pago)} facturas y sus respectivas salidas de banco.",
             "nb_numero": f"NB01-{nb_num}",
-            "valor_total": total_pagar
+            "valor_total": total_pagar,
+            "asientos_pago": asientos_pago,
         }
     except Exception as e:
         if conn: conn.rollback()

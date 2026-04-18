@@ -29,6 +29,7 @@ import models, schemas, crud
 from database import get_db
 from core.dependencies import get_current_empresa, get_current_user
 from services.causacion import crear_asiento_causacion_factura
+from services.pago import crear_asiento_pago_factura
 
 logger = logging.getLogger(__name__)
 
@@ -837,23 +838,120 @@ async def ver_factura(factura_id: int, db: AsyncSession = Depends(get_db)):
 async def cambiar_estado(
     factura_id: int,
     nuevo_estado: str = Query(..., description="Nuevo estado: PENDIENTE, ASIGNADA, EN_TRAMITE, PAGADA"),
-    db: AsyncSession = Depends(get_db)
+    cuenta_banco_codigo: Optional[str] = Query(
+        None,
+        description="Código PUC del banco/caja a acreditar (solo al pasar a PAGADA). "
+                    "Si se omite, se usa la primera CuentaBancaria activa o 111005 por default.",
+    ),
+    generar_asiento: bool = Query(
+        True,
+        description="Si True y el nuevo estado es PAGADA, genera el asiento contable de PAGO.",
+    ),
+    db: AsyncSession = Depends(get_db),
+    empresa=Depends(get_current_empresa),
+    current_user=Depends(get_current_user),
 ):
-    """Change the estado of a factura"""
+    """Change the estado of a factura. When transitioning to PAGADA, generates
+    the corresponding PAGO journal entry (DB Proveedores / CR Banco)."""
     factura = await crud.get_factura(db, factura_id)
     if not factura:
         raise HTTPException(status_code=404, detail="Factura no encontrada")
-    
+
     if nuevo_estado not in ['PENDIENTE', 'ASIGNADA', 'EN_TRAMITE', 'PAGADA']:
         raise HTTPException(status_code=400, detail="Estado inválido")
-    
-    # Use raw update to change estado
+
+    estado_anterior = factura.estado
     if factura.estado != nuevo_estado:
         factura.estado = nuevo_estado
         factura.status_updated_at = datetime.now()
     await db.commit()
-    
-    return await crud.get_factura(db, factura_id)
+
+    asiento_info: dict = {"creado": False}
+
+    # Solo generamos asiento si es transición real a PAGADA y el caller lo pidió
+    if (
+        generar_asiento
+        and nuevo_estado == "PAGADA"
+        and estado_anterior != "PAGADA"
+    ):
+        asiento_info = await _generar_asiento_pago_safe(
+            empresa_id=empresa.id,
+            factura=factura,
+            cuenta_banco_codigo=cuenta_banco_codigo,
+            user_id=getattr(current_user, "id", None),
+            db=db,
+        )
+
+    factura_actualizada = await crud.get_factura(db, factura_id)
+    # `get_factura` retorna el ORM; lo devolvemos tal cual y adjuntamos info del asiento
+    # en el header de respuesta por medio de un dict wrapper no sería compatible con el
+    # tipo de retorno anterior, así que se retorna solo el log en el response body
+    # cuando se genera asiento.
+    if asiento_info.get("creado"):
+        logger.info(
+            "Asiento PAGO creado id=%s para factura_id=%s",
+            asiento_info.get("asiento_id"),
+            factura_id,
+        )
+    elif asiento_info.get("razon"):
+        logger.info(
+            "No se generó asiento de pago para factura_id=%s: %s",
+            factura_id,
+            asiento_info["razon"],
+        )
+
+    return factura_actualizada
+
+
+async def _generar_asiento_pago_safe(
+    *,
+    empresa_id: int,
+    factura,
+    cuenta_banco_codigo: Optional[str],
+    user_id: Optional[int],
+    db: AsyncSession,
+) -> dict:
+    """Envuelve la creación del asiento de pago con manejo de errores.
+
+    Nunca lanza: devuelve {creado: bool, razon?: str, asiento_id?: int}.
+    """
+    proveedor_nit = None
+    if factura.proveedor_id:
+        # factura.proveedor puede no estar cargado; refrescamos mínimo lo necesario
+        proveedor = await crud.get_proveedor(db, factura.proveedor_id) if hasattr(crud, "get_proveedor") else None
+        if proveedor and getattr(proveedor, "nit", None):
+            proveedor_nit = proveedor.nit
+        elif getattr(factura, "proveedor", None) and getattr(factura.proveedor, "nit", None):
+            proveedor_nit = factura.proveedor.nit
+
+    if not proveedor_nit:
+        return {"creado": False, "razon": "Sin NIT de proveedor"}
+    if not factura.valor or Decimal(factura.valor) <= 0:
+        return {"creado": False, "razon": "Factura sin valor positivo"}
+
+    fecha = date.today()
+    descripcion = (
+        f"Pago factura {factura.numero_factura or factura.id} - NIT {proveedor_nit}"
+    )
+
+    try:
+        asiento = await crear_asiento_pago_factura(
+            empresa_id=empresa_id,
+            factura_id=factura.id,
+            fecha_pago=fecha,
+            valor_pagado=Decimal(factura.valor),
+            proveedor_nit=proveedor_nit,
+            descripcion=descripcion,
+            user_id=user_id,
+            db=db,
+            cuenta_banco_codigo=cuenta_banco_codigo,
+        )
+        await db.commit()
+        return {"creado": True, "asiento_id": asiento.id, "numero": asiento.numero}
+    except Exception as e:
+        await db.rollback()
+        logger.warning("Error generando asiento de pago factura_id=%s: %s", factura.id, e)
+        return {"creado": False, "razon": f"Error generando asiento: {e}"}
 
 
 # --- Statistics ---

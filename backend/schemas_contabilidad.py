@@ -244,3 +244,32 @@ class CalcularImpuestosResponse(BaseModel):
     retefuente_pct: Decimal
     valor_retefuente: Decimal
     valor_neto: Decimal   # lo que efectivamente se paga al proveedor
+
+
+# ----------------- Cuentas Bancarias -----------------
+class CuentaBancariaCreate(BaseModel):
+    banco: str
+    numero_cuenta: str
+    tipo_cuenta: Optional[str] = None   # Ahorros | Corriente
+    cuenta_puc_codigo: str              # Código PUC (e.g. 111005)
+    activa: bool = True
+
+
+class CuentaBancariaUpdate(BaseModel):
+    banco: Optional[str] = None
+    numero_cuenta: Optional[str] = None
+    tipo_cuenta: Optional[str] = None
+    cuenta_puc_codigo: Optional[str] = None
+    activa: Optional[bool] = None
+
+
+class CuentaBancariaResponse(BaseModel):
+    id: int
+    empresa_id: Optional[int] = None
+    banco: str
+    numero_cuenta: str
+    tipo_cuenta: Optional[str] = None
+    cuenta_puc_codigo: str
+    activa: bool
+
+    model_config = {"from_attributes": True}

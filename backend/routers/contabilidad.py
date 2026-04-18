@@ -17,6 +17,7 @@ from core.dependencies import get_current_empresa, get_current_user, require_rol
 from database import get_db
 from models_contabilidad import (
     AsientoContable,
+    CuentaBancaria,
     CuentaPUC,
     LineaAsiento,
     PeriodoContable,
@@ -26,6 +27,9 @@ from schemas_contabilidad import (
     AsientoContableResponse,
     BalanceClase,
     BalanceResponse,
+    CuentaBancariaCreate,
+    CuentaBancariaResponse,
+    CuentaBancariaUpdate,
     CuentaPUCCreate,
     CuentaPUCResponse,
     LibroMayorLinea,
@@ -615,3 +619,109 @@ async def balance_comprobacion(
         total_costos=totales["6"],
         utilidad_neta=utilidad,
     )
+
+
+# ==========================================================
+# Cuentas bancarias de la empresa
+# ==========================================================
+@router.get("/cuentas-bancarias", response_model=List[CuentaBancariaResponse])
+async def listar_cuentas_bancarias(
+    solo_activas: bool = True,
+    empresa=Depends(get_current_empresa),
+    db: AsyncSession = Depends(get_db),
+):
+    stmt = select(CuentaBancaria).where(CuentaBancaria.empresa_id == empresa.id)
+    if solo_activas:
+        stmt = stmt.where(CuentaBancaria.activa == True)  # noqa: E712
+    stmt = stmt.order_by(CuentaBancaria.id.asc())
+    rows = (await db.execute(stmt)).scalars().all()
+    return rows
+
+
+@router.post("/cuentas-bancarias", response_model=CuentaBancariaResponse)
+async def crear_cuenta_bancaria(
+    data: CuentaBancariaCreate,
+    empresa=Depends(get_current_empresa),
+    _=Depends(require_role("ADMIN", "CONTADOR", "CONTABILIDAD")),
+    db: AsyncSession = Depends(get_db),
+):
+    # Validar que la cuenta PUC exista y permita movimiento
+    result = await db.execute(
+        select(CuentaPUC).where(
+            CuentaPUC.empresa_id == empresa.id,
+            CuentaPUC.codigo == data.cuenta_puc_codigo,
+        )
+    )
+    cuenta_puc = result.scalar_one_or_none()
+    if not cuenta_puc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"La cuenta PUC {data.cuenta_puc_codigo} no existe para esta empresa",
+        )
+    if not cuenta_puc.permite_movimiento:
+        raise HTTPException(
+            status_code=400,
+            detail=f"La cuenta PUC {data.cuenta_puc_codigo} no permite movimientos",
+        )
+
+    cta = CuentaBancaria(
+        empresa_id=empresa.id,
+        banco=data.banco,
+        numero_cuenta=data.numero_cuenta,
+        tipo_cuenta=data.tipo_cuenta,
+        cuenta_puc_codigo=data.cuenta_puc_codigo,
+        activa=data.activa,
+    )
+    db.add(cta)
+    await db.commit()
+    await db.refresh(cta)
+    return cta
+
+
+@router.put("/cuentas-bancarias/{cuenta_id}", response_model=CuentaBancariaResponse)
+async def actualizar_cuenta_bancaria(
+    cuenta_id: int,
+    data: CuentaBancariaUpdate,
+    empresa=Depends(get_current_empresa),
+    _=Depends(require_role("ADMIN", "CONTADOR", "CONTABILIDAD")),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(CuentaBancaria).where(
+            CuentaBancaria.id == cuenta_id,
+            CuentaBancaria.empresa_id == empresa.id,
+        )
+    )
+    cta = result.scalar_one_or_none()
+    if not cta:
+        raise HTTPException(status_code=404, detail="Cuenta bancaria no encontrada")
+
+    for k, v in data.model_dump(exclude_unset=True).items():
+        setattr(cta, k, v)
+
+    await db.commit()
+    await db.refresh(cta)
+    return cta
+
+
+@router.delete("/cuentas-bancarias/{cuenta_id}")
+async def eliminar_cuenta_bancaria(
+    cuenta_id: int,
+    empresa=Depends(get_current_empresa),
+    _=Depends(require_role("ADMIN", "CONTADOR", "CONTABILIDAD")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Soft delete — marca la cuenta como inactiva."""
+    result = await db.execute(
+        select(CuentaBancaria).where(
+            CuentaBancaria.id == cuenta_id,
+            CuentaBancaria.empresa_id == empresa.id,
+        )
+    )
+    cta = result.scalar_one_or_none()
+    if not cta:
+        raise HTTPException(status_code=404, detail="Cuenta bancaria no encontrada")
+
+    cta.activa = False
+    await db.commit()
+    return {"ok": True, "cuenta_id": cuenta_id}
