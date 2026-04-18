@@ -1,5 +1,7 @@
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useState } from 'react';
+import { useAuth } from '../auth/AuthContext';
+import EmpresaSelector from './EmpresaSelector';
 
 interface SidebarProps {
     collapsed: boolean;
@@ -8,102 +10,75 @@ interface SidebarProps {
 
 const navItems = [
     {
-        to: '/',
+        to: '/app',
+        end: true,
         label: 'Dashboard',
-        description: 'Resumen y estadísticas',
-        icon: (
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-            </svg>
-        ),
-        color: 'from-indigo-500 to-purple-600'
+        icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6',
+        color: 'from-indigo-500 to-purple-600',
     },
     {
-        to: '/contratos',
+        to: '/app/contratos',
         label: 'Contratos',
-        description: 'Gestión de contratos',
-        icon: (
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-        ),
-        color: 'from-blue-500 to-blue-600'
+        icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z',
+        color: 'from-blue-500 to-blue-600',
     },
     {
-        to: '/facturas',
+        to: '/app/facturas',
         label: 'Facturas',
-        description: 'Control de facturas',
-        icon: (
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
-            </svg>
-        ),
-        color: 'from-emerald-500 to-emerald-600'
+        icon: 'M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z',
+        color: 'from-emerald-500 to-emerald-600',
     },
     {
-        to: '/pagos',
+        to: '/app/pagos',
         label: 'Pagos',
-        description: 'Programación de pagos',
-        icon: (
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
-            </svg>
-        ),
-        color: 'from-teal-500 to-teal-600'
+        icon: 'M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z',
+        color: 'from-teal-500 to-teal-600',
     },
     {
-        to: '/asistente-buscador',
+        to: '/app/asistente-buscador',
         label: 'Buscador',
-        description: 'Buscador inteligente',
-        icon: (
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-        ),
-        color: 'from-cyan-500 to-cyan-600'
+        icon: 'M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z',
+        color: 'from-cyan-500 to-cyan-600',
     },
     {
-        to: '/oficinas',
+        to: '/app/oficinas',
         label: 'Oficinas',
-        description: 'Puntos de servicio',
-        icon: (
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-            </svg>
-        ),
-        color: 'from-violet-500 to-violet-600'
+        icon: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4',
+        color: 'from-violet-500 to-violet-600',
     },
     {
-        to: '/proveedores',
+        to: '/app/proveedores',
         label: 'Proveedores',
-        description: 'Empresas aliadas',
-        icon: (
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-            </svg>
-        ),
-        color: 'from-amber-500 to-amber-600'
+        icon: 'M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z',
+        color: 'from-amber-500 to-amber-600',
     },
     {
-        to: '/reportes',
+        to: '/app/reportes',
         label: 'Reportes',
-        description: 'Análisis y exports',
-        icon: (
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-            </svg>
-        ),
-        color: 'from-rose-500 to-rose-600'
+        icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z',
+        color: 'from-rose-500 to-rose-600',
     },
-
+    {
+        to: '/app/mi-equipo',
+        label: 'Mi equipo',
+        icon: 'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z',
+        color: 'from-fuchsia-500 to-pink-600',
+    },
 ];
 
 export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
     const location = useLocation();
+    const navigate = useNavigate();
+    const { user, logout } = useAuth();
     const [hoveredItem, setHoveredItem] = useState<string | null>(null);
 
+    const handleLogout = () => {
+        logout();
+        navigate('/login', { replace: true });
+    };
+
     return (
-        <aside className={`min-h-screen fixed left-0 top-0 bg-gradient-to-b from-slate-900 via-slate-900 to-slate-800 border-r border-slate-700/50 shadow-2xl transition-all duration-300 z-50 ${collapsed ? 'w-16' : 'w-64'}`}>
+        <aside className={`min-h-screen fixed left-0 top-0 bg-gradient-to-b from-slate-900 via-slate-900 to-slate-800 border-r border-slate-700/50 shadow-2xl transition-all duration-300 z-50 flex flex-col ${collapsed ? 'w-16' : 'w-64'}`}>
             {/* Logo Section */}
             <div className="p-3 border-b border-slate-700/50 flex items-center justify-between">
                 <div className={`flex items-center gap-2 ${collapsed ? 'hidden' : ''}`}>
@@ -113,14 +88,14 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                         </svg>
                     </div>
                     <div>
-                        <h1 className="text-sm font-bold text-white leading-tight">Facturación Céntrica</h1>
-                        <p className="text-[10px] text-slate-400">Control de Proveedores</p>
+                        <h1 className="text-sm font-bold text-white leading-tight">Fortuna SaaS</h1>
+                        <p className="text-[10px] text-slate-400">Facturación + Contabilidad</p>
                     </div>
                 </div>
                 <button
                     onClick={onToggle}
                     className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
-                    title={collapsed ? 'Expandir menú' : 'Colapsar menú'}
+                    title={collapsed ? 'Expandir' : 'Colapsar'}
                 >
                     <svg className={`w-4 h-4 transition-transform ${collapsed ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
@@ -129,72 +104,43 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
             </div>
 
             {/* Navigation */}
-            <nav className="p-2">
-                <ul className="space-y-1 mb-4">
-                    <li>
-                        <a
-                            href="https://saman.lafortuna.com.co/#/home"
-                            className={`group relative flex items-center gap-2 px-2 py-2 rounded-lg transition-all duration-200 overflow-hidden text-slate-300 hover:text-white hover:bg-slate-800/80`}
-                            title={collapsed ? 'Volver a Céntrica' : undefined}
-                        >
-                            <div className="relative z-10 w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 bg-slate-800 group-hover:bg-slate-700 border border-slate-700 group-hover:border-slate-600">
-                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11 15l-3-3m0 0l3-3m-3 3h8M3 12a9 9 0 1118 0 9 9 0 01-18 0z" />
-                                </svg>
-                            </div>
-                            {!collapsed && (
-                                <div className="relative z-10 flex-1 min-w-0">
-                                    <div className="font-bold text-sm tracking-wide">CÉNTRICA</div>
-                                </div>
-                            )}
-                        </a>
-                    </li>
-                </ul>
-
+            <nav className="p-2 flex-1 overflow-y-auto">
                 {!collapsed && (
-                    <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2 px-2">
-                        Menú
-                    </div>
+                    <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2 px-2">Menú</div>
                 )}
                 <ul className="space-y-1">
                     {navItems.map(item => {
-                        const isActive = location.pathname === item.to;
+                        const isActive = item.end
+                            ? location.pathname === item.to
+                            : location.pathname.startsWith(item.to);
                         const isHovered = hoveredItem === item.to;
-
                         return (
                             <li key={item.to}>
                                 <NavLink
                                     to={item.to}
+                                    end={item.end}
                                     onMouseEnter={() => setHoveredItem(item.to)}
                                     onMouseLeave={() => setHoveredItem(null)}
-                                    className={`group relative flex items-center gap-2 px-2 py-2 rounded-lg transition-all duration-200 overflow-hidden
-                                        ${isActive
+                                    className={`group relative flex items-center gap-2 px-2 py-2 rounded-lg transition-all duration-200 overflow-hidden ${isActive
                                             ? `bg-gradient-to-r ${item.color} text-white shadow-lg`
                                             : 'text-slate-300 hover:text-white hover:bg-slate-800/80'
-                                        }`
-                                    }
+                                        }`}
                                     title={collapsed ? item.label : undefined}
                                 >
-                                    {/* Icon container */}
-                                    <div className={`relative z-10 w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 transition-all
-                                        ${isActive
+                                    <div className={`relative z-10 w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 transition-all ${isActive
                                             ? 'bg-white/20'
                                             : 'bg-slate-800 group-hover:bg-slate-700 border border-slate-700 group-hover:border-slate-600'
                                         }`}
                                     >
-                                        {item.icon}
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={item.icon} />
+                                        </svg>
                                     </div>
-
-                                    {/* Text content - hidden when collapsed */}
                                     {!collapsed && (
                                         <div className="relative z-10 flex-1 min-w-0">
-                                            <div className={`font-medium text-sm truncate ${isActive ? 'text-white' : ''}`}>
-                                                {item.label}
-                                            </div>
+                                            <div className={`font-medium text-sm truncate ${isActive ? 'text-white' : ''}`}>{item.label}</div>
                                         </div>
                                     )}
-
-                                    {/* Hover glow effect */}
                                     {!isActive && isHovered && (
                                         <div className={`absolute inset-0 bg-gradient-to-r ${item.color} opacity-10 rounded-lg`} />
                                     )}
@@ -205,23 +151,47 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                 </ul>
             </nav>
 
-            {/* Bottom Section */}
-            {!collapsed && (
-                <div className="absolute bottom-0 left-0 right-0 p-2 border-t border-slate-700/50 bg-slate-900/50">
-                    <div className="flex items-center gap-2 px-2 py-1">
-                        <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center">
-                            <svg className="w-4 h-4 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                            </svg>
-                        </div>
-                        <div className="flex-1">
-                            <div className="text-xs font-medium text-white">Admin</div>
-                            <div className="text-[10px] text-slate-500">Activo</div>
-                        </div>
-                        <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+            {/* Bottom: Empresa selector + user */}
+            <div className="p-2 border-t border-slate-700/50 bg-slate-900/50 space-y-2">
+                {!collapsed && (
+                    <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider px-1">
+                        Empresa activa
                     </div>
-                </div>
-            )}
+                )}
+                <EmpresaSelector collapsed={collapsed} />
+
+                {!collapsed && user && (
+                    <div className="flex items-center gap-2 px-2 py-2 bg-slate-800/40 rounded-lg">
+                        <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-xs font-bold text-white">
+                            {user.nombre.slice(0, 1).toUpperCase()}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                            <div className="text-xs font-medium text-white truncate">{user.nombre}</div>
+                            <div className="text-[10px] text-slate-400 truncate">{user.email}</div>
+                        </div>
+                        <button
+                            onClick={handleLogout}
+                            title="Cerrar sesión"
+                            className="p-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition"
+                        >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                            </svg>
+                        </button>
+                    </div>
+                )}
+                {collapsed && user && (
+                    <button
+                        onClick={handleLogout}
+                        title="Cerrar sesión"
+                        className="w-full p-2 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition flex items-center justify-center"
+                    >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                        </svg>
+                    </button>
+                )}
+            </div>
         </aside>
     );
 }

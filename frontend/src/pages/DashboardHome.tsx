@@ -61,7 +61,8 @@ const formatCurrency = (value: number) => {
     }).format(value);
 };
 
-// Formato compacto para cards (ej: $412M)
+// Formato compacto para cards (ej: $412M) — disponible si se requiere en otro lado
+// @ts-expect-error: reservado para uso futuro
 const formatCompact = (value: number) => {
     if (value >= 1000000000) {
         return `$${(value / 1000000000).toFixed(1)}B`;
@@ -383,7 +384,7 @@ export default function DashboardHome() {
                                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
                                 <XAxis dataKey="mes" tick={{ fontSize: 12, fill: '#64748b' }} tickLine={false} />
                                 <YAxis tick={{ fontSize: 12, fill: '#64748b' }} tickFormatter={(v) => `${(v / 1000000).toFixed(0)}M`} tickLine={false} axisLine={false} />
-                                <Tooltip formatter={(value: number) => formatCurrency(value)} contentStyle={{ backgroundColor: '#0f172a', border: 'none', borderRadius: '12px', color: '#fff' }} />
+                                <Tooltip formatter={(value) => formatCurrency(Number(value ?? 0))} contentStyle={{ backgroundColor: '#0f172a', border: 'none', borderRadius: '12px', color: '#fff' }} />
                                 <Legend />
                                 <Bar dataKey="valor" name="Facturado" fill={COLORS.primary} radius={[8, 8, 0, 0]} />
                             </BarChart>
@@ -403,7 +404,7 @@ export default function DashboardHome() {
                                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={true} vertical={false} />
                                 <XAxis type="number" tick={{ fontSize: 11, fill: '#64748b' }} tickFormatter={(v) => `${(v / 1000000).toFixed(0)}M`} axisLine={false} tickLine={false} />
                                 <YAxis type="category" dataKey="nombre" tick={{ fontSize: 11, fill: '#64748b' }} width={120} axisLine={false} tickLine={false} />
-                                <Tooltip formatter={(value: number) => formatCurrency(value)} contentStyle={{ backgroundColor: '#0f172a', border: 'none', borderRadius: '12px', color: '#fff' }} />
+                                <Tooltip formatter={(value) => formatCurrency(Number(value ?? 0))} contentStyle={{ backgroundColor: '#0f172a', border: 'none', borderRadius: '12px', color: '#fff' }} />
                                 <Bar dataKey="total" fill={COLORS.primary} radius={[0, 8, 8, 0]} />
                             </BarChart>
                         </ResponsiveContainer>
@@ -414,7 +415,7 @@ export default function DashboardHome() {
                 <div className="rounded-xl lg:rounded-2xl bg-white p-4 lg:p-5 xl:p-6 shadow-lg lg:shadow-xl ring-1 ring-slate-100">
                     <div className="mb-3 lg:mb-4 xl:mb-6 flex items-center justify-between">
                         <h2 className="text-base lg:text-lg xl:text-xl font-bold text-slate-800">Facturas Recientes</h2>
-                        <a href="/facturas" className="text-xs lg:text-sm font-medium text-indigo-600 hover:text-indigo-700">Ver todas →</a>
+                        <a href="/app/facturas" className="text-xs lg:text-sm font-medium text-indigo-600 hover:text-indigo-700">Ver todas →</a>
                     </div>
                     <div className="space-y-4">
                         {recentInvoices.length === 0 ? (
@@ -457,14 +458,14 @@ export default function DashboardHome() {
                         <p className="mt-2 text-slate-300">Accede rápidamente a las secciones más utilizadas.</p>
                     </div>
                     <div className="flex flex-wrap gap-3">
-                        <a href="/facturas" className="inline-flex items-center gap-2 rounded-xl bg-white px-5 py-3 text-sm font-semibold text-slate-900 shadow-lg hover:scale-105 transition-all">
+                        <a href="/app/facturas" className="inline-flex items-center gap-2 rounded-xl bg-white px-5 py-3 text-sm font-semibold text-slate-900 shadow-lg hover:scale-105 transition-all">
                             <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
                             Nueva Factura
                         </a>
-                        <a href="/reportes" className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-5 py-3 text-sm font-semibold text-white hover:bg-white/20 transition-all">
+                        <a href="/app/reportes" className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-5 py-3 text-sm font-semibold text-white hover:bg-white/20 transition-all">
                             Ver Reportes
                         </a>
-                        <a href="/contratos" className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-5 py-3 text-sm font-semibold text-white hover:bg-white/20 transition-all">
+                        <a href="/app/contratos" className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-5 py-3 text-sm font-semibold text-white hover:bg-white/20 transition-all">
                             Contratos
                         </a>
                     </div>

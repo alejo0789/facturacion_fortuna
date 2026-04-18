@@ -274,7 +274,11 @@ Si algún paso falla, revisa el log del backend en la terminal donde corrió `py
 
 ---
 
-## 9. (Opcional) Levantar el frontend
+## 9. Levantar el frontend SaaS (Iteración 3)
+
+El frontend fue reestructurado como **shell SaaS multi-tenant** con login, registro self-service, selector de empresa activa y gestión de usuarios por rol.
+
+### 9.1 Instalar dependencias
 
 En una tercera terminal:
 
@@ -283,19 +287,66 @@ cd frontend
 npm install
 ```
 
-Crea `frontend/.env`:
+### 9.2 Configurar `frontend/.env`
 
 ```env
 VITE_API_URL=http://localhost:8000
+# VITE_API_KEY=<opcional, sólo si aún tienes integraciones legacy con X-API-Key>
 ```
 
-Arranca:
+> La `VITE_API_KEY` ya **no es obligatoria** — el frontend usa JWT. La dejamos
+> sólo como fallback para integraciones viejas que todavía no migran a JWT.
+
+### 9.3 Arrancar
 
 ```bash
 npm run dev
 ```
 
-Abre http://localhost:5173 y entra con `admin@admin.com / admin123`.
+### 9.4 Flujo de uso
+
+Abre `http://localhost:5173` (ya **no** lleva el sufijo `/facturacion_ia`).
+
+**Rutas públicas:**
+- `/` → Landing page con CTA *Registra tu empresa*
+- `/login` → Iniciar sesión
+- `/register` → Wizard de 3 pasos (Firma → Usuario ADMIN → Primera Empresa)
+
+**Rutas privadas (requieren JWT válido):** todas bajo `/app/*`
+- `/app` → Dashboard
+- `/app/contratos`, `/app/facturas`, `/app/pagos`, `/app/oficinas`, `/app/proveedores`, `/app/reportes`, `/app/asistente-buscador`
+- `/app/mi-equipo` → Gestión de usuarios y asignación de roles (requiere rol **ADMIN** en la empresa activa)
+
+### 9.5 Cómo probar el flujo multi-tenant
+
+1. **Acceso con superadmin** (creado por el lifespan del backend):
+   - Ir a `/login` → `admin@admin.com / admin123`.
+   - El sidebar mostrará el selector de empresa activa abajo (por defecto, La Fortuna).
+
+2. **Registro de una empresa nueva desde el navegador**:
+   - Click en *Cerrar sesión* → `/register`.
+   - Paso 1: nombre y NIT de la firma (p. ej. "Firma Demo", "900000001-1").
+   - Paso 2: email + nombre + contraseña (mín. 8 caracteres).
+   - Paso 3: (opcional) nombre y NIT de la primera empresa.
+   - Al finalizar → JWT emitido → redirige a `/app` con esa nueva empresa como tenant activo.
+
+3. **Invitar un usuario con rol específico**:
+   - Desde `/app/mi-equipo` (como ADMIN) → llenar el formulario de alta.
+   - Elegir rol: ADMIN, CONTADOR, AUDITOR, FACTURACION, CONTABILIDAD, PRODUCTOS, VENTAS o SOLO_LECTURA.
+   - El usuario creado podrá loguearse y verá sólo lo permitido por su rol.
+
+4. **Cambiar entre empresas (multi-tenant)**:
+   - En el sidebar, abajo, click en el selector de empresa → elige otra → todas las requests siguientes llevarán el header `X-Empresa-Id` actualizado.
+
+### 9.6 Cómo funciona la autenticación (resumen técnico)
+
+- **Login** → `POST /api/auth/login` devuelve `access_token` + `refresh_token` + `empresas[]`.
+- Los tokens y la sesión se guardan en `localStorage` bajo claves `fortuna.*`.
+- El `fetchInterceptor.ts` global inyecta automáticamente:
+  - `Authorization: Bearer <access_token>`
+  - `X-Empresa-Id: <id>` de la empresa activa
+- Si el backend responde `401`, el interceptor limpia la sesión y React Router redirige a `/login`.
+- Las rutas `/app/*` están envueltas en `<ProtectedRoute>` que redirige a `/login` cuando no hay sesión.
 
 ---
 

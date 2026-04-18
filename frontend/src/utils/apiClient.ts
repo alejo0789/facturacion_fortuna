@@ -1,22 +1,53 @@
 /**
- * API Client con autenticación automática
- * Agrega el header X-API-Key a todas las peticiones
+ * API Client tipado.
+ *
+ * El fetchInterceptor global ya inyecta Authorization/X-Empresa-Id/X-API-Key,
+ * así que aquí sólo nos encargamos de construir URLs, manejar JSON/FormData
+ * y lanzar errores legibles al consumidor.
  */
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
-const API_KEY = import.meta.env.VITE_API_KEY || '';
 
 export interface FetchOptions extends RequestInit {
     params?: Record<string, string | number>;
 }
 
-/**
- * Wrapper de fetch que agrega automáticamente la API Key
- */
+export class ApiError extends Error {
+    status: number;
+    detail: unknown;
+    constructor(status: number, detail: unknown, message: string) {
+        super(message);
+        this.name = 'ApiError';
+        this.status = status;
+        this.detail = detail;
+    }
+}
+
+async function parseError(response: Response): Promise<ApiError> {
+    let detail: unknown = null;
+    let message = `HTTP ${response.status}`;
+    try {
+        const ct = response.headers.get('content-type') || '';
+        if (ct.includes('application/json')) {
+            detail = await response.json();
+            // FastAPI devuelve {detail: "..."} o {detail: [{...}]}
+            const d = (detail as { detail?: unknown }).detail;
+            if (typeof d === 'string') message = d;
+            else if (Array.isArray(d) && d.length > 0) {
+                message = d.map((e: { msg?: string }) => e.msg ?? JSON.stringify(e)).join('; ');
+            }
+        } else {
+            message = await response.text();
+        }
+    } catch {
+        /* ignore */
+    }
+    return new ApiError(response.status, detail, message);
+}
+
 export async function apiFetch(endpoint: string, options: FetchOptions = {}): Promise<Response> {
     const { params, ...fetchOptions } = options;
 
-    // Construir URL con parámetros si existen
     let url = `${API_URL}${endpoint}`;
     if (params) {
         const searchParams = new URLSearchParams();
@@ -26,73 +57,44 @@ export async function apiFetch(endpoint: string, options: FetchOptions = {}): Pr
         url += `?${searchParams.toString()}`;
     }
 
-    // Agregar headers de autenticación
     const headers = new Headers(fetchOptions.headers);
-    headers.set('X-API-Key', API_KEY);
-
-    // Si hay body y no es FormData, agregar Content-Type
-    if (fetchOptions.body && !(fetchOptions.body instanceof FormData)) {
+    // El interceptor se encarga de Authorization/X-Empresa-Id.
+    // Sólo ponemos Content-Type cuando no es FormData.
+    if (fetchOptions.body && !(fetchOptions.body instanceof FormData) && !headers.has('Content-Type')) {
         headers.set('Content-Type', 'application/json');
     }
 
-    // Realizar la petición
-    const response = await fetch(url, {
-        ...fetchOptions,
-        headers
-    });
-
-    return response;
+    return fetch(url, { ...fetchOptions, headers });
 }
 
-/**
- * Helper para peticiones GET
- */
 export async function apiGet<T>(endpoint: string, params?: Record<string, string | number>): Promise<T> {
     const response = await apiFetch(endpoint, { method: 'GET', params });
-    if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-    }
+    if (!response.ok) throw await parseError(response);
     return response.json();
 }
 
-/**
- * Helper para peticiones POST
- */
-export async function apiPost<T>(endpoint: string, data?: any): Promise<T> {
+export async function apiPost<T>(endpoint: string, data?: unknown): Promise<T> {
     const response = await apiFetch(endpoint, {
         method: 'POST',
-        body: data instanceof FormData ? data : JSON.stringify(data)
+        body: data instanceof FormData ? data : JSON.stringify(data ?? {}),
     });
-    if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-    }
+    if (!response.ok) throw await parseError(response);
     return response.json();
 }
 
-/**
- * Helper para peticiones PUT
- */
-export async function apiPut<T>(endpoint: string, data?: any): Promise<T> {
+export async function apiPut<T>(endpoint: string, data?: unknown): Promise<T> {
     const response = await apiFetch(endpoint, {
         method: 'PUT',
-        body: JSON.stringify(data)
+        body: JSON.stringify(data ?? {}),
     });
-    if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-    }
+    if (!response.ok) throw await parseError(response);
     return response.json();
 }
 
-/**
- * Helper para peticiones DELETE
- */
 export async function apiDelete<T>(endpoint: string): Promise<T> {
     const response = await apiFetch(endpoint, { method: 'DELETE' });
-    if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-    }
+    if (!response.ok) throw await parseError(response);
     return response.json();
 }
 
-// Exportar también la URL base para casos especiales
 export { API_URL };
