@@ -9,8 +9,12 @@ import {
     ResponsiveContainer,
     BarChart,
     Bar,
-    Legend
+    Legend,
+    LineChart,
+    Line,
 } from 'recharts';
+import { apiGet } from '../utils/apiClient';
+import type { Balance } from '../types/contabilidad';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
@@ -121,6 +125,14 @@ function CustomTooltip({ active, payload, label }: { active?: boolean; payload?:
     return null;
 }
 
+interface UtilidadMes {
+    mes: number;
+    nombre: string;
+    utilidad: number;
+    ingresos: number;
+    gastos: number;
+}
+
 export default function DashboardHome() {
     const [estadisticas, setEstadisticas] = useState<Estadisticas | null>(null);
     const [recentInvoices, setRecentInvoices] = useState<RecentInvoice[]>([]);
@@ -131,6 +143,27 @@ export default function DashboardHome() {
     const [selectedOficina, setSelectedOficina] = useState<number | null>(null);
     const [oficinaSearch, setOficinaSearch] = useState('');
     const [showOficinaDropdown, setShowOficinaDropdown] = useState(false);
+
+    // --- Contabilidad ---
+    const [balanceActual, setBalanceActual] = useState<Balance | null>(null);
+    const [utilidadAnual, setUtilidadAnual] = useState<UtilidadMes[]>([]);
+    const [contableLoaded, setContableLoaded] = useState(false);
+
+    // Agregados YTD calculados desde utilidadAnual
+    const ytdIngresos = utilidadAnual.reduce((s, m) => s + m.ingresos, 0);
+    const ytdGastos = utilidadAnual.reduce((s, m) => s + m.gastos, 0);
+    const ytdUtilidad = ytdIngresos - ytdGastos;
+    const utilidadMesActual = balanceActual ? parseFloat(balanceActual.utilidad_neta || '0') : 0;
+    const ingresosMesActual = balanceActual ? parseFloat(balanceActual.total_ingresos || '0') : 0;
+    const gastosMesActual = balanceActual
+        ? parseFloat(balanceActual.total_gastos || '0') + parseFloat(balanceActual.total_costos || '0')
+        : 0;
+
+    // ¿Hay algo útil para mostrar? Si todo está en cero, escondemos la sección.
+    const hayDatosContables = contableLoaded && (
+        utilidadAnual.some(m => m.ingresos > 0 || m.gastos > 0) ||
+        ingresosMesActual > 0 || gastosMesActual > 0
+    );
 
     // Calcular métricas mensuales
     const getCurrentMonthData = () => {
@@ -167,6 +200,61 @@ export default function DashboardHome() {
             })
             .catch(err => console.error('Error loading oficinas:', err));
     }, []);
+
+    // Carga balance contable del mes seleccionado + evolución anual en paralelo
+    useEffect(() => {
+        let cancelled = false;
+        async function loadContable() {
+            setContableLoaded(false);
+            try {
+                // Balance del mes seleccionado (para KPIs)
+                const balancePromise = apiGet<Balance>('/contabilidad/balance', {
+                    anio: selectedYear,
+                    mes: selectedMonth,
+                }).catch(() => null);
+
+                // 12 balances del año (para chart de evolución)
+                const anualPromises = Array.from({ length: 12 }, (_, i) =>
+                    apiGet<Balance>('/contabilidad/balance', {
+                        anio: selectedYear,
+                        mes: i + 1,
+                    }).catch(() => null)
+                );
+
+                const [balance, ...anual] = await Promise.all([balancePromise, ...anualPromises]);
+                if (cancelled) return;
+
+                setBalanceActual(balance);
+                setUtilidadAnual(
+                    anual.map((b, i) => {
+                        const ingresos = b ? parseFloat(b.total_ingresos || '0') : 0;
+                        const gastos = b
+                            ? parseFloat(b.total_gastos || '0') + parseFloat(b.total_costos || '0')
+                            : 0;
+                        return {
+                            mes: i + 1,
+                            nombre: MESES[i + 1],
+                            ingresos,
+                            gastos,
+                            utilidad: ingresos - gastos,
+                        };
+                    })
+                );
+            } catch (err) {
+                if (!cancelled) {
+                    console.warn('No se pudo cargar balance contable:', err);
+                    setBalanceActual(null);
+                    setUtilidadAnual([]);
+                }
+            } finally {
+                if (!cancelled) setContableLoaded(true);
+            }
+        }
+        loadContable();
+        return () => {
+            cancelled = true;
+        };
+    }, [selectedYear, selectedMonth]);
 
     useEffect(() => {
         const fetchData = async () => {
@@ -344,6 +432,118 @@ export default function DashboardHome() {
                     icon={<svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>}
                 />
             </div>
+
+            {/* Resumen Contable — solo si hay datos */}
+            {hayDatosContables && (
+                <div className="space-y-3 lg:space-y-4">
+                    <div className="flex items-end justify-between">
+                        <div>
+                            <h2 className="text-xl lg:text-2xl font-bold text-slate-800">Resumen Contable</h2>
+                            <p className="text-xs lg:text-sm text-slate-500">
+                                Basado en asientos registrados (causación y pagos) — {MESES[selectedMonth]} {selectedYear}
+                            </p>
+                        </div>
+                        <a href="/app/balance" className="text-xs lg:text-sm font-medium text-indigo-600 hover:text-indigo-700">
+                            Ver balance completo →
+                        </a>
+                    </div>
+
+                    {/* KPI Cards contables */}
+                    <div className="grid gap-3 md:gap-4 lg:gap-5 grid-cols-2 lg:grid-cols-4">
+                        <StatCard
+                            title={`Utilidad ${MESES[selectedMonth]}`}
+                            value={formatCurrency(utilidadMesActual)}
+                            subtitle={utilidadMesActual >= 0 ? 'Ganancia del mes' : 'Pérdida del mes'}
+                            gradient={
+                                utilidadMesActual >= 0
+                                    ? 'bg-gradient-to-br from-emerald-600 to-green-700'
+                                    : 'bg-gradient-to-br from-red-500 to-rose-600'
+                            }
+                            icon={
+                                <svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                                </svg>
+                            }
+                        />
+                        <StatCard
+                            title="Ingresos del mes"
+                            value={formatCurrency(ingresosMesActual)}
+                            subtitle="Clase 4"
+                            gradient="bg-gradient-to-br from-sky-500 to-blue-600"
+                            icon={
+                                <svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1" />
+                                </svg>
+                            }
+                        />
+                        <StatCard
+                            title="Gastos + Costos"
+                            value={formatCurrency(gastosMesActual)}
+                            subtitle="Clases 5 y 6"
+                            gradient="bg-gradient-to-br from-orange-500 to-red-600"
+                            icon={
+                                <svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 13l-5 5m0 0l-5-5m5 5V6" />
+                                </svg>
+                            }
+                        />
+                        <StatCard
+                            title={`Utilidad YTD ${selectedYear}`}
+                            value={formatCurrency(ytdUtilidad)}
+                            subtitle={`Acum. ${ytdIngresos > 0 ? `${((ytdUtilidad / ytdIngresos) * 100).toFixed(1)}% margen` : ''}`}
+                            gradient={
+                                ytdUtilidad >= 0
+                                    ? 'bg-gradient-to-br from-violet-600 to-indigo-700'
+                                    : 'bg-gradient-to-br from-slate-600 to-gray-700'
+                            }
+                            icon={
+                                <svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2" />
+                                </svg>
+                            }
+                        />
+                    </div>
+
+                    {/* Chart de evolución mensual */}
+                    <div className="rounded-xl lg:rounded-2xl bg-white p-4 lg:p-5 xl:p-6 shadow-lg ring-1 ring-slate-100">
+                        <div className="mb-3 lg:mb-4">
+                            <h3 className="text-base lg:text-lg font-bold text-slate-800">
+                                Evolución Mensual de Utilidad {selectedYear}
+                            </h3>
+                            <p className="text-xs lg:text-sm text-slate-500">
+                                Ingresos, gastos y utilidad neta por mes
+                            </p>
+                        </div>
+                        <div className="h-52 lg:h-64 xl:h-72">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <LineChart data={utilidadAnual}>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                                    <XAxis dataKey="nombre" tick={{ fontSize: 12, fill: '#64748b' }} tickLine={false} axisLine={{ stroke: '#e2e8f0' }} />
+                                    <YAxis
+                                        tick={{ fontSize: 12, fill: '#64748b' }}
+                                        tickFormatter={(v) => `${(v / 1000000).toFixed(0)}M`}
+                                        tickLine={false}
+                                        axisLine={false}
+                                    />
+                                    <Tooltip
+                                        formatter={(value) => formatCurrency(Number(value ?? 0))}
+                                        contentStyle={{
+                                            backgroundColor: '#0f172a',
+                                            border: 'none',
+                                            borderRadius: '12px',
+                                            color: '#fff',
+                                        }}
+                                    />
+                                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                                    <Line type="monotone" dataKey="ingresos" name="Ingresos" stroke="#0ea5e9" strokeWidth={2} dot={{ r: 3 }} />
+                                    <Line type="monotone" dataKey="gastos" name="Gastos + Costos" stroke="#ef4444" strokeWidth={2} dot={{ r: 3 }} />
+                                    <Line type="monotone" dataKey="utilidad" name="Utilidad" stroke="#10b981" strokeWidth={3} dot={{ r: 4 }} />
+                                </LineChart>
+                            </ResponsiveContainer>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Charts Row */}
             <div className="grid gap-4 lg:gap-5 xl:gap-6 lg:grid-cols-3">
