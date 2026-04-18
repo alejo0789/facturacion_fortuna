@@ -15,6 +15,8 @@ from typing import List, Optional
 from pathlib import Path
 from urllib.parse import unquote
 from datetime import datetime, date
+from decimal import Decimal
+import logging
 import os
 import httpx
 import img2pdf
@@ -25,8 +27,76 @@ import zipfile
 import tempfile
 import models, schemas, crud
 from database import get_db
+from core.dependencies import get_current_empresa, get_current_user
+from services.causacion import crear_asiento_causacion_factura
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+async def _generar_asiento_causacion_safe(
+    *,
+    empresa_id: int,
+    factura,
+    proveedor_nit: Optional[str],
+    tiene_iva: bool,
+    aplica_retefuente: bool,
+    user_id: Optional[int],
+    db: AsyncSession,
+) -> dict:
+    """
+    Envuelve `crear_asiento_causacion_factura` de forma defensiva.
+
+    Si algo falla (periodo cerrado, cuentas PUC no sembradas, valor nulo, etc.)
+    devuelve un dict con el error pero NO rompe el flujo de creación de factura.
+    La factura ya está persistida antes de llamar a esta función.
+    """
+    # Sin NIT no hay forma de anclar el asiento al tercero
+    if not proveedor_nit:
+        return {"creado": False, "razon": "Sin NIT de proveedor, no se generó asiento de causación"}
+
+    if not factura.valor or Decimal(factura.valor) <= 0:
+        return {"creado": False, "razon": "Factura sin valor, no se generó asiento de causación"}
+
+    fecha = factura.fecha_factura or date.today()
+    descripcion = (
+        f"Causación factura {factura.numero_factura or factura.id} - NIT {proveedor_nit}"
+    )
+
+    try:
+        asiento = await crear_asiento_causacion_factura(
+            empresa_id=empresa_id,
+            factura_id=factura.id,
+            fecha_factura=fecha,
+            proveedor_nit=proveedor_nit,
+            valor_total=Decimal(factura.valor),
+            tiene_iva=tiene_iva,
+            aplica_retefuente=aplica_retefuente,
+            descripcion=descripcion,
+            user_id=user_id,
+            db=db,
+        )
+        await db.commit()
+        return {
+            "creado": True,
+            "asiento_id": asiento.id,
+            "asiento_numero": asiento.numero,
+            "periodo_id": asiento.periodo_id,
+        }
+    except Exception as e:
+        # No rompemos la factura: rollback sólo del asiento y seguimos
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        logger.warning(
+            "Falló causación automática de factura %s (empresa=%s): %s",
+            factura.id,
+            empresa_id,
+            e,
+        )
+        return {"creado": False, "razon": f"Error generando asiento: {e}"}
 
 # Configuration for invoice uploads
 INVOICE_UPLOAD_PATH = r"\\192.168.2.20\Facturas\temp"
@@ -40,30 +110,35 @@ WEBHOOK_URL = "https://saman.lafortuna.com.co/n8n/webhook/d15fc127-671d-4b24-822
 @router.post("/facturas/", response_model=schemas.Factura)
 async def create_factura_api(
     factura: schemas.FacturaCreateAPI,
+    empresa=Depends(get_current_empresa),
+    current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
     Create a new factura via API.
-    
+
     You can provide either:
     - proveedor_id: ID of existing proveedor
     - proveedor_nit: NIT to find existing proveedor (or create new one if proveedor_nombre is also provided)
-    
+
     The factura will be created with estado='PENDIENTE'.
     Oficina and contrato can be assigned manually later.
+
+    Si `generar_asiento=True` (default) y hay NIT + valor, se registra
+    automáticamente el asiento contable CAUSACION en estado BORRADOR.
     """
     proveedor_id = factura.proveedor_id
-    
+
     # If no proveedor_id, try to find by NIT
     if not proveedor_id and factura.proveedor_nit:
         proveedor = await crud.get_proveedor_by_nit(db, factura.proveedor_nit)
-        
+
         if proveedor:
             proveedor_id = proveedor.id
         elif factura.proveedor_nombre:
             # Create new proveedor
             new_proveedor = await crud.create_proveedor(
-                db, 
+                db,
                 schemas.ProveedorCreate(
                     nit=factura.proveedor_nit,
                     nombre=factura.proveedor_nombre
@@ -72,16 +147,16 @@ async def create_factura_api(
             proveedor_id = new_proveedor.id
         else:
             raise HTTPException(
-                status_code=400, 
+                status_code=400,
                 detail="Proveedor no encontrado. Proporcione proveedor_nombre para crear uno nuevo."
             )
-    
+
     if not proveedor_id:
         raise HTTPException(
             status_code=400,
             detail="Debe proporcionar proveedor_id o proveedor_nit"
         )
-    
+
     # Validate that proveedor exists
     proveedor = await crud.get_proveedor(db, proveedor_id)
     if not proveedor:
@@ -89,7 +164,7 @@ async def create_factura_api(
             status_code=404,
             detail=f"Proveedor con ID {proveedor_id} no encontrado. Si está enviando el NIT, use el campo 'proveedor_nit' en lugar de 'proveedor_id'."
         )
-    
+
     # Create factura
     factura_data = schemas.FacturaCreate(
         proveedor_id=proveedor_id,
@@ -102,13 +177,29 @@ async def create_factura_api(
         observaciones=factura.observaciones,
         estado='PENDIENTE'
     )
-    
-    return await crud.create_factura(db, factura_data)
+
+    factura_creada = await crud.create_factura(db, factura_data)
+
+    # Causación contable automática (best-effort, no bloquea la factura)
+    if factura.generar_asiento:
+        await _generar_asiento_causacion_safe(
+            empresa_id=empresa.id,
+            factura=factura_creada,
+            proveedor_nit=proveedor.nit,
+            tiene_iva=bool(factura.tiene_iva),
+            aplica_retefuente=bool(factura.aplica_retefuente),
+            user_id=getattr(current_user, "id", None),
+            db=db,
+        )
+
+    return factura_creada
 
 
 @router.post("/facturas/crear-con-oficina")
 async def create_factura_con_oficinas(
     request: schemas.FacturaCreateConOficinas,
+    empresa=Depends(get_current_empresa),
+    current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -343,7 +434,22 @@ async def create_factura_con_oficinas(
         
         # Refresh factura to get updated relationships
         factura = await crud.get_factura(db, factura.id)
-        
+
+        # Causación contable automática (best-effort)
+        asiento_info = None
+        if request.generar_asiento and request.proveedor_nit:
+            asiento_info = await _generar_asiento_causacion_safe(
+                empresa_id=empresa.id,
+                factura=factura,
+                proveedor_nit=request.proveedor_nit,
+                tiene_iva=bool(request.tiene_iva),
+                aplica_retefuente=bool(request.aplica_retefuente),
+                user_id=getattr(current_user, "id", None),
+                db=db,
+            )
+            if not asiento_info.get("creado") and asiento_info.get("razon"):
+                warnings.append(f"Causación: {asiento_info['razon']}")
+
         # Build success response with detailed information
         response = {
             "success": True,
@@ -366,6 +472,7 @@ async def create_factura_con_oficinas(
             "oficinas_asignadas": oficinas_asignadas,
             "oficinas_no_encontradas": oficinas_no_encontradas,
             "oficinas_con_error": oficinas_con_error,
+            "asiento_contable": asiento_info,
             "warnings": warnings if warnings else None,
             "progress": progress
         }

@@ -126,6 +126,10 @@ class FacturaCreateAPI(BaseModel):
     valor: Optional[Decimal] = None
     url_factura: Optional[str] = None  # URL where invoice is stored
     observaciones: Optional[str] = None
+    # --- Causación contable automática ---
+    tiene_iva: Optional[bool] = False           # ¿La factura incluye IVA?
+    aplica_retefuente: Optional[bool] = True    # ¿Aplica retención en la fuente?
+    generar_asiento: Optional[bool] = True      # Crear asiento CAUSACION automáticamente
 
 
 class OficinaConValor(BaseModel):
@@ -155,6 +159,10 @@ class FacturaCreateConOficinas(BaseModel):
     url_factura: Optional[str] = None
     observaciones: Optional[str] = None
     oficinas: Optional[list[OficinaConValor]] = None  # Opcional: lista de oficinas con valores
+    # --- Causación contable automática ---
+    tiene_iva: Optional[bool] = False
+    aplica_retefuente: Optional[bool] = True
+    generar_asiento: Optional[bool] = True
     # Campos ignorados (pueden venir pero no se usan)
     contrato_id: Optional[int] = None
     oficina_id: Optional[int] = None
