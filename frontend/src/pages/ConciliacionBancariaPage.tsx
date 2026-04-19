@@ -9,6 +9,7 @@
  */
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { apiGet, apiPost, apiFetch, ApiError } from '../utils/apiClient';
+import { formatCOP } from '../utils/format';
 
 interface CuentaBancaria {
     id: number;
@@ -56,11 +57,6 @@ const BADGE: Record<Transaccion['estado_conciliacion'], string> = {
     SUGERIDO: 'bg-amber-100 text-amber-700',
     CONCILIADO: 'bg-emerald-100 text-emerald-700',
 };
-
-function fmtMoney(v: string | number): string {
-    const n = typeof v === 'string' ? Number(v) : v;
-    return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n || 0);
-}
 
 export default function ConciliacionBancariaPage() {
     const [cuentas, setCuentas] = useState<CuentaBancaria[]>([]);
@@ -244,6 +240,7 @@ export default function ConciliacionBancariaPage() {
                         </button>
                     )}
                 </div>
+                <div className="overflow-x-auto">
                 <table className="min-w-full text-sm">
                     <thead className="bg-slate-50 border-b">
                         <tr>
@@ -272,6 +269,7 @@ export default function ConciliacionBancariaPage() {
                         ))}
                     </tbody>
                 </table>
+                </div>
             </div>
 
             {/* Sugerencias */}
@@ -280,6 +278,7 @@ export default function ConciliacionBancariaPage() {
                     <div className="px-5 py-3 border-b bg-amber-50">
                         <h2 className="font-semibold text-amber-900">Sugerencias pendientes ({sugerencias.length})</h2>
                     </div>
+                    <div className="overflow-x-auto">
                     <table className="min-w-full text-sm">
                         <thead className="bg-slate-50 border-b">
                             <tr>
@@ -314,6 +313,7 @@ export default function ConciliacionBancariaPage() {
                             ))}
                         </tbody>
                     </table>
+                    </div>
                 </div>
             )}
 
@@ -323,6 +323,7 @@ export default function ConciliacionBancariaPage() {
                     <div className="px-5 py-3 border-b bg-slate-50">
                         <h2 className="font-semibold text-slate-900">Transacciones del extracto #{extractoSel}</h2>
                     </div>
+                    <div className="overflow-x-auto">
                     <table className="min-w-full text-sm">
                         <thead className="bg-slate-50 border-b">
                             <tr>
@@ -340,7 +341,7 @@ export default function ConciliacionBancariaPage() {
                                     <td className="px-4 py-2 text-xs font-mono">{t.fecha}</td>
                                     <td className="px-4 py-2 truncate max-w-[360px]">{t.descripcion}</td>
                                     <td className="px-4 py-2 text-xs text-slate-500">{t.referencia ?? '—'}</td>
-                                    <td className="px-4 py-2 text-right font-mono">{fmtMoney(t.monto)}</td>
+                                    <td className="px-4 py-2 text-right font-mono">{formatCOP(t.monto)}</td>
                                     <td className="px-4 py-2 text-center text-xs">{t.naturaleza}</td>
                                     <td className="px-4 py-2">
                                         <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${BADGE[t.estado_conciliacion]}`}>
@@ -351,6 +352,7 @@ export default function ConciliacionBancariaPage() {
                             ))}
                         </tbody>
                     </table>
+                    </div>
                 </div>
             )}
         </div>

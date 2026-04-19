@@ -182,6 +182,7 @@ export default function CuentasBancariasPage() {
 
             {/* Listado */}
             <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
+                <div className="overflow-x-auto">
                 <table className="min-w-full text-sm">
                     <thead className="bg-slate-50 border-b">
                         <tr>
@@ -227,6 +228,7 @@ export default function CuentasBancariasPage() {
                         ))}
                     </tbody>
                 </table>
+                </div>
             </div>
         </div>
     );

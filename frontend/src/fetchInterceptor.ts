@@ -76,4 +76,6 @@ window.fetch = async function (...args) {
     return response;
 };
 
-console.log('✅ fetchInterceptor SaaS: JWT + X-Empresa-Id activos');
+if (import.meta.env.DEV) {
+    console.log('✅ fetchInterceptor SaaS: JWT + X-Empresa-Id activos');
+}
