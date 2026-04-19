@@ -2,14 +2,19 @@
 Smoke test end-to-end del backend SaaS multi-tenant.
 
 Ejecuta un flujo básico contra un backend ya levantado en localhost:8000:
-  1. Login como superadmin
-  2. Verifica /auth/me
-  3. Lista el PUC de la empresa por defecto
-  4. Simula cálculo de impuestos
-  5. Crea un asiento contable manual (verifica partida doble DB=CR)
-  6. Aprueba el asiento
-  7. Consulta el libro mayor de una cuenta
-  8. Consulta el balance de comprobación
+   1. Login como superadmin
+   2. Verifica /auth/me
+   3. Empresas accesibles
+   4. PUC con cuentas clave
+   5. Cálculo de impuestos
+   6. Crear asiento manual (partida doble DB=CR)
+   7. Rechazo 422 de asiento descuadrado
+   8. Aprobar asiento
+   9. Libro mayor
+  10. Balance de comprobación
+  11. Cuentas bancarias (crear y listar)
+  12. Extractos bancarios (upload CSV en memoria + analizar)
+  13. DIAN — resumen y formatos 1001 / 1007 / 1008
 
 Uso:
     python smoke_test.py                       # localhost:8000 con superadmin del .env
@@ -18,6 +23,7 @@ Uso:
 
 Requiere: httpx
 """
+import io
 import os
 import sys
 from datetime import date
@@ -201,6 +207,135 @@ def main() -> None:
     print(f"     Gastos: {balance['total_gastos']}")
     print(f"     Pasivos: {balance['total_pasivos']}")
     print(f"     Utilidad neta: {balance['utilidad_neta']}")
+
+    # -------------------------------------------------
+    section("11. CUENTAS BANCARIAS")
+    # -------------------------------------------------
+    # Busca una subcuenta 1110* en el PUC para mapear la cuenta bancaria
+    cuentas_banco_puc = [c for c in puc if c["codigo"].startswith("1110") and c["permite_movimiento"]]
+    check(len(cuentas_banco_puc) > 0, "Existe al menos una subcuenta 1110* de movimiento en el PUC")
+    puc_banco = cuentas_banco_puc[0]["codigo"]
+    print(f"     usando cuenta PUC {puc_banco} ({cuentas_banco_puc[0]['nombre']})")
+
+    numero_unico = f"SMOKE-{date.today().isoformat()}-{os.getpid()}"
+    r = client.post(
+        "/api/contabilidad/cuentas-bancarias",
+        headers=tenant_headers,
+        json={
+            "banco": "Bancolombia",
+            "numero_cuenta": numero_unico,
+            "tipo_cuenta": "Ahorros",
+            "cuenta_puc_codigo": puc_banco,
+            "activa": True,
+        },
+    )
+    # 200 (creada) o 409 (duplicado por reintento)
+    check(
+        r.status_code in (200, 201, 409),
+        f"POST /cuentas-bancarias → {r.status_code} {r.text[:120]}",
+    )
+
+    r = client.get(
+        "/api/contabilidad/cuentas-bancarias",
+        headers=tenant_headers,
+        params={"solo_activas": "false"},
+    )
+    check(r.status_code == 200, f"GET /cuentas-bancarias → {r.status_code}")
+    cuentas_banco = r.json()
+    check(len(cuentas_banco) >= 1, f"Cuentas bancarias registradas: {len(cuentas_banco)}")
+    cuenta_bancaria_id = next(
+        (c["id"] for c in cuentas_banco if c["numero_cuenta"] == numero_unico),
+        cuentas_banco[0]["id"],
+    )
+
+    # -------------------------------------------------
+    section("12. EXTRACTOS BANCARIOS")
+    # -------------------------------------------------
+    # Listado inicial (puede o no tener extractos previos)
+    r = client.get("/api/bancario/extractos", headers=tenant_headers)
+    check(r.status_code == 200, f"GET /bancario/extractos → {r.status_code}")
+    extractos_prev = len(r.json())
+    print(f"     extractos existentes: {extractos_prev}")
+
+    # Upload de un CSV genérico en memoria (3 transacciones)
+    csv_content = (
+        "fecha,descripcion,referencia,monto,tipo\n"
+        "2026-04-01,Pago proveedor honorarios,REF-001,500000,DEBITO\n"
+        "2026-04-02,Consignacion cliente ABC,REF-002,1200000,CREDITO\n"
+        "2026-04-03,Comision bancaria,REF-003,5000,DEBITO\n"
+    ).encode("utf-8")
+
+    r = client.post(
+        "/api/bancario/extractos/upload",
+        headers=tenant_headers,
+        data={"cuenta_bancaria_id": str(cuenta_bancaria_id)},
+        files={"archivo": ("smoke.csv", io.BytesIO(csv_content), "text/csv")},
+    )
+    # 200 al primer upload; 400/409 si ya se subió exactamente el mismo CSV antes.
+    check(
+        r.status_code in (200, 201, 400, 409),
+        f"POST /bancario/extractos/upload → {r.status_code} {r.text[:180]}",
+    )
+    if r.status_code in (200, 201):
+        up = r.json()
+        extracto_id = up.get("extracto_id") or up.get("id")
+        print(
+            f"     extracto cargado id={extracto_id} "
+            f"transacciones={up.get('transacciones_cargadas') or up.get('total_transacciones')}"
+        )
+
+        # Analizar conciliación (con o sin candidatas)
+        r = client.post(
+            f"/api/bancario/conciliacion/analizar/{extracto_id}",
+            headers=tenant_headers,
+        )
+        check(r.status_code == 200, f"POST /conciliacion/analizar → {r.status_code}")
+        analisis = r.json()
+        print(
+            f"     analizadas={analisis['analizadas']} sugerencias={len(analisis['sugerencias'])}"
+            f" auto-conciliadas={analisis['auto_conciliadas']}"
+        )
+    else:
+        print("     (upload saltado — ya había un extracto idéntico)")
+
+    # Rechazo de IDs inexistentes
+    r = client.post("/api/bancario/conciliacion/analizar/999999", headers=tenant_headers)
+    check(r.status_code == 404, f"Extracto inexistente → {r.status_code} (esperado 404)")
+
+    # -------------------------------------------------
+    section("13. DIAN — MEDIOS MAGNETICOS")
+    # -------------------------------------------------
+    anio_dian = date.today().year
+    r = client.get(
+        f"/api/dian/medios-magneticos/resumen?anio={anio_dian}",
+        headers=tenant_headers,
+    )
+    check(r.status_code == 200, f"GET /dian/.../resumen → {r.status_code}")
+    res = r.json()
+    for k in ("f1001_registros", "f1007_registros", "f1008_registros",
+              "f1001_total_pagos", "f1007_total_ingresos", "f1008_total_cxc"):
+        check(k in res, f"Resumen DIAN contiene '{k}'")
+
+    for formato in ("1001", "1007", "1008"):
+        r = client.get(
+            f"/api/dian/medios-magneticos/{formato}?anio={anio_dian}",
+            headers=tenant_headers,
+        )
+        check(r.status_code == 200, f"GET /dian/.../{formato} → {r.status_code}")
+        body = r.json()
+        check("filas" in body, f"Formato {formato} devuelve campo 'filas'")
+        print(f"     formato {formato}: {len(body['filas'])} fila(s)")
+
+    # CSV en todos los formatos
+    for formato in ("1001", "1007", "1008"):
+        r = client.get(
+            f"/api/dian/medios-magneticos/{formato}?anio={anio_dian}&formato=csv",
+            headers=tenant_headers,
+        )
+        check(
+            r.status_code == 200 and "text/csv" in r.headers.get("content-type", ""),
+            f"GET /dian/.../{formato}?formato=csv → {r.status_code} (content-type: {r.headers.get('content-type')})",
+        )
 
     section("RESULTADO")
     print("\n  ✓ TODOS LOS CHEQUEOS PASARON\n")
