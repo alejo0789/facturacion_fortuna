@@ -16,6 +16,7 @@ Incluye:
 """
 from sqlalchemy import (
     Column,
+    Index,
     Integer,
     String,
     Date,
@@ -247,6 +248,19 @@ class TransaccionBancaria(Base):
 
     extracto = relationship("ExtractoBancario", back_populates="transacciones")
     linea_conciliada = relationship("LineaAsiento")
+
+    # Índice UNIQUE parcial: una línea contable sólo puede estar CONCILIADA con
+    # una única transacción bancaria. Previene race condition en `POST
+    # /conciliacion/aprobar` cuando dos requests paralelos intentan aprobar
+    # la misma `linea_asiento_id` en transacciones distintas.
+    __table_args__ = (
+        Index(
+            "ux_transaccion_bancaria_linea_conciliada",
+            "linea_asiento_id",
+            unique=True,
+            postgresql_where=(estado_conciliacion == "CONCILIADO"),
+        ),
+    )
 
 
 class ReglaConciliacion(TenantMixin, Base):

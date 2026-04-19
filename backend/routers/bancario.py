@@ -605,6 +605,10 @@ async def analizar_extracto(
     auto_conciliadas = 0
     analizadas = 0
 
+    # Evitar que dentro de un mismo pase dos transacciones se auto-concilien
+    # contra la misma línea (violaría el índice UNIQUE parcial).
+    lineas_usadas_en_pase: set[int] = set()
+
     for t in e.transacciones:
         if t.estado_conciliacion == "CONCILIADO":
             continue
@@ -614,6 +618,8 @@ async def analizar_extracto(
         mejor_score = 0
         mejor_detalle = ""
         for (linea, asiento) in candidatas:
+            if linea.id in lineas_usadas_en_pase:
+                continue
             s, det = _score(t, linea, asiento.fecha)
             if s > mejor_score:
                 mejor_score = s
@@ -628,6 +634,7 @@ async def analizar_extracto(
             t.estado_conciliacion = "CONCILIADO"
             t.linea_asiento_id = linea.id
             auto_conciliadas += 1
+            lineas_usadas_en_pase.add(linea.id)
         else:
             t.estado_conciliacion = "SUGERIDO"
 
@@ -672,7 +679,9 @@ async def aprobar_conciliacion(
     if not t:
         raise HTTPException(404, "Transacción no encontrada")
 
-    # Validar que la línea pertenezca a la misma empresa
+    # Validar que la línea pertenezca a la misma empresa.
+    # FOR UPDATE bloquea la fila hasta el commit → si otra request intenta
+    # conciliar la misma `linea_asiento_id` en paralelo, se serializa.
     result = await db.execute(
         select(LineaAsiento)
         .join(AsientoContable, AsientoContable.id == LineaAsiento.asiento_id)
@@ -680,10 +689,28 @@ async def aprobar_conciliacion(
             LineaAsiento.id == data.linea_asiento_id,
             AsientoContable.empresa_id == empresa.id,
         )
+        .with_for_update()
     )
     linea = result.scalar_one_or_none()
     if not linea:
         raise HTTPException(404, "Línea contable no encontrada")
+
+    # Pre-check defensivo: ¿ya hay una transacción CONCILIADA contra esta línea?
+    # El índice UNIQUE parcial `ux_transaccion_bancaria_linea_conciliada` es la
+    # garantía real; este chequeo devuelve un 409 legible en lugar de un 500
+    # por IntegrityError cuando la segunda request entra tras soltar el lock.
+    r_existente = await db.execute(
+        select(TransaccionBancaria.id).where(
+            TransaccionBancaria.linea_asiento_id == linea.id,
+            TransaccionBancaria.estado_conciliacion == "CONCILIADO",
+            TransaccionBancaria.id != t.id,
+        )
+    )
+    if r_existente.scalar_one_or_none() is not None:
+        raise HTTPException(
+            409,
+            "La línea contable ya está conciliada con otra transacción bancaria",
+        )
 
     t.estado_conciliacion = "CONCILIADO"
     t.linea_asiento_id = linea.id
