@@ -21,9 +21,12 @@ from __future__ import annotations
 
 import csv
 import io
+import logging
 from datetime import date
 from decimal import Decimal
 from typing import List, Optional
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -69,6 +72,10 @@ class Formato1001Response(BaseModel):
     total_retefuente: Decimal
     total_reteiva: Decimal
     total_reteica: Decimal
+    # Nº de líneas contables omitidas por no tener NIT de tercero. Si es > 0
+    # el reporte está incompleto y el contador debe completar esos terceros.
+    lineas_omitidas_sin_nit: int = 0
+    valor_omitido_sin_nit: Decimal = Decimal("0")
     filas: List[Formato1001Fila]
 
 
@@ -135,17 +142,30 @@ async def _build_1001(empresa_id: int, empresa_nit: Optional[str], anio: int, db
 
     # Agregar por NIT del tercero
     agregado: dict[str, dict] = {}
+    lineas_omitidas = 0
+    valor_omitido = Decimal("0")
 
     for linea, asiento in filas_raw:
-        nit = (linea.nit_tercero or "").strip()
-        if not nit:
-            continue
         # sólo consideramos cuentas relevantes del 1001
         codigo = linea.cuenta_codigo
         if codigo not in {
             CUENTA_PROVEEDORES, CUENTA_IVA_DESCONTABLE,
             CUENTA_RETEFUENTE, CUENTA_RETEIVA, CUENTA_RETEICA,
         }:
+            continue
+
+        nit = (linea.nit_tercero or "").strip()
+        if not nit:
+            # Línea relevante del 1001 pero sin NIT de tercero → no puede
+            # reportarse a la DIAN. Lo contamos para avisar al contador.
+            lineas_omitidas += 1
+            valor_omitido += (linea.credito or Decimal("0")) + (linea.debito or Decimal("0"))
+            logger.warning(
+                "DIAN 1001: línea de asiento %s (cuenta %s) omitida por falta de NIT "
+                "(empresa=%s, anio=%s, valor=%s)",
+                linea.asiento_id, codigo, empresa_id, anio,
+                (linea.credito or linea.debito),
+            )
             continue
 
         agg = agregado.setdefault(nit, {
@@ -189,6 +209,13 @@ async def _build_1001(empresa_id: int, empresa_nit: Optional[str], anio: int, db
     total_reteiva = sum((f.reteiva_practicada for f in filas), Decimal("0"))
     total_reteica = sum((f.reteica_practicada for f in filas), Decimal("0"))
 
+    if lineas_omitidas > 0:
+        logger.warning(
+            "DIAN 1001 (empresa=%s, anio=%s): %s líneas omitidas sin NIT (valor %s). "
+            "El reporte está incompleto — completar NITs en los asientos afectados.",
+            empresa_id, anio, lineas_omitidas, valor_omitido,
+        )
+
     return Formato1001Response(
         anio=anio,
         empresa_id=empresa_id,
@@ -199,6 +226,8 @@ async def _build_1001(empresa_id: int, empresa_nit: Optional[str], anio: int, db
         total_retefuente=total_retefuente,
         total_reteiva=total_reteiva,
         total_reteica=total_reteica,
+        lineas_omitidas_sin_nit=lineas_omitidas,
+        valor_omitido_sin_nit=valor_omitido,
         filas=filas,
     )
 
@@ -387,6 +416,8 @@ class ResumenDIANResponse(BaseModel):
     empresa_id: int
     f1001_registros: int
     f1001_total_pagos: Decimal
+    f1001_lineas_omitidas_sin_nit: int = 0
+    f1001_valor_omitido_sin_nit: Decimal = Decimal("0")
     f1007_registros: int
     f1007_total_ingresos: Decimal
     f1008_registros: int
@@ -410,6 +441,8 @@ async def resumen_dian(
         empresa_id=empresa.id,
         f1001_registros=f1001.total_registros,
         f1001_total_pagos=f1001.total_pagos,
+        f1001_lineas_omitidas_sin_nit=f1001.lineas_omitidas_sin_nit,
+        f1001_valor_omitido_sin_nit=f1001.valor_omitido_sin_nit,
         f1007_registros=f1007.total_registros,
         f1007_total_ingresos=f1007.total_ingresos,
         f1008_registros=f1008.total_registros,

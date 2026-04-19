@@ -15,6 +15,8 @@ interface Resumen {
     anio: number;
     f1001_registros: number;
     f1001_total_pagos: string;
+    f1001_lineas_omitidas_sin_nit?: number;
+    f1001_valor_omitido_sin_nit?: string;
     f1007_registros: number;
     f1007_total_ingresos: string;
     f1008_registros: number;
@@ -118,6 +120,17 @@ export default function MediosMagneticosPage() {
             </div>
 
             {error && <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-rose-800 text-sm">{error}</div>}
+
+            {/* Aviso de integridad: líneas 1001 sin NIT — reporte incompleto */}
+            {resumen && (resumen.f1001_lineas_omitidas_sin_nit ?? 0) > 0 && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-900 text-sm">
+                    <strong>Atención — Formato 1001 incompleto:</strong>{' '}
+                    {resumen.f1001_lineas_omitidas_sin_nit} línea(s) contable(s) por{' '}
+                    {formatCOP(resumen.f1001_valor_omitido_sin_nit ?? '0')} se omitieron por
+                    falta de NIT del tercero. Complete esos NITs en los asientos para que
+                    el reporte DIAN quede íntegro.
+                </div>
+            )}
 
             {/* Año */}
             <div className="bg-white rounded-xl border shadow-sm p-4 flex items-end gap-3">
