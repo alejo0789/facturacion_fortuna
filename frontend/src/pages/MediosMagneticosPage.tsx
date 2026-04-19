@@ -8,7 +8,8 @@
  *   - /1008?anio=&formato=json|csv
  */
 import { useCallback, useEffect, useState } from 'react';
-import { apiGet, API_URL, ApiError } from '../utils/apiClient';
+import { apiGet, apiFetch, ApiError } from '../utils/apiClient';
+import { formatCOP } from '../utils/format';
 
 interface Resumen {
     anio: number;
@@ -24,11 +25,6 @@ interface FilaGenerica {
     numero_identificacion: string;
     nombre_tercero?: string | null;
     [k: string]: unknown;
-}
-
-function fmtMoney(v: string | number): string {
-    const n = typeof v === 'string' ? Number(v) : v;
-    return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n || 0);
 }
 
 type FormatoActivo = '1001' | '1007' | '1008';
@@ -71,11 +67,11 @@ export default function MediosMagneticosPage() {
     useEffect(() => { void loadFormato(); }, [loadFormato]);
 
     const descargarCSV = async () => {
-        const resp = await fetch(`${API_URL}/api/dian/medios-magneticos/${formato}?anio=${anio}&formato=csv`, {
-            headers: {
-                Authorization: `Bearer ${localStorage.getItem('access_token') ?? ''}`,
-                'X-Empresa-Id': localStorage.getItem('empresa_activa_id') ?? '',
-            },
+        // Usa apiFetch para que el interceptor global inyecte Authorization
+        // y X-Empresa-Id desde el AuthContext.
+        const resp = await apiFetch(`/api/dian/medios-magneticos/${formato}`, {
+            method: 'GET',
+            params: { anio, formato: 'csv' },
         });
         if (!resp.ok) {
             setError(`Error ${resp.status} al descargar CSV`);
@@ -138,17 +134,17 @@ export default function MediosMagneticosPage() {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                     <div className="bg-white rounded-xl border shadow-sm p-4">
                         <div className="text-xs uppercase tracking-wide text-slate-500">Formato 1001 — Pagos</div>
-                        <div className="text-2xl font-bold text-slate-900 mt-1">{fmtMoney(resumen.f1001_total_pagos)}</div>
+                        <div className="text-2xl font-bold text-slate-900 mt-1">{formatCOP(resumen.f1001_total_pagos)}</div>
                         <div className="text-xs text-slate-500 mt-1">{resumen.f1001_registros} terceros</div>
                     </div>
                     <div className="bg-white rounded-xl border shadow-sm p-4">
                         <div className="text-xs uppercase tracking-wide text-slate-500">Formato 1007 — Ingresos</div>
-                        <div className="text-2xl font-bold text-slate-900 mt-1">{fmtMoney(resumen.f1007_total_ingresos)}</div>
+                        <div className="text-2xl font-bold text-slate-900 mt-1">{formatCOP(resumen.f1007_total_ingresos)}</div>
                         <div className="text-xs text-slate-500 mt-1">{resumen.f1007_registros} terceros</div>
                     </div>
                     <div className="bg-white rounded-xl border shadow-sm p-4">
                         <div className="text-xs uppercase tracking-wide text-slate-500">Formato 1008 — CxC</div>
-                        <div className="text-2xl font-bold text-slate-900 mt-1">{fmtMoney(resumen.f1008_total_cxc)}</div>
+                        <div className="text-2xl font-bold text-slate-900 mt-1">{formatCOP(resumen.f1008_total_cxc)}</div>
                         <div className="text-xs text-slate-500 mt-1">{resumen.f1008_registros} terceros</div>
                     </div>
                 </div>
@@ -171,6 +167,7 @@ export default function MediosMagneticosPage() {
                     </button>
                 </div>
 
+                <div className="overflow-x-auto">
                 <table className="min-w-full text-sm">
                     <thead className="bg-slate-50 border-b">
                         <tr>
@@ -194,7 +191,7 @@ export default function MediosMagneticosPage() {
                                     const v = f[c.key];
                                     return (
                                         <td key={c.key} className={`px-4 py-2 ${c.money ? 'text-right font-mono' : ''}`}>
-                                            {c.money ? fmtMoney(v as string) : (v as string)}
+                                            {c.money ? formatCOP(v as string) : (v as string)}
                                         </td>
                                     );
                                 })}
@@ -202,6 +199,7 @@ export default function MediosMagneticosPage() {
                         ))}
                     </tbody>
                 </table>
+                </div>
             </div>
         </div>
     );
