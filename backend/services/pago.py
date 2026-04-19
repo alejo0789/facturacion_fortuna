@@ -117,7 +117,10 @@ async def crear_asiento_pago_factura(
         DÉBITO   Proveedores (220505)  valor_pagado
         CRÉDITO  Banco (111005 default) valor_pagado
 
-    No hace commit — el caller decide.
+    No hace commit — el caller decide. La construcción se envuelve en un
+    SAVEPOINT (`begin_nested`) para garantizar atomicidad: si algún flush
+    falla, el asiento completo (cabecera + ambas líneas) se revierte como
+    unidad sin dejar cabecera huérfana.
     """
     if valor_pagado is None or Decimal(valor_pagado) <= 0:
         raise ValueError("El valor pagado debe ser mayor a cero")
@@ -126,52 +129,53 @@ async def crear_asiento_pago_factura(
     if not cuenta_banco_codigo:
         cuenta_banco_codigo = await resolver_cuenta_banco_default(empresa_id, db)
 
-    # 2. Periodo contable
-    periodo = await _get_or_create_periodo(empresa_id, fecha_pago.year, fecha_pago.month, db)
-    if periodo.estado == "CERRADO":
-        raise ValueError(
-            f"El periodo {periodo.anio}-{periodo.mes:02d} está CERRADO. "
-            f"No se pueden registrar asientos."
+    async with db.begin_nested():
+        # 2. Periodo contable
+        periodo = await _get_or_create_periodo(empresa_id, fecha_pago.year, fecha_pago.month, db)
+        if periodo.estado == "CERRADO":
+            raise ValueError(
+                f"El periodo {periodo.anio}-{periodo.mes:02d} está CERRADO. "
+                f"No se pueden registrar asientos."
+            )
+
+        # 3. Número secuencial
+        numero = await _next_numero_asiento(empresa_id, periodo.id, db)
+
+        # 4. Cabecera del asiento
+        asiento = AsientoContable(
+            empresa_id=empresa_id,
+            periodo_id=periodo.id,
+            numero=numero,
+            fecha=fecha_pago,
+            descripcion=descripcion,
+            tipo="PAGO",
+            estado="BORRADOR",
+            factura_id=factura_id,
+            pago_id=pago_id,
+            created_by=user_id,
         )
+        db.add(asiento)
+        await db.flush()
 
-    # 3. Número secuencial
-    numero = await _next_numero_asiento(empresa_id, periodo.id, db)
+        # 5. DÉBITO: Proveedores (cancela la CxP generada en la causación)
+        db.add(LineaAsiento(
+            asiento_id=asiento.id,
+            cuenta_codigo=cuenta_proveedor_codigo,
+            nit_tercero=proveedor_nit,
+            debito=Decimal(valor_pagado),
+            credito=Decimal("0"),
+            detalle=descripcion,
+        ))
 
-    # 4. Cabecera del asiento
-    asiento = AsientoContable(
-        empresa_id=empresa_id,
-        periodo_id=periodo.id,
-        numero=numero,
-        fecha=fecha_pago,
-        descripcion=descripcion,
-        tipo="PAGO",
-        estado="BORRADOR",
-        factura_id=factura_id,
-        pago_id=pago_id,
-        created_by=user_id,
-    )
-    db.add(asiento)
-    await db.flush()
+        # 6. CRÉDITO: Banco (salida de dinero)
+        db.add(LineaAsiento(
+            asiento_id=asiento.id,
+            cuenta_codigo=cuenta_banco_codigo,
+            nit_tercero=proveedor_nit,
+            debito=Decimal("0"),
+            credito=Decimal(valor_pagado),
+            detalle=descripcion,
+        ))
 
-    # 5. DÉBITO: Proveedores (cancela la CxP generada en la causación)
-    db.add(LineaAsiento(
-        asiento_id=asiento.id,
-        cuenta_codigo=cuenta_proveedor_codigo,
-        nit_tercero=proveedor_nit,
-        debito=Decimal(valor_pagado),
-        credito=Decimal("0"),
-        detalle=descripcion,
-    ))
-
-    # 6. CRÉDITO: Banco (salida de dinero)
-    db.add(LineaAsiento(
-        asiento_id=asiento.id,
-        cuenta_codigo=cuenta_banco_codigo,
-        nit_tercero=proveedor_nit,
-        debito=Decimal("0"),
-        credito=Decimal(valor_pagado),
-        detalle=descripcion,
-    ))
-
-    await db.flush()
+        await db.flush()
     return asiento

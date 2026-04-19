@@ -102,87 +102,93 @@ async def crear_asiento_causacion_factura(
 
     Retorna el asiento creado (ya en db.flush() — no hace commit).
     El caller es responsable del commit/rollback.
+
+    La construcción del asiento se envuelve en un SAVEPOINT (`begin_nested`):
+    si algún flush falla en mitad (p.ej. violación de constraint en una línea)
+    se revierte TODO el asiento como unidad atómica, sin dejar cabecera huérfana
+    ni afectar cambios previos del caller en la misma sesión.
     """
-    # 1. Periodo contable
-    periodo = await _get_or_create_periodo(empresa_id, fecha_factura.year, fecha_factura.month, db)
-    if periodo.estado == "CERRADO":
-        raise ValueError(
-            f"El periodo {periodo.anio}-{periodo.mes:02d} está CERRADO. "
-            f"No se pueden registrar asientos."
+    async with db.begin_nested():
+        # 1. Periodo contable
+        periodo = await _get_or_create_periodo(empresa_id, fecha_factura.year, fecha_factura.month, db)
+        if periodo.estado == "CERRADO":
+            raise ValueError(
+                f"El periodo {periodo.anio}-{periodo.mes:02d} está CERRADO. "
+                f"No se pueden registrar asientos."
+            )
+
+        # 2. Cálculo de impuestos
+        impuestos = await calcular_impuestos(
+            empresa_id=empresa_id,
+            valor_total=valor_total,
+            tiene_iva=tiene_iva,
+            aplica_retefuente=aplica_retefuente,
+            proveedor_nit=proveedor_nit,
+            db=db,
         )
 
-    # 2. Cálculo de impuestos
-    impuestos = await calcular_impuestos(
-        empresa_id=empresa_id,
-        valor_total=valor_total,
-        tiene_iva=tiene_iva,
-        aplica_retefuente=aplica_retefuente,
-        proveedor_nit=proveedor_nit,
-        db=db,
-    )
+        # 3. Siguiente número
+        numero = await _next_numero_asiento(empresa_id, periodo.id, db)
 
-    # 3. Siguiente número
-    numero = await _next_numero_asiento(empresa_id, periodo.id, db)
+        # 4. Crear asiento
+        asiento = AsientoContable(
+            empresa_id=empresa_id,
+            periodo_id=periodo.id,
+            numero=numero,
+            fecha=fecha_factura,
+            descripcion=descripcion,
+            tipo="CAUSACION",
+            estado="BORRADOR",
+            factura_id=factura_id,
+            created_by=user_id,
+        )
+        db.add(asiento)
+        await db.flush()
 
-    # 4. Crear asiento
-    asiento = AsientoContable(
-        empresa_id=empresa_id,
-        periodo_id=periodo.id,
-        numero=numero,
-        fecha=fecha_factura,
-        descripcion=descripcion,
-        tipo="CAUSACION",
-        estado="BORRADOR",
-        factura_id=factura_id,
-        created_by=user_id,
-    )
-    db.add(asiento)
-    await db.flush()
-
-    # 5. Líneas
-    # DÉBITO: Gasto (valor base sin IVA)
-    db.add(LineaAsiento(
-        asiento_id=asiento.id,
-        cuenta_codigo=cuenta_gasto,
-        nit_tercero=proveedor_nit,
-        debito=impuestos["valor_base"],
-        credito=Decimal("0"),
-        detalle=descripcion,
-    ))
-
-    # DÉBITO: IVA descontable
-    if tiene_iva and impuestos["valor_iva"] > 0:
+        # 5. Líneas
+        # DÉBITO: Gasto (valor base sin IVA)
         db.add(LineaAsiento(
             asiento_id=asiento.id,
-            cuenta_codigo=cuenta_iva,
+            cuenta_codigo=cuenta_gasto,
             nit_tercero=proveedor_nit,
-            debito=impuestos["valor_iva"],
+            debito=impuestos["valor_base"],
             credito=Decimal("0"),
-            base_impuesto=impuestos["valor_base"],
-            detalle=f"IVA {impuestos['iva_rate']}% — {descripcion}",
+            detalle=descripcion,
         ))
 
-    # CRÉDITO: Retefuente por pagar
-    if aplica_retefuente and impuestos["valor_retefuente"] > 0:
+        # DÉBITO: IVA descontable
+        if tiene_iva and impuestos["valor_iva"] > 0:
+            db.add(LineaAsiento(
+                asiento_id=asiento.id,
+                cuenta_codigo=cuenta_iva,
+                nit_tercero=proveedor_nit,
+                debito=impuestos["valor_iva"],
+                credito=Decimal("0"),
+                base_impuesto=impuestos["valor_base"],
+                detalle=f"IVA {impuestos['iva_rate']}% — {descripcion}",
+            ))
+
+        # CRÉDITO: Retefuente por pagar
+        if aplica_retefuente and impuestos["valor_retefuente"] > 0:
+            db.add(LineaAsiento(
+                asiento_id=asiento.id,
+                cuenta_codigo=cuenta_retefuente,
+                nit_tercero=proveedor_nit,
+                debito=Decimal("0"),
+                credito=impuestos["valor_retefuente"],
+                base_impuesto=impuestos["valor_base"],
+                detalle=f"Retefuente {impuestos['retefuente_pct']}% — {descripcion}",
+            ))
+
+        # CRÉDITO: Proveedores por pagar (valor neto)
         db.add(LineaAsiento(
             asiento_id=asiento.id,
-            cuenta_codigo=cuenta_retefuente,
+            cuenta_codigo=cuenta_proveedor,
             nit_tercero=proveedor_nit,
             debito=Decimal("0"),
-            credito=impuestos["valor_retefuente"],
-            base_impuesto=impuestos["valor_base"],
-            detalle=f"Retefuente {impuestos['retefuente_pct']}% — {descripcion}",
+            credito=impuestos["valor_neto"],
+            detalle=descripcion,
         ))
 
-    # CRÉDITO: Proveedores por pagar (valor neto)
-    db.add(LineaAsiento(
-        asiento_id=asiento.id,
-        cuenta_codigo=cuenta_proveedor,
-        nit_tercero=proveedor_nit,
-        debito=Decimal("0"),
-        credito=impuestos["valor_neto"],
-        detalle=descripcion,
-    ))
-
-    await db.flush()
+        await db.flush()
     return asiento
