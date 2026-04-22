@@ -426,10 +426,13 @@ async def get_facturas(db: AsyncSession, skip: int = 0, limit: int = 100,
     return result.scalars().all()
 
 
-async def get_facturas_status_counts(db: AsyncSession, allowed_categoria_ids: Optional[List[int]] = None):
+async def get_facturas_status_counts(db: AsyncSession, allowed_categoria_ids: Optional[List[int]] = None, categoria_id: Optional[int] = None):
     """Get counts of facturas by status efficiently"""
     query = select(models.Factura.estado, func.count(models.Factura.id))
     
+    if categoria_id:
+        query = query.filter(models.Factura.categoria_id == categoria_id)
+        
     if allowed_categoria_ids is not None:
         if len(allowed_categoria_ids) > 0:
             query = query.filter(models.Factura.categoria_id.in_(allowed_categoria_ids))
@@ -447,7 +450,7 @@ async def get_facturas_status_counts(db: AsyncSession, allowed_categoria_ids: Op
         'PAGADA': counts.get('PAGADA', 0)
     }
 
-async def get_facturas_status_counts_mes(db: AsyncSession, year: int, month: int, allowed_categoria_ids: Optional[List[int]] = None):
+async def get_facturas_status_counts_mes(db: AsyncSession, year: int, month: int, allowed_categoria_ids: Optional[List[int]] = None, categoria_id: Optional[int] = None):
     """Get counts of facturas by status for a specific month, filtered by status_updated_at.
     Uses COALESCE(status_updated_at, created_at) so invoices that never changed state
     are counted by their creation date.
@@ -461,6 +464,9 @@ async def get_facturas_status_counts_mes(db: AsyncSession, year: int, month: int
             extract('month', fecha_ref) == month,
         )
     )
+
+    if categoria_id:
+        query = query.filter(models.Factura.categoria_id == categoria_id)
 
     if allowed_categoria_ids is not None:
         if len(allowed_categoria_ids) > 0:
