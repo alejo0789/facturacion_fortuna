@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import type { Proveedor } from '../types';
 import Modal, { FormField, inputClassName } from './Modal';
+import { apiFetch, apiPost, apiGet } from '../utils/apiClient';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
@@ -82,16 +83,13 @@ export default function UploadFacturaModal({ isOpen, onClose, onSuccess }: Uploa
             }
 
             try {
-                const res = await fetch(`${API_URL}/proveedores/?limit=100`);
-                if (res.ok) {
-                    const data: Proveedor[] = await res.json();
-                    const searchTerm = formData.proveedor_nit.toLowerCase();
-                    const filtered = data.filter(p =>
-                        p.nit.toLowerCase().includes(searchTerm) ||
-                        p.nombre.toLowerCase().includes(searchTerm)
-                    );
-                    setProveedores(filtered);
-                }
+                const data = await apiGet<Proveedor[]>(`/proveedores/`, { limit: 100 });
+                const searchTerm = formData.proveedor_nit.toLowerCase();
+                const filtered = data.filter(p =>
+                    p.nit.toLowerCase().includes(searchTerm) ||
+                    p.nombre.toLowerCase().includes(searchTerm)
+                );
+                setProveedores(filtered);
             } catch (e) {
                 console.error('Error searching proveedores:', e);
             }
@@ -178,9 +176,9 @@ export default function UploadFacturaModal({ isOpen, onClose, onSuccess }: Uploa
 
             // Determine endpoint based on file type
             const isZip = selectedFile.name.toLowerCase().endsWith('.zip');
-            const endpoint = isZip ? `${API_URL}/facturas/upload-zip` : `${API_URL}/facturas/upload-pdf`;
+            const endpoint = isZip ? `/facturas/upload-zip` : `/facturas/upload-pdf`;
 
-            const res = await fetch(endpoint, {
+            const res = await apiFetch(endpoint, {
                 method: 'POST',
                 body: formDataObj
             });
@@ -241,27 +239,21 @@ export default function UploadFacturaModal({ isOpen, onClose, onSuccess }: Uploa
                 observaciones: formData.observaciones || undefined
             };
 
-            const res = await fetch(`${API_URL}/facturas/`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body)
-            });
+            const factura = await apiPost<any>(`/facturas/`, body);
 
-            if (res.ok) {
-                const factura = await res.json();
-                setResult({
-                    ok: true,
-                    message: 'Factura creada correctamente',
-                    factura_id: factura.id,
-                    factura: {
-                        id: factura.id,
-                        numero_factura: factura.numero_factura,
-                        proveedor_nombre: factura.proveedor?.nombre,
-                        proveedor_nit: factura.proveedor?.nit,
-                        valor: factura.valor,
-                        estado: factura.estado
-                    }
-                });
+            setResult({
+                ok: true,
+                message: 'Factura creada correctamente',
+                factura_id: factura.id,
+                factura: {
+                    id: factura.id,
+                    numero_factura: factura.numero_factura,
+                    proveedor_nombre: factura.proveedor?.nombre,
+                    proveedor_nit: factura.proveedor?.nit,
+                    valor: factura.valor,
+                    estado: factura.estado
+                }
+            });
 
                 setTimeout(() => {
                     onSuccess();
