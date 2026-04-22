@@ -621,31 +621,45 @@ async def get_report_stats(
     allowed_categoria_ids = None
     user_id_int = int(x_user_id) if x_user_id else None
     rol_id_int = int(x_user_rol_id) if x_user_rol_id else None
-    if not is_super_admin(x_user_email, user_id_int, rol_id_int):
-        allowed_categoria_ids = await get_user_categoria_ids(db, rol_id=x_user_rol_id, email=x_user_email)
+    is_admin = is_super_admin(x_user_email, user_id_int, rol_id_int)
+    
+    # If not admin, get the categories this user is allowed to see
+    if not is_admin:
+        allowed_categoria_ids = await get_user_categoria_ids(db, rol_id=rol_id_int, email=x_user_email)
         # If user specifies a category, ensure they have access to it
-        if categoria_id and categoria_id not in allowed_categoria_ids:
+        if categoria_id and allowed_categoria_ids is not None and int(categoria_id) not in allowed_categoria_ids:
             return {
                 "año": año or datetime.now().year,
                 "resumen": {
-                    "total_facturado": 0, 
-                    "total_facturas": 0, 
-                    "proveedores_facturados": 0, 
+                    "total_facturado": 0,
+                    "total_facturas": 0,
+                    "proveedores_facturados": 0,
                     "contratos_activos": 0
                 },
-                "facturacion_mensual": [], 
-                "top_proveedores": [], 
-                "facturacion_por_tipo": [], 
+                "facturacion_mensual": [],
+                "top_proveedores": [],
+                "facturacion_por_tipo": [],
                 "facturacion_por_area": []
             }
-    
-    # Function to apply category filter to any query
+
+    # Internal helper to apply category filter to any query
     def apply_cat_filter(q, model_class=models.Factura):
+        # 1. Super Admin sees EVERYTHING (no filter) unless they explicitly selected one category
+        if is_admin:
+            if categoria_id:
+                return q.filter(model_class.categoria_id == int(categoria_id))
+            return q
+            
+        # 2. Regular users are restricted to their allowed categories
         if categoria_id:
-            return q.filter(model_class.categoria_id == categoria_id)
+            # They already passed the check above, so we can filter by the requested one
+            return q.filter(model_class.categoria_id == int(categoria_id))
+        
+        # If they didn't pick one, show all their allowed categories
         if allowed_categoria_ids is not None:
             return q.filter(model_class.categoria_id.in_(allowed_categoria_ids))
-        return q
+            
+        return q.filter(models.False_()) # Security fallback: show nothing if not admin and no allowed categories
     
     # Use current year if not specified
     target_year = año or datetime.now().year
