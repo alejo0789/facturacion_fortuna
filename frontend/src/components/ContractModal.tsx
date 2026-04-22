@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Contrato, Proveedor, Oficina } from '../types';
+import type { Categoria } from '../types/auth';
+import { useAuth } from '../contexts/AuthContext';
 import Modal, { FormField, inputClassName } from './Modal';
 import { apiGet, apiPost, apiPut, apiDelete } from '../utils/apiClient';
 
@@ -215,23 +217,58 @@ export default function ContractModal({ isOpen, onClose, onSave, contract }: Con
         valor_mensual: 0,
         tiene_iva: 'no',
         tiene_retefuente: 'no',
-        retefuente_pct: undefined
+        retefuente_pct: undefined,
+        categoria_id: undefined
     });
+
+    const { isSuperAdmin } = useAuth();
+    const [categorias, setCategorias] = useState<Categoria[]>([]);
+    const [loadingCats, setLoadingCats] = useState(false);
 
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [fileError, setFileError] = useState<string>('');
     const [uploading, setUploading] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
+    // Load categories
+    useEffect(() => {
+        if (isOpen) {
+            const fetchCats = async () => {
+                setLoadingCats(true);
+                try {
+                    const endpoint = isSuperAdmin ? '/categorias/' : '/categorias/mis-categorias';
+                    const data = await apiGet<Categoria[]>(endpoint);
+                    setCategorias(data);
+                    
+                    // If not super admin and creating new contract, auto-set the only available category
+                    if (!isSuperAdmin && !contract && data.length > 0) {
+                        setFormData(prev => ({ ...prev, categoria_id: data[0].id }));
+                    }
+                } catch (err) {
+                    console.error("Error fetching categories", err);
+                } finally {
+                    setLoadingCats(false);
+                }
+            };
+            fetchCats();
+        }
+    }, [isOpen, isSuperAdmin, contract]);
+
     useEffect(() => {
         if (contract) {
             setFormData(contract);
         } else {
-            setFormData({ proveedor_id: 0, oficina_id: 0, estado: 'ACTIVO', valor_mensual: 0 });
+            setFormData({ 
+                proveedor_id: 0, 
+                oficina_id: 0, 
+                estado: 'ACTIVO', 
+                valor_mensual: 0,
+                categoria_id: !isSuperAdmin && categorias.length > 0 ? categorias[0].id : undefined
+            });
         }
         setSelectedFile(null);
         setFileError('');
-    }, [contract, isOpen]);
+    }, [contract, isOpen, isSuperAdmin, categorias]);
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -446,6 +483,27 @@ export default function ContractModal({ isOpen, onClose, onSave, contract }: Con
                             <option value="COLABORACION">Colaboración</option>
                             <option value="LEASING">Leasing</option>
                         </select>
+                    </FormField>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                    <FormField label="Categoría" required={!isSuperAdmin}>
+                        <select
+                            className={`${inputClassName} ${!isSuperAdmin ? 'bg-slate-800 cursor-not-allowed opacity-80' : ''}`}
+                            value={formData.categoria_id || ''}
+                            onChange={e => setFormData({ ...formData, categoria_id: e.target.value ? Number(e.target.value) : undefined })}
+                            disabled={!isSuperAdmin}
+                        >
+                            <option value="">{loadingCats ? 'Cargando...' : 'Seleccionar categoría...'}</option>
+                            {categorias.map(cat => (
+                                <option key={cat.id} value={cat.id}>
+                                    {cat.nombre}
+                                </option>
+                            ))}
+                        </select>
+                        {!isSuperAdmin && (
+                            <p className="text-[10px] text-indigo-400 mt-1">Tu categoría se asigna automáticamente.</p>
+                        )}
                     </FormField>
                 </div>
 

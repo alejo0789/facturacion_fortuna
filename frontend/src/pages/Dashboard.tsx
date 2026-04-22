@@ -3,7 +3,7 @@ import type { Contrato } from '../types';
 import ContractModal from '../components/ContractModal';
 import { formatCOP } from '../utils/format';
 import { useAuth } from '../contexts/AuthContext';
-import { apiGet } from '../utils/apiClient';
+import { apiGet, apiPut, apiDelete } from '../utils/apiClient';
 import type { Categoria } from '../types/auth';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
