@@ -923,12 +923,23 @@ async def get_report_stats(
 @router.get("/reportes/contratos-por-nit/{nit}")
 async def get_contratos_by_nit(
     nit: str,
+    x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
+    x_user_id: Optional[str] = Header(None, alias="X-User-Id"),
+    x_user_rol_id: Optional[str] = Header(None, alias="X-User-Rol-Id"),
     db: AsyncSession = Depends(get_db)
 ):
     """
     Get all contracts for a provider by their NIT.
     Returns: num_contrato, valor, cod_oficina, nombre_oficina, direccion, ciudad
     """
+    from routers.categorias import is_super_admin, get_user_categoria_ids
+    
+    # RBAC filtering
+    allowed_categoria_ids = None
+    user_id_int = int(x_user_id) if x_user_id else None
+    rol_id_int = int(x_user_rol_id) if x_user_rol_id else None
+    if not is_super_admin(x_user_email, user_id_int, rol_id_int):
+        allowed_categoria_ids = await get_user_categoria_ids(db, rol_id=rol_id_int, email=x_user_email)
     # First find the provider by NIT (allow partial match)
     proveedor_result = await db.execute(
         select(models.Proveedor).filter(models.Proveedor.nit.like(f"{nit}%"))
@@ -943,13 +954,17 @@ async def get_contratos_by_nit(
         }
     
     # Get all contracts for this provider with office information
-    contratos_result = await db.execute(
+    query = (
         select(models.Contrato)
         .options(selectinload(models.Contrato.oficina))
         .filter(models.Contrato.proveedor_id == proveedor.id)
         .filter(models.Contrato.estado != 'CANCELADO')
-        .order_by(models.Contrato.id)
     )
+    
+    if allowed_categoria_ids is not None:
+        query = query.filter(models.Contrato.categoria_id.in_(allowed_categoria_ids))
+        
+    contratos_result = await db.execute(query.order_by(models.Contrato.id))
     contratos = contratos_result.scalars().all()
     
     # Build simplified response
