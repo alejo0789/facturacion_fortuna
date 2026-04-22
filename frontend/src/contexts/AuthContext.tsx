@@ -53,26 +53,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             
             // Try to extract email from notificaciones or flat email field
             const userEmail = userObj.notificaciones?.data || userObj.email || '';
-            const isLocalDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || import.meta.env.DEV;
+            
+            // SECURITY FIX: Only trust explicit email list OR the role name from the identity
+            const isEmailAdmin = SUPER_ADMIN_EMAILS.includes(userEmail);
+            const isRoleAdmin = rolNombre === 'Super Admin' || userObj.rol?.name === 'Super Admin';
             
             setState({
                 user: identity,
                 isAuthenticated: true,
-                isSuperAdmin: isLocalDev || SUPER_ADMIN_EMAILS.includes(userEmail),
+                isSuperAdmin: isEmailAdmin || isRoleAdmin,
                 userId,
                 rolId,
                 rolNombre,
                 loading: false
             });
         } else {
-            // Default to super admin for localhost development when no identity exists
+            // When no identity exists, the user is NOT authenticated and definitely NOT an admin
             setState({
-                user: null,
-                isAuthenticated: true,
-                isSuperAdmin: true,  // Default super admin for dev
-                userId: null,
-                rolId: null,
-                rolNombre: 'Super Admin (Dev)',
+                ...defaultAuthState,
                 loading: false
             });
         }
