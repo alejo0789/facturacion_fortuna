@@ -299,14 +299,18 @@ async def create_factura_con_oficinas(
         categoria_id = request.categoria_id
         email_to_check = request.remitente_email or x_user_email
         
-        if not categoria_id and email_to_check:
+        # If categoria_id is not provided or invalid (0), try to detect via email
+        if (not categoria_id or categoria_id <= 0) and email_to_check:
             from routers.categorias import get_user_categoria_ids
             # Try to automatically assign category based on the sender's email
             cat_ids = await get_user_categoria_ids(db, email=email_to_check.strip())
             if cat_ids:
                 categoria_id = cat_ids[0]
                 datos_guardados["categoria_autodetectada_por_email"] = True
+                datos_guardados["email_usado_para_cat"] = email_to_check.strip()
                 datos_guardados["categoria_id"] = categoria_id
+            else:
+                warnings.append(f"No se encontró categoría para el correo: {email_to_check}")
         
         # Step 2: Create factura
         try:
