@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { Contrato, Oficina } from '../types';
 import { formatCOP } from '../utils/format';
+import { getAuthHeaders } from '../utils/apiClient';
+import { useLocation } from 'react-router-dom';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
@@ -18,11 +20,23 @@ export default function PendientesPorLlegarPage() {
     const [showOficinaSuggestions, setShowOficinaSuggestions] = useState(false);
 
     const navigate = useNavigate();
+    const location = useLocation();
+    
+    // Get categoria_id from URL
+    const queryParams = new URLSearchParams(location.search);
+    const categoriaId = queryParams.get('categoria_id');
 
     const fetchPendientes = async () => {
         setLoading(true);
         try {
-            const res = await fetch(`${API_URL}/facturas/stats/contratos-pendientes`);
+            let url = `${API_URL}/facturas/stats/contratos-pendientes`;
+            if (categoriaId) {
+                url += `?categoria_id=${categoriaId}`;
+            }
+            
+            const res = await fetch(url, {
+                headers: getAuthHeaders()
+            });
             if (res.ok) {
                 setContratos(await res.json());
             }

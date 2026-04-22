@@ -1334,7 +1334,12 @@ export default function FacturasPage() {
 
                             {/* Pendientes por llegar - navigate to dedicated page */}
                             <button
-                                onClick={() => navigate('/facturas/pendientes')}
+                                onClick={() => {
+                                    const url = filterCategoriaId 
+                                        ? `/facturas/pendientes?categoria_id=${filterCategoriaId}` 
+                                        : '/facturas/pendientes';
+                                    navigate(url);
+                                }}
                                 className="bg-red-50 border border-red-200 rounded-lg px-4 py-2 text-center hover:bg-red-100 transition-colors"
                             >
                                 <div className="text-2xl font-bold text-red-700">{stats.pendientes_por_llegar}</div>

@@ -907,9 +907,10 @@ async def resumen_facturas(
 
 @router.get("/facturas/stats/contratos-pendientes", response_model=List[schemas.Contrato])
 async def list_missing_contracts(
+    categoria_id: Optional[int] = Query(None),
     x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
-    x_user_id: Optional[int] = Header(None, alias="X-User-Id"),
-    x_user_rol_id: Optional[int] = Header(None, alias="X-User-Rol-Id"),
+    x_user_id: Optional[str] = Header(None, alias="X-User-Id"),
+    x_user_rol_id: Optional[str] = Header(None, alias="X-User-Rol-Id"),
     db: AsyncSession = Depends(get_db)
 ):
     """List contracts that have not sent an invoice in the current month"""
@@ -920,10 +921,24 @@ async def list_missing_contracts(
     
     # RBAC filtering
     allowed_categoria_ids = None
-    if not is_super_admin(x_user_email, x_user_id):
-        allowed_categoria_ids = await get_user_categoria_ids(db, rol_id=x_user_rol_id, email=x_user_email)
+    user_id_int = int(x_user_id) if x_user_id else None
+    rol_id_int = int(x_user_rol_id) if x_user_rol_id else None
+    is_admin = is_super_admin(x_user_email, user_id_int, rol_id_int)
+
+    if not is_admin:
+        allowed_categoria_ids = await get_user_categoria_ids(db, rol_id=rol_id_int, email=x_user_email)
+        # If category specified, ensure access
+        if categoria_id and (allowed_categoria_ids is None or int(categoria_id) not in allowed_categoria_ids):
+            return []
+
+    # Final category filter
+    final_categoria_id = int(categoria_id) if categoria_id else None
         
-    return await crud.get_contratos_pendientes_por_llegar(db, today.year, today.month, allowed_categoria_ids=allowed_categoria_ids)
+    return await crud.get_contratos_pendientes_por_llegar(
+        db, today.year, today.month, 
+        allowed_categoria_ids=allowed_categoria_ids,
+        categoria_id=final_categoria_id
+    )
 
 
 # --- Manual Invoice Upload ---
