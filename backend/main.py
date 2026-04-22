@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 from contextlib import asynccontextmanager
 from database import engine, Base
-from routers import contracts, payments, facturas, consolidado, reportes, oficinas_oracle, archivo_plano, feedback, categorias
+from routers import contracts, payments, pagos, facturas, consolidado, reportes, oficinas_oracle, archivo_plano, feedback, categorias, asistente
 from middleware.auth import APIKeyMiddleware
 
 @asynccontextmanager
@@ -27,7 +27,9 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",
+        "http://localhost:5174",
         "http://192.168.2.91:5173",
+        "http://192.168.2.91:5174",
         "https://saman.lafortuna.com.co",
         "http://saman.lafortuna.com.co"
     ],
@@ -40,12 +42,14 @@ app.add_middleware(
 app.include_router(categorias.router, prefix="/api/categorias", tags=["categorias"])
 app.include_router(contracts.router, prefix="/api", tags=["contratos"])
 app.include_router(payments.router, prefix="/api", tags=["pagos"])
+app.include_router(pagos.router, prefix="/api", tags=["pagos-modulo"])
 app.include_router(facturas.router, prefix="/api", tags=["facturas"])
 app.include_router(consolidado.router, prefix="/api", tags=["consolidado"])
 app.include_router(reportes.router, prefix="/api", tags=["reportes"])
 app.include_router(oficinas_oracle.router, prefix="/api", tags=["oficinas-oracle"])
 app.include_router(archivo_plano.router, prefix="/api", tags=["archivo-plano"])
 app.include_router(feedback.router, prefix="/api", tags=["feedback"])
+app.include_router(asistente.router, prefix="/api", tags=["asistente"])
 
 @app.get("/")
 def read_root():

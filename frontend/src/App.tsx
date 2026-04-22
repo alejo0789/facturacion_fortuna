@@ -11,6 +11,7 @@ import FacturasPage from './pages/FacturasPage';
 import ReportesPage from './pages/ReportesPage';
 import PendientesPorLlegarPage from './pages/PendientesPorLlegarPage';
 import CategoriasAdminPage from './pages/CategoriasAdminPage';
+import AsistenteBuscadorPage from './pages/AsistenteBuscadorPage';
 
 function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -33,6 +34,7 @@ function App() {
               <Route path="/facturas" element={<FacturasPage />} />
               <Route path="/facturas/pendientes" element={<PendientesPorLlegarPage />} />
               <Route path="/reportes" element={<ReportesPage />} />
+              <Route path="/asistente-buscador" element={<AsistenteBuscadorPage />} />
               <Route path="/admin/categorias" element={<CategoriasAdminPage />} />
             </Routes>
           </main>

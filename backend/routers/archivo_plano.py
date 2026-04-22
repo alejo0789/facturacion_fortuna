@@ -33,6 +33,7 @@ class OficinaArchivoPlano(BaseModel):
 
 class FacturaArchivoPlano(BaseModel):
     """Invoice with its offices for flat file generation"""
+    id: Optional[int] = None
     numero_factura: Optional[str] = None
     fecha_factura: Optional[date] = None  # For extracting month
     oficinas: List[OficinaArchivoPlano]
@@ -54,11 +55,27 @@ class ArchivoPlanoRequest(BaseModel):
 def clean_oficina_code(cod_oficina: str) -> str:
     """
     Remove internal suffix from office code if present.
-    Example: '001_INT_1' -> '001'
+    Example: '001_INT_1' -> '001', '107-1' -> '107'
     """
-    if "_INT_" in cod_oficina:
-        return cod_oficina.split("_INT_")[0]
-    return cod_oficina
+    if not cod_oficina:
+        return ""
+        
+    upper_cod = str(cod_oficina).upper().strip()
+    
+    # Rule 1: Remove _INT_ suffix
+    if "_INT_" in upper_cod:
+        idx = upper_cod.find("_INT_")
+        upper_cod = upper_cod[:idx]
+    
+    # Rule 2: Remove hyphens (sometimes local codes have sub-office suffix)
+    if "-" in upper_cod:
+        idx = upper_cod.find("-")
+        upper_cod = upper_cod[:idx]
+        
+    # Final check: Clean and ensure it's not too long for CHAR(10)
+    return upper_cod[:10].strip()
+        
+
 
 
 def extract_codigo_for_oracle(cod_oficina: str) -> str:
@@ -84,16 +101,20 @@ def extract_codigo_for_oracle(cod_oficina: str) -> str:
     else:
         return cod
 
+    return ""
+
 
 async def get_centro_costo(cod_oficina: str) -> str:
     """
     Call Oracle API to get centro de costo for an office.
     Returns the codigo_ccosto or empty string if not found.
+    Tries with truncated code first, then falls back to full cleaned code.
     """
     api_key = os.getenv("API_KEY", "")
     
     # helper uses clean_oficina_code internally
     codigo_busqueda = extract_codigo_for_oracle(cod_oficina)
+    codigo_completo = clean_oficina_code(cod_oficina.strip())
     
     # HARDCODED RULES for specific offices per user request
     if codigo_busqueda == "001":
@@ -103,6 +124,7 @@ async def get_centro_costo(cod_oficina: str) -> str:
     
     try:
         async with httpx.AsyncClient() as client:
+            # First attempt: partial code
             response = await client.get(
                 f"http://localhost:8000/api/oficinas-oracle/{codigo_busqueda}",
                 headers={"X-API-Key": api_key},
@@ -113,6 +135,21 @@ async def get_centro_costo(cod_oficina: str) -> str:
                 data = response.json()
                 if data.get("success") and data.get("data"):
                     return data["data"].get("codigo_ccosto", "").strip()
+            
+            # Second attempt: full code (if different)
+            if codigo_busqueda != codigo_completo:
+                print(f"Retrying with full code for {cod_oficina}: {codigo_completo}")
+                response = await client.get(
+                    f"http://localhost:8000/api/oficinas-oracle/{codigo_completo}",
+                    headers={"X-API-Key": api_key},
+                    timeout=10.0
+                )
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    if data.get("success") and data.get("data"):
+                        return data["data"].get("codigo_ccosto", "").strip()
+
     except Exception as e:
         print(f"Error getting centro costo for {cod_oficina}: {e}")
     
@@ -139,58 +176,53 @@ def get_month_name_spanish(d: date) -> str:
     return months.get(d.month, "")
 
 
-# --- Special Rules for Providers with Single Account (no 70%/30% split) ---
-# These providers use a single account instead of the 70%/30% split (61350513/61700360)
+def build_detalle(numero_factura: str, nombre_oficina: str, mes_factura: str, proveedor_nit: str, num_contrato: Optional[str] = None) -> str:
+    """Helper to build consistent detail strings with special rules for certain NITs"""
+    # Base observation (standard format)
+    base = f"FACT {numero_factura} SERVICIO DE INTERNET {nombre_oficina} MES {mes_factura}"
 
-# Movistar: NIT 830122566, contracts 10434167091 or 181161832 -> account 51209505
-MOVISTAR_NIT = "830122566"
-MOVISTAR_SPECIAL_CONTRACTS = ["10434167091", "181161832"]
-MOVISTAR_SINGLE_ACCOUNT = "51209505"
+    # NITs that include the contract number in the middle of the detail
+    nit_especiales = ["830114921", "830122566", "800153993", "891502163", "91502163", "900092385"]
+    if proveedor_nit in nit_especiales and num_contrato:
+        base = f"FACT {numero_factura}, Contrato {num_contrato}, SERVICIO DE INTERNET {nombre_oficina} MES {mes_factura}"
 
-# Media Commerce: NIT 819006966, ALL contracts -> account 51353503
-MEDIA_COMMERCE_NIT = "819006966"
-MEDIA_COMMERCE_SINGLE_ACCOUNT = "51353503"
+    # NIT 900971687 (Hughes): prefix with "REF <num_contrato>,"
+    if proveedor_nit == "900971687" and num_contrato:
+        return f"REF {num_contrato}, {base}"
 
-# --- Special Rules for DETALLE format ---
-# TIGO: NIT 830114921 -> "FACT {num}, Contrato {contrato}, SERVICIO DE INTERNET {oficina} MES {mes}"
-TIGO_NIT = "830114921"
+    return base
 
-# Providers with "Ref {contrato}" format: "Ref {contrato} FACT {num} SERVICIO DE INTERNET {oficina} MES {mes}"
-# Hughes: NIT 900971687
-# Claro: NIT 800153993
-# Movistar: NIT 830122566 (same as MOVISTAR_NIT above)
-HUGHES_NIT = "900971687"
-CLARO_NIT = "800153993"
 
-# List of all NITs that use "Ref {contrato}" format
-REF_CONTRATO_FORMAT_NITS = [HUGHES_NIT, CLARO_NIT, MOVISTAR_NIT]
+# --- Casos especiales: cuenta única (sin división 70/30) ---
+# Estructura de cada regla:
+#   "contratos": set de números de contrato específicos, o None para aplicar a TODOS los contratos
+#   "cuenta": cuenta contable donde va el 100% del valor base
+CUENTA_UNICA_REGLAS = {
+    # NIT 830122566: solo en contratos 10434167091 y 181161832 → cuenta 51209505
+    "830122566": {"contratos": {"10434167091", "181161832"}, "cuenta": "51209505"},
+    # NIT 819006966 (Medicommerce): todos los contratos → cuenta 51353503
+    "819006966": {"contratos": None, "cuenta": "51353503"},
+}
 
-def get_special_single_account(proveedor_nit: str, num_contrato: str) -> str:
+def get_cuenta_unica(proveedor_nit: str, num_contrato: Optional[str]) -> Optional[str]:
     """
-    Check if this provider/contract should use a single account instead of 70%/30% split.
-    
-    Returns:
-        str: The special account number to use, or None if standard 70%/30% split applies.
+    Returns the single account to use (100% of valor_base) if this NIT+contrato
+    combination requires it, or None if the normal 70/30 split applies.
+
+    Rules:
+    - If regla["contratos"] is None  -> applies to ALL contracts of that NIT.
+    - If regla["contratos"] is a set -> applies only when num_contrato is in that set.
     """
-    # Movistar: only specific contracts
-    if proveedor_nit == MOVISTAR_NIT:
-        if num_contrato and num_contrato.strip() in MOVISTAR_SPECIAL_CONTRACTS:
-            return MOVISTAR_SINGLE_ACCOUNT
-    
-    # Media Commerce: ALL contracts
-    if proveedor_nit == MEDIA_COMMERCE_NIT:
-        return MEDIA_COMMERCE_SINGLE_ACCOUNT
-    
+    regla = CUENTA_UNICA_REGLAS.get(proveedor_nit)
+    if not regla:
+        return None
+    contratos_especificos = regla["contratos"]
+    if contratos_especificos is None:
+        # Applies to all contracts (and even when there is no contract)
+        return regla["cuenta"]
+    if num_contrato and num_contrato.strip() in contratos_especificos:
+        return regla["cuenta"]
     return None
-
-
-def is_movistar_special_contract(proveedor_nit: str, num_contrato: str) -> bool:
-    """
-    DEPRECATED: Use get_special_single_account instead.
-    Kept for backwards compatibility.
-    """
-    return get_special_single_account(proveedor_nit, num_contrato) is not None
-
 
 
 def create_flat_file_row(
@@ -298,60 +330,66 @@ async def generate_rows_for_oficina(
     starting_row_index: int  # Excel row number to start (2, 3, 4...)
 ) -> tuple[List[list], int, dict]:
     """
-    Generate debit rows (70%/30%) for a single office.
-    
-    The 70%/30% is calculated on (valor / 1.19) if tiene_iva.
-    
+    Generate debit rows for a single office.
+
+    Normal case: splits valor_base 70% (cuenta 61350513) + 30% (cuenta 61700360).
+    Special case: NIT+contrato in CUENTA_UNICA_REGLAS → 100% to a single account (e.g. 51209505).
+
+    The base is calculated on (valor / 1.19) if tiene_iva.
+
     Returns:
         tuple: (list of rows, next_row_index, office_info for final rows)
     """
     rows = []
     current_row = starting_row_index
-    
+
     # Get centro de costo from Oracle
     ccosto_raw = await get_centro_costo(oficina.cod_oficina)
     ccosto = format_value(ccosto_raw) if ccosto_raw else ""
-    
+
     # Format values
     vinculado = format_value(proveedor_nit)
     destino = format_value(clean_oficina_code(oficina.cod_oficina))
-    
-    # Build DETALLE: FACT {num} SERVICIO DE INTERNET {oficina} MES {mes}
+
+    # Build DETALLE
     nombre_oficina = oficina.nombre_oficina or oficina.cod_oficina
     mes_factura = get_month_name_spanish(fecha_factura) if fecha_factura else ""
-    
-    # Special rules for DETALLE format by provider
-    if proveedor_nit == TIGO_NIT and oficina.num_contrato:
-        # TIGO: "FACT {num}, Contrato {contrato}, SERVICIO DE INTERNET {oficina} MES {mes}"
-        detalle = f"FACT {numero_factura}, Contrato {oficina.num_contrato}, SERVICIO DE INTERNET {nombre_oficina} MES {mes_factura}"
-    elif proveedor_nit in REF_CONTRATO_FORMAT_NITS and oficina.num_contrato:
-        # Hughes, Claro, Movistar: "Ref {contrato} FACT {num} SERVICIO DE INTERNET {oficina} MES {mes}"
-        detalle = f"Ref {oficina.num_contrato} FACT {numero_factura} SERVICIO DE INTERNET {nombre_oficina} MES {mes_factura}"
-    else:
-        # Default format
-        detalle = f"FACT {numero_factura} SERVICIO DE INTERNET {nombre_oficina} MES {mes_factura}"
-    
-    valor = float(oficina.valor)
-    
+
+    detalle = build_detalle(
+        numero_factura=numero_factura,
+        nombre_oficina=nombre_oficina,
+        mes_factura=mes_factura,
+        proveedor_nit=proveedor_nit,
+        num_contrato=oficina.num_contrato
+    )
+
+    valor = round(float(oficina.valor), 0)  # Valor total de la oficina (ENTERO)
+
     # Calculate base value (without IVA if applicable)
-    # If tiene_iva: valor includes IVA, so base = valor / 1.19
     if tiene_iva:
-        valor_base = round(valor / 1.19, 2)
-        valor_iva = round(valor - valor_base, 2)
+        if proveedor_nit == "901073256":
+            # REGLA ESPECIAL: T = B * 1.15 (Base + 19% IVA - 4% Rete)
+            # Bruto (B) = T / 1.15, IVA = B * 0.19
+            valor_base = round(valor / 1.15, 0)
+            valor_iva = round(valor_base * 0.19, 0)
+        else:
+            # Regla normal: Base = T / 1.19, IVA = T - Base
+            valor_base = round(valor / 1.19, 0)
+            valor_iva = round(valor - valor_base, 0)
     else:
         valor_base = valor
         valor_iva = 0
-    
-    # Check if this provider uses a single account instead of 70%/30% split
-    special_account = get_special_single_account(proveedor_nit, oficina.num_contrato)
-    
-    if special_account:
-        # Special providers: use single account with full base value
+
+    # Check if this NIT+contrato uses a single account instead of 70/30 split
+    cuenta_unica = get_cuenta_unica(proveedor_nit, oficina.num_contrato)
+
+    if cuenta_unica:
+        # Special case: 100% of valor_base to a single account
         rows.append(create_flat_file_row(
             row_index=current_row,
             numedoc=numedoc,
             fecha=fecha,
-            cuenta=format_value(special_account),
+            cuenta=format_value(cuenta_unica),
             vinculado=vinculado,
             ccosto=ccosto,
             destino=destino,
@@ -359,13 +397,13 @@ async def generate_rows_for_oficina(
             detalle=detalle
         ))
         current_row += 1
-        valor_70 = valor_base  # For office_info, use full value
+        valor_70 = valor_base  # For accumulator compatibility
         valor_30 = 0
     else:
-        # Standard: Split base value 70%/30%
-        valor_70 = round(valor_base * 0.70, 2)
-        valor_30 = round(valor_base * 0.30, 2)
-        
+        # Normal case: 70% + 30% split
+        valor_70 = round(valor_base * 0.70, 0)
+        valor_30 = round(valor_base - valor_70, 0)
+
         # Row 1: Account 61350513 - 70% (VALDEBI)
         rows.append(create_flat_file_row(
             row_index=current_row,
@@ -379,7 +417,7 @@ async def generate_rows_for_oficina(
             detalle=detalle
         ))
         current_row += 1
-        
+
         # Row 2: Account 61700360 - 30% (VALDEBI)
         rows.append(create_flat_file_row(
             row_index=current_row,
@@ -393,7 +431,7 @@ async def generate_rows_for_oficina(
             detalle=detalle
         ))
         current_row += 1
-    
+
     # Return office info for final rows
     office_info = {
         "ccosto": ccosto,
@@ -404,10 +442,10 @@ async def generate_rows_for_oficina(
         "valor_iva": valor_iva,
         "valor_70": valor_70,
         "valor_30": valor_30,
-        "detalle": detalle,  # For summary rows
+        "detalle": detalle,
         "num_contrato": oficina.num_contrato
     }
-    
+
     return rows, current_row, office_info
 
 
@@ -435,9 +473,15 @@ def create_final_summary_rows(
     vinculado = last_office_info["vinculado"]
     
     # Calculate retefuente based on percentage (0%, 4%, or 6%) - SOBRE VALOR BASE SIN IVA
-    valor_retefuente = round(total_valor_base * (porcentaje_retefuente / 100), 2) if porcentaje_retefuente > 0 else 0
+    # Round to integer as requested
+    if last_office_info.get("vinculado") == "901073256":
+        # NIT 901073256 fixed rules (4% Rete calculated on special base)
+        valor_retefuente = round(total_valor_base * 0.04, 0)
+    else:
+        valor_retefuente = round(total_valor_base * (porcentaje_retefuente / 100), 0) if porcentaje_retefuente > 0 else 0
     
     # Calculate balance: total debitos + IVA - retefuente
+    # Calculations are already integers or rounded to integers
     valor_balance = total_debitos + total_iva - valor_retefuente
     
     # Row: Account 24081003 - IVA total (VALDEBI) - only if tiene_iva
@@ -603,15 +647,9 @@ async def generar_archivo_plano(request: ArchivoPlanoRequest):
     buffer.seek(0)
     
     # Generate filename: PLANO-PROVEEDOR-MES.xlsx
-    # Use provider name (cleaned), and month from first invoice's fecha_factura
-    proveedor_nombre_clean = (request.proveedor_nombre or request.proveedor_nit).upper().replace(" ", "_")
-    # Get month from first invoice's fecha_factura, or fecha_causacion as fallback
-    mes_factura = ""
-    if request.facturas and request.facturas[0].fecha_factura:
-        mes_factura = get_month_name_spanish(request.facturas[0].fecha_factura)
-    elif fecha_causacion:
-        mes_factura = get_month_name_spanish(fecha_causacion)
-    filename = f"PLANO-{proveedor_nombre_clean}-{mes_factura}.xlsx"
+    mes_nombre = get_month_name_spanish(fecha_causacion)
+    proveedor_slug = (request.proveedor_nombre or request.proveedor_nit).upper().replace(" ", "-")
+    filename = f"PLANO-{proveedor_slug}-{mes_nombre}.xlsx"
     
     return StreamingResponse(
         buffer,
@@ -725,6 +763,7 @@ class CausacionRowPreview(BaseModel):
 
 class CausacionFacturaPreview(BaseModel):
     """Preview for a single factura"""
+    id: Optional[int] = None
     numero_factura: str
     numedoc: int
     rows: List[CausacionRowPreview]
@@ -786,35 +825,38 @@ async def preview_causacion_manager(request: CausacionManagerPreviewRequest):
             destino = clean_oficina_code(oficina.cod_oficina)
             nombre_oficina = oficina.nombre_oficina or oficina.cod_oficina
             mes_factura = get_month_name_spanish(factura.fecha_factura) if factura.fecha_factura else ""
-            # Special rules for DETALLE format by provider
-            if request.proveedor_nit == TIGO_NIT and oficina.num_contrato:
-                # TIGO: "FACT {num}, Contrato {contrato}, SERVICIO DE INTERNET {oficina} MES {mes}"
-                detalle = f"FACT {factura.numero_factura or ''}, Contrato {oficina.num_contrato}, SERVICIO DE INTERNET {nombre_oficina} MES {mes_factura}"
-            elif request.proveedor_nit in REF_CONTRATO_FORMAT_NITS and oficina.num_contrato:
-                # Hughes, Claro, Movistar: "Ref {contrato} FACT {num} SERVICIO DE INTERNET {oficina} MES {mes}"
-                detalle = f"Ref {oficina.num_contrato} FACT {factura.numero_factura or ''} SERVICIO DE INTERNET {nombre_oficina} MES {mes_factura}"
-            else:
-                # Default format
-                detalle = f"FACT {factura.numero_factura or ''} SERVICIO DE INTERNET {nombre_oficina} MES {mes_factura}"
             
-            valor = float(oficina.valor)
+            detalle = build_detalle(
+                numero_factura=factura.numero_factura or '',
+                nombre_oficina=nombre_oficina,
+                mes_factura=mes_factura,
+                proveedor_nit=request.proveedor_nit,
+                num_contrato=oficina.num_contrato
+            )
             
+            valor = round(float(oficina.valor), 0)
+
             # Calculate base value
             if request.tiene_iva:
-                valor_base = round(valor / 1.19, 2)
-                valor_iva = round(valor - valor_base, 2)
+                if request.proveedor_nit == "901073256":
+                    # REGLA ESPECIAL: Bruto (B) = T / 1.15, IVA = B * 0.19
+                    valor_base = round(valor / 1.15, 0)
+                    valor_iva = round(valor_base * 0.19, 0)
+                else:
+                    valor_base = round(valor / 1.19, 0)
+                    valor_iva = round(valor - valor_base, 0)
             else:
                 valor_base = valor
                 valor_iva = 0
-            
-            # Check if this provider uses a single account instead of 70%/30% split
-            special_account = get_special_single_account(request.proveedor_nit, oficina.num_contrato)
-            
-            if special_account:
-                # Special providers: use single account with full base value
+
+            # Check special single-account rule
+            cuenta_unica = get_cuenta_unica(request.proveedor_nit, oficina.num_contrato)
+
+            if cuenta_unica:
+                # Special case: 100% to single account
                 rows_preview.append(CausacionRowPreview(
                     row_num=row_counter,
-                    cuenta=special_account,
+                    cuenta=cuenta_unica,
                     tipo_movimiento="DEBITO",
                     ccosto=ccosto,
                     destino=destino,
@@ -824,10 +866,10 @@ async def preview_causacion_manager(request: CausacionManagerPreviewRequest):
                 row_counter += 1
                 factura_debitos += valor_base
             else:
-                # Standard: Split base value 70%/30%
-                valor_70 = round(valor_base * 0.70, 2)
-                valor_30 = round(valor_base * 0.30, 2)
-                
+                # Normal 70/30 split
+                valor_70 = round(valor_base * 0.70, 0)
+                valor_30 = round(valor_base - valor_70, 0)
+
                 # Row 1: Account 61350513 - 70% DEBITO
                 rows_preview.append(CausacionRowPreview(
                     row_num=row_counter,
@@ -840,7 +882,7 @@ async def preview_causacion_manager(request: CausacionManagerPreviewRequest):
                 ))
                 row_counter += 1
                 factura_debitos += valor_70
-                
+
                 # Row 2: Account 61700360 - 30% DEBITO
                 rows_preview.append(CausacionRowPreview(
                     row_num=row_counter,
@@ -865,7 +907,13 @@ async def preview_causacion_manager(request: CausacionManagerPreviewRequest):
             last_destino = clean_oficina_code(last_oficina.cod_oficina)
             last_nombre = last_oficina.nombre_oficina or last_oficina.cod_oficina
             last_mes = get_month_name_spanish(factura.fecha_factura) if factura.fecha_factura else ""
-            last_detalle = f"FACT {factura.numero_factura or ''} SERVICIO DE INTERNET {last_nombre} MES {last_mes}"
+            last_detalle = build_detalle(
+                numero_factura=factura.numero_factura or '',
+                nombre_oficina=last_nombre,
+                mes_factura=last_mes,
+                proveedor_nit=request.proveedor_nit,
+                num_contrato=last_oficina.num_contrato
+            )
         
         # IVA row (DEBITO)
         if request.tiene_iva and factura_iva > 0:
@@ -882,7 +930,10 @@ async def preview_causacion_manager(request: CausacionManagerPreviewRequest):
             factura_debitos += factura_iva
         
         # Retefuente row (CREDITO) - SOBRE VALOR BASE SIN IVA
-        valor_retefuente = round(factura_valor_base * (request.porcentaje_retefuente / 100), 2) if request.porcentaje_retefuente > 0 else 0
+        if request.proveedor_nit == "901073256":
+            valor_retefuente = round(factura_valor_base * 0.04, 0)
+        else:
+            valor_retefuente = round(factura_valor_base * (request.porcentaje_retefuente / 100), 0) if request.porcentaje_retefuente > 0 else 0
         if valor_retefuente > 0:
             rows_preview.append(CausacionRowPreview(
                 row_num=row_counter,
@@ -910,6 +961,7 @@ async def preview_causacion_manager(request: CausacionManagerPreviewRequest):
         factura_creditos += valor_balance
         
         facturas_preview.append(CausacionFacturaPreview(
+            id=factura.id,
             numero_factura=factura.numero_factura or f"Factura {factura_index + 1}",
             numedoc=factura_numedoc,
             rows=rows_preview,
@@ -948,7 +1000,7 @@ class CausacionInsertRequest(BaseModel):
     fecha_causacion: Optional[date] = None
     tiene_iva: bool = True
     porcentaje_retefuente: float = 0
-    facturas: List[FacturaArchivoPlano]
+    facturas: List[CausacionFacturaPreview]
     numedoc: int
 
 
@@ -994,22 +1046,31 @@ async def insertar_causacion_manager(request: CausacionInsertRequest):
         cursor = connection.cursor()
         
         for factura_index, factura in enumerate(request.facturas):
-            if not factura.oficinas:
+            if not factura.rows:
                 continue
             
             factura_numedoc = request.numedoc + factura_index
             
-            # Get first office info for the header
-            first_oficina = factura.oficinas[0]
-            ccosto_raw = await get_centro_costo(first_oficina.cod_oficina)
-            ccosto = ccosto_raw if ccosto_raw else "."
-            destino = first_oficina.cod_oficina
+            # Get data for header from the first row of the preview
+            first_row = factura.rows[0]
+            ccosto = first_row.ccosto if first_row.ccosto else "."
+            destino = first_row.destino if first_row.destino else "."
+            detalle_cabecera = first_row.detalle if first_row.detalle else f"FACT {factura.numero_factura}"
             
-            # Build detalle for header
-            nombre_oficina = first_oficina.nombre_oficina or first_oficina.cod_oficina
-            mes_factura = get_month_name_spanish(factura.fecha_factura) if factura.fecha_factura else ""
-            detalle = f"FACT {factura.numero_factura or ''} SERVICIO DE INTERNET {nombre_oficina} MES {mes_factura}"
-            
+            # === IMPROVED: Pre-validate Header ccosto and destino ===
+            # Ensure DOCCCOSTO exists in MNGCCO
+            cursor.execute("SELECT COUNT(*) FROM MANAGER.MNGCCO WHERE TRIM(CCOCODIGO) = :c", {'c': ccosto})
+            if cursor.fetchone()[0] == 0:
+                print(f"Warning: CC '{ccosto}' not found. Using '.' in header.")
+                ccosto = "."
+                
+            # Ensure DOCDESTINO exists in MNGDNO
+            cursor.execute("SELECT COUNT(*) FROM MANAGER.MNGDNO WHERE TRIM(DNOCODIGO) = :d", {'d': destino})
+            if cursor.fetchone()[0] == 0:
+                print(f"Warning: Destination '{destino}' not found. Using '.' in header.")
+                destino = "."
+
+
             # === INSERT INTO MNGDOC (Header) ===
             cursor.execute("""
                 INSERT INTO MANAGER.MNGDOC (
@@ -1034,177 +1095,35 @@ async def insertar_causacion_manager(request: CausacionInsertRequest):
             """, {
                 'numedoc': factura_numedoc,
                 'fecha': fecha_str,
-                'nit': request.proveedor_nit,
+                'nit': (request.provider_nit if hasattr(request, 'provider_nit') else request.proveedor_nit).strip(),
                 'ccosto': ccosto,
                 'destino': destino,
-                'detalle': detalle[:2000]  # Max 2000 chars
+                'detalle': detalle_cabecera[:2000]
             })
             total_mngdoc += 1
             
-            # === Process each oficina for MNGMCN (Details) ===
-            reg_counter = 0
-            factura_valor_base = 0
-            factura_iva = 0
-            
-            for oficina in factura.oficinas:
-                ccosto_raw = await get_centro_costo(oficina.cod_oficina)
-                ccosto = ccosto_raw if ccosto_raw else "."
-                destino = oficina.cod_oficina
-                nombre_oficina = oficina.nombre_oficina or oficina.cod_oficina
-                mes_factura = get_month_name_spanish(factura.fecha_factura) if factura.fecha_factura else ""
-                # Special rules for DETALLE format by provider
-                if request.proveedor_nit == TIGO_NIT and oficina.num_contrato:
-                    # TIGO: "FACT {num}, Contrato {contrato}, SERVICIO DE INTERNET {oficina} MES {mes}"
-                    detalle = f"FACT {factura.numero_factura or ''}, Contrato {oficina.num_contrato}, SERVICIO DE INTERNET {nombre_oficina} MES {mes_factura}"
-                elif request.proveedor_nit in REF_CONTRATO_FORMAT_NITS and oficina.num_contrato:
-                    # Hughes, Claro, Movistar: "Ref {contrato} FACT {num} SERVICIO DE INTERNET {oficina} MES {mes}"
-                    detalle = f"Ref {oficina.num_contrato} FACT {factura.numero_factura or ''} SERVICIO DE INTERNET {nombre_oficina} MES {mes_factura}"
-                else:
-                    # Default format
-                    detalle = f"FACT {factura.numero_factura or ''} SERVICIO DE INTERNET {nombre_oficina} MES {mes_factura}"
+            # === Process rows exactly as received from preview ===
+            for row in factura.rows:
+                debito = row.valor if row.tipo_movimiento == "DEBITO" else 0
+                credito = row.valor if row.tipo_movimiento == "CREDITO" else 0
                 
-                valor = float(oficina.valor)
-                
-                # Calculate base value
-                if request.tiene_iva:
-                    valor_base = round(valor / 1.19, 2)
-                    valor_iva = round(valor - valor_base, 2)
-                else:
-                    valor_base = valor
-                    valor_iva = 0
-                
-                valor_70 = round(valor_base * 0.70, 2)
-                valor_30 = round(valor_base * 0.30, 2)
-                
-                factura_valor_base += valor_base
-                factura_iva += valor_iva
-                
-                # Check if this provider uses a single account instead of 70%/30% split
-                special_account = get_special_single_account(request.proveedor_nit, oficina.num_contrato)
-                
-                if special_account:
-                    # Special providers: use single account with full base value
-                    reg_counter += 1
-                    cursor.execute("""
-                        INSERT INTO MANAGER.MNGMCN (
-                            MCNEMPRESA, MCNCLASE, MCNVINKEY, MCNTIPODOC, MCNNUMEDOC, MCNREG, MCNFECHA,
-                            MCNCLACRU1, MCNTIPCRU1, MCNNUMCRU1, MCNCUOCRU1, MCNSUCURS, MCNCUENTA, MCNVINCULA,
-                            MCNSUCVIN, MCNCCOSTO, MCNDESTINO, MCNVENDE, MCNCOBRA, MCNZONA, MCNFECINI, MCNPLAZO,
-                            MCNVALDEBI, MCNVALCRED, MCNTASA, MCNBASE, MCNCLACRU2, MCNTIPCRU2, MCNNUMCRU2, MCNCUOCRU2,
-                            MCNSALDODB, MCNSALDOCR, MCNNEWUSER, MCNNEWFEC, MCNMODUSER, MCNMODFEC, MCNBODEGA,
-                            MCNPROPADR, MCNPRODUCT, MCNCANTI_O, MCNUNI_O, MCNPARCI_O, MCNCANTID, MCNUNIDAD,
-                            MCNPRECIOB, MCNFACTOR, MCNDCTO1, MCNDCTO2, MCNDCTO3, MCNDCTO4, MCNIMPOCON, MCNPRCOSVT,
-                            MCNIVATIPO, MCNIVAPORC, MNCNIVAINC, MCNCOSTORE, MCNDIMEORI, MCNINDINV, MCNLOTEPRO,
-                            MCNPRECIOX, MCNREF1, MCNREF2, MCNESTADO, MCNDETALLE, MCNFTE, MCNTPREG
-                        ) VALUES (
-                            '101', '0000', '.', 'DC07', :numedoc, :reg, TO_DATE(:fecha, 'YYYY-MM-DD'),
-                            '0000', 'DC07', :numedoc, 0, '.', :cuenta, :nit,
-                            '.', :ccosto, :destino, '.', '.', '.', TO_DATE(:fecha, 'YYYY-MM-DD'), 0,
-                            :valdebi, 0, 0, 0, ' ', ' ', 0, 0,
-                            0, 0, 'WEBAPP', SYSDATE, 'WEBAPP', SYSDATE, '.',
-                            '.', '.', 0, '.', 0, 0, '.',
-                            0, 1, 0, 0, 0, 0, 0, 0,
-                            '.', 0, 0, 0, 0, '.', '.',
-                            0, '.', '.', 'a', :detalle, '.', 1
-                        )
-                    """, {
-                        'numedoc': factura_numedoc,
-                        'reg': reg_counter,
-                        'fecha': fecha_str,
-                        'cuenta': special_account,
-                        'nit': request.proveedor_nit,
-                        'ccosto': ccosto,
-                        'destino': destino,
-                        'valdebi': valor_base,
-                        'detalle': detalle[:4000]
-                    })
-                    total_mngmcn += 1
-                else:
-                    # Standard: Split base value 70%/30%
-                    # Row 1: Account 61350513 - 70% DEBITO
-                    reg_counter += 1
-                    cursor.execute("""
-                        INSERT INTO MANAGER.MNGMCN (
-                            MCNEMPRESA, MCNCLASE, MCNVINKEY, MCNTIPODOC, MCNNUMEDOC, MCNREG, MCNFECHA,
-                            MCNCLACRU1, MCNTIPCRU1, MCNNUMCRU1, MCNCUOCRU1, MCNSUCURS, MCNCUENTA, MCNVINCULA,
-                            MCNSUCVIN, MCNCCOSTO, MCNDESTINO, MCNVENDE, MCNCOBRA, MCNZONA, MCNFECINI, MCNPLAZO,
-                            MCNVALDEBI, MCNVALCRED, MCNTASA, MCNBASE, MCNCLACRU2, MCNTIPCRU2, MCNNUMCRU2, MCNCUOCRU2,
-                            MCNSALDODB, MCNSALDOCR, MCNNEWUSER, MCNNEWFEC, MCNMODUSER, MCNMODFEC, MCNBODEGA,
-                            MCNPROPADR, MCNPRODUCT, MCNCANTI_O, MCNUNI_O, MCNPARCI_O, MCNCANTID, MCNUNIDAD,
-                            MCNPRECIOB, MCNFACTOR, MCNDCTO1, MCNDCTO2, MCNDCTO3, MCNDCTO4, MCNIMPOCON, MCNPRCOSVT,
-                            MCNIVATIPO, MCNIVAPORC, MNCNIVAINC, MCNCOSTORE, MCNDIMEORI, MCNINDINV, MCNLOTEPRO,
-                            MCNPRECIOX, MCNREF1, MCNREF2, MCNESTADO, MCNDETALLE, MCNFTE, MCNTPREG
-                        ) VALUES (
-                            '101', '0000', '.', 'DC07', :numedoc, :reg, TO_DATE(:fecha, 'YYYY-MM-DD'),
-                            '0000', 'DC07', :numedoc, 0, '.', '61350513', :nit,
-                            '.', :ccosto, :destino, '.', '.', '.', TO_DATE(:fecha, 'YYYY-MM-DD'), 0,
-                            :valdebi, 0, 0, 0, ' ', ' ', 0, 0,
-                            0, 0, 'WEBAPP', SYSDATE, 'WEBAPP', SYSDATE, '.',
-                            '.', '.', 0, '.', 0, 0, '.',
-                            0, 1, 0, 0, 0, 0, 0, 0,
-                            '.', 0, 0, 0, 0, '.', '.',
-                            0, '.', '.', 'a', :detalle, '.', 1
-                        )
-                    """, {
-                        'numedoc': factura_numedoc,
-                        'reg': reg_counter,
-                        'fecha': fecha_str,
-                        'nit': request.proveedor_nit,
-                        'ccosto': ccosto,
-                        'destino': destino,
-                        'valdebi': valor_70,
-                        'detalle': detalle[:4000]
-                    })
-                    total_mngmcn += 1
+                # Check if it is the counterparty row (23355002) for saldo
+                saldocr = credito if str(row.cuenta).strip() == "23355002" else 0
+
+                row_ccosto = row.ccosto if row.ccosto else "."
+                row_destino = row.destino if row.destino else "."
+
+                # Validate row ccosto
+                cursor.execute("SELECT COUNT(*) FROM MANAGER.MNGCCO WHERE TRIM(CCOCODIGO) = :c", {'c': row_ccosto})
+                if cursor.fetchone()[0] == 0:
+                    row_ccosto = "."
                     
-                    # Row 2: Account 61700360 - 30% DEBITO
-                    reg_counter += 1
-                    cursor.execute("""
-                        INSERT INTO MANAGER.MNGMCN (
-                            MCNEMPRESA, MCNCLASE, MCNVINKEY, MCNTIPODOC, MCNNUMEDOC, MCNREG, MCNFECHA,
-                            MCNCLACRU1, MCNTIPCRU1, MCNNUMCRU1, MCNCUOCRU1, MCNSUCURS, MCNCUENTA, MCNVINCULA,
-                            MCNSUCVIN, MCNCCOSTO, MCNDESTINO, MCNVENDE, MCNCOBRA, MCNZONA, MCNFECINI, MCNPLAZO,
-                            MCNVALDEBI, MCNVALCRED, MCNTASA, MCNBASE, MCNCLACRU2, MCNTIPCRU2, MCNNUMCRU2, MCNCUOCRU2,
-                            MCNSALDODB, MCNSALDOCR, MCNNEWUSER, MCNNEWFEC, MCNMODUSER, MCNMODFEC, MCNBODEGA,
-                            MCNPROPADR, MCNPRODUCT, MCNCANTI_O, MCNUNI_O, MCNPARCI_O, MCNCANTID, MCNUNIDAD,
-                            MCNPRECIOB, MCNFACTOR, MCNDCTO1, MCNDCTO2, MCNDCTO3, MCNDCTO4, MCNIMPOCON, MCNPRCOSVT,
-                            MCNIVATIPO, MCNIVAPORC, MNCNIVAINC, MCNCOSTORE, MCNDIMEORI, MCNINDINV, MCNLOTEPRO,
-                            MCNPRECIOX, MCNREF1, MCNREF2, MCNESTADO, MCNDETALLE, MCNFTE, MCNTPREG
-                        ) VALUES (
-                            '101', '0000', '.', 'DC07', :numedoc, :reg, TO_DATE(:fecha, 'YYYY-MM-DD'),
-                            '0000', 'DC07', :numedoc, 0, '.', '61700360', :nit,
-                            '.', :ccosto, :destino, '.', '.', '.', TO_DATE(:fecha, 'YYYY-MM-DD'), 0,
-                            :valdebi, 0, 0, 0, ' ', ' ', 0, 0,
-                            0, 0, 'WEBAPP', SYSDATE, 'WEBAPP', SYSDATE, '.',
-                            '.', '.', 0, '.', 0, 0, '.',
-                            0, 1, 0, 0, 0, 0, 0, 0,
-                            '.', 0, 0, 0, 0, '.', '.',
-                            0, '.', '.', 'a', :detalle, '.', 1
-                        )
-                    """, {
-                        'numedoc': factura_numedoc,
-                        'reg': reg_counter,
-                        'fecha': fecha_str,
-                        'nit': request.proveedor_nit,
-                        'ccosto': ccosto,
-                        'destino': destino,
-                        'valdebi': valor_30,
-                        'detalle': detalle[:4000]
-                    })
-                    total_mngmcn += 1
-            
-            # Get last office info for summary rows
-            last_oficina = factura.oficinas[-1]
-            last_ccosto_raw = await get_centro_costo(last_oficina.cod_oficina)
-            last_ccosto = last_ccosto_raw if last_ccosto_raw else "."
-            last_destino = last_oficina.cod_oficina
-            last_nombre = last_oficina.nombre_oficina or last_oficina.cod_oficina
-            last_mes = get_month_name_spanish(factura.fecha_factura) if factura.fecha_factura else ""
-            last_detalle = f"FACT {factura.numero_factura or ''} SERVICIO DE INTERNET {last_nombre} MES {last_mes}"
-            
-            # Row: IVA (DEBITO) - Account 24081003
-            if request.tiene_iva and factura_iva > 0:
-                reg_counter += 1
+                # Validate row destino
+                cursor.execute("SELECT COUNT(*) FROM MANAGER.MNGDNO WHERE TRIM(DNOCODIGO) = :d", {'d': row_destino})
+                if cursor.fetchone()[0] == 0:
+                    row_destino = "."
+
+
                 cursor.execute("""
                     INSERT INTO MANAGER.MNGMCN (
                         MCNEMPRESA, MCNCLASE, MCNVINKEY, MCNTIPODOC, MCNNUMEDOC, MCNREG, MCNFECHA,
@@ -1218,48 +1137,10 @@ async def insertar_causacion_manager(request: CausacionInsertRequest):
                         MCNPRECIOX, MCNREF1, MCNREF2, MCNESTADO, MCNDETALLE, MCNFTE, MCNTPREG
                     ) VALUES (
                         '101', '0000', '.', 'DC07', :numedoc, :reg, TO_DATE(:fecha, 'YYYY-MM-DD'),
-                        '0000', 'DC07', :numedoc, 0, '.', '24081003', :nit,
-                        '.', :ccosto, '.', '.', '.', '.', TO_DATE(:fecha, 'YYYY-MM-DD'), 0,
-                        :valdebi, 0, 19, :base, ' ', ' ', 0, 0,
-                        0, 0, 'WEBAPP', SYSDATE, 'WEBAPP', SYSDATE, '.',
-                        '.', '.', 0, '.', 0, 0, '.',
-                        0, 1, 0, 0, 0, 0, 0, 0,
-                        '.', 0, 0, 0, 0, '.', '.',
-                        0, '.', '.', 'a', :detalle, '.', 1
-                    )
-                """, {
-                    'numedoc': factura_numedoc,
-                    'reg': reg_counter,
-                    'fecha': fecha_str,
-                    'nit': request.proveedor_nit,
-                    'ccosto': last_ccosto,
-                    'valdebi': factura_iva,
-                    'base': factura_valor_base,
-                    'detalle': last_detalle[:4000]
-                })
-                total_mngmcn += 1
-            
-            # Row: Retefuente (CREDITO) - Account 23652501
-            valor_retefuente = round(factura_valor_base * (request.porcentaje_retefuente / 100), 2) if request.porcentaje_retefuente > 0 else 0
-            if valor_retefuente > 0:
-                reg_counter += 1
-                cursor.execute("""
-                    INSERT INTO MANAGER.MNGMCN (
-                        MCNEMPRESA, MCNCLASE, MCNVINKEY, MCNTIPODOC, MCNNUMEDOC, MCNREG, MCNFECHA,
-                        MCNCLACRU1, MCNTIPCRU1, MCNNUMCRU1, MCNCUOCRU1, MCNSUCURS, MCNCUENTA, MCNVINCULA,
-                        MCNSUCVIN, MCNCCOSTO, MCNDESTINO, MCNVENDE, MCNCOBRA, MCNZONA, MCNFECINI, MCNPLAZO,
-                        MCNVALDEBI, MCNVALCRED, MCNTASA, MCNBASE, MCNCLACRU2, MCNTIPCRU2, MCNNUMCRU2, MCNCUOCRU2,
-                        MCNSALDODB, MCNSALDOCR, MCNNEWUSER, MCNNEWFEC, MCNMODUSER, MCNMODFEC, MCNBODEGA,
-                        MCNPROPADR, MCNPRODUCT, MCNCANTI_O, MCNUNI_O, MCNPARCI_O, MCNCANTID, MCNUNIDAD,
-                        MCNPRECIOB, MCNFACTOR, MCNDCTO1, MCNDCTO2, MCNDCTO3, MCNDCTO4, MCNIMPOCON, MCNPRCOSVT,
-                        MCNIVATIPO, MCNIVAPORC, MNCNIVAINC, MCNCOSTORE, MCNDIMEORI, MCNINDINV, MCNLOTEPRO,
-                        MCNPRECIOX, MCNREF1, MCNREF2, MCNESTADO, MCNDETALLE, MCNFTE, MCNTPREG
-                    ) VALUES (
-                        '101', '0000', '.', 'DC07', :numedoc, :reg, TO_DATE(:fecha, 'YYYY-MM-DD'),
-                        '0000', 'DC07', :numedoc, 0, '.', '23652501', :nit,
+                        '0000', 'DC07', :numedoc, 0, '.', :cuenta, :nit,
                         '.', :ccosto, :destino, '.', '.', '.', TO_DATE(:fecha, 'YYYY-MM-DD'), 0,
-                        0, :valcred, 0, 0, ' ', ' ', 0, 0,
-                        0, 0, 'WEBAPP', SYSDATE, 'WEBAPP', SYSDATE, '.',
+                        :valdebi, :valcred, 0, 0, ' ', ' ', 0, 0,
+                        0, :saldocr, 'WEBAPP', SYSDATE, 'WEBAPP', SYSDATE, '.',
                         '.', '.', 0, '.', 0, 0, '.',
                         0, 1, 0, 0, 0, 0, 0, 0,
                         '.', 0, 0, 0, 0, '.', '.',
@@ -1267,58 +1148,53 @@ async def insertar_causacion_manager(request: CausacionInsertRequest):
                     )
                 """, {
                     'numedoc': factura_numedoc,
-                    'reg': reg_counter,
+                    'reg': row.row_num,
                     'fecha': fecha_str,
-                    'nit': request.proveedor_nit,
-                    'ccosto': last_ccosto,
-                    'destino': last_destino,
-                    'valcred': valor_retefuente,
-                    'detalle': last_detalle[:4000]
+                    'nit': (request.provider_nit if hasattr(request, 'provider_nit') else request.proveedor_nit).strip(),
+                    'cuenta': row.cuenta,
+                    'ccosto': row_ccosto,
+                    'destino': row_destino,
+                    'valdebi': debito,
+                    'valcred': credito,
+                    'saldocr': saldocr,
+                    'detalle': row.detalle[:4000]
                 })
                 total_mngmcn += 1
-            
-            # Row: Balance (CREDITO) - Account 23355002
-            total_debitos = factura_valor_base + factura_iva
-            valor_balance = total_debitos - valor_retefuente
-            
-            reg_counter += 1
-            cursor.execute("""
-                INSERT INTO MANAGER.MNGMCN (
-                    MCNEMPRESA, MCNCLASE, MCNVINKEY, MCNTIPODOC, MCNNUMEDOC, MCNREG, MCNFECHA,
-                    MCNCLACRU1, MCNTIPCRU1, MCNNUMCRU1, MCNCUOCRU1, MCNSUCURS, MCNCUENTA, MCNVINCULA,
-                    MCNSUCVIN, MCNCCOSTO, MCNDESTINO, MCNVENDE, MCNCOBRA, MCNZONA, MCNFECINI, MCNPLAZO,
-                    MCNVALDEBI, MCNVALCRED, MCNTASA, MCNBASE, MCNCLACRU2, MCNTIPCRU2, MCNNUMCRU2, MCNCUOCRU2,
-                    MCNSALDODB, MCNSALDOCR, MCNNEWUSER, MCNNEWFEC, MCNMODUSER, MCNMODFEC, MCNBODEGA,
-                    MCNPROPADR, MCNPRODUCT, MCNCANTI_O, MCNUNI_O, MCNPARCI_O, MCNCANTID, MCNUNIDAD,
-                    MCNPRECIOB, MCNFACTOR, MCNDCTO1, MCNDCTO2, MCNDCTO3, MCNDCTO4, MCNIMPOCON, MCNPRCOSVT,
-                    MCNIVATIPO, MCNIVAPORC, MNCNIVAINC, MCNCOSTORE, MCNDIMEORI, MCNINDINV, MCNLOTEPRO,
-                    MCNPRECIOX, MCNREF1, MCNREF2, MCNESTADO, MCNDETALLE, MCNFTE, MCNTPREG
-                ) VALUES (
-                    '101', '0000', '.', 'DC07', :numedoc, :reg, TO_DATE(:fecha, 'YYYY-MM-DD'),
-                    '0000', 'DC07', :numedoc, 0, '.', '23355002', :nit,
-                    '.', :ccosto, :destino, '.', '.', '.', TO_DATE(:fecha, 'YYYY-MM-DD'), 0,
-                    0, :valcred, 0, 0, ' ', ' ', 0, 0,
-                    0, :saldocr, 'WEBAPP', SYSDATE, 'WEBAPP', SYSDATE, '.',
-                    '.', '.', 0, '.', 0, 0, '.',
-                    0, 1, 0, 0, 0, 0, 0, 0,
-                    '.', 0, 0, 0, 0, '.', '.',
-                    0, '.', '.', 'a', :detalle, '.', 1
-                )
-            """, {
-                'numedoc': factura_numedoc,
-                'reg': reg_counter,
-                'fecha': fecha_str,
-                'nit': request.proveedor_nit,
-                'ccosto': last_ccosto,
-                'destino': last_destino,
-                'valcred': valor_balance,
-                'saldocr': valor_balance,
-                'detalle': last_detalle[:4000]
-            })
-            total_mngmcn += 1
         
-        # Commit all changes
+        # Commit all changes to Oracle
         connection.commit()
+        
+        # Now update our local database to save the Documento Contable (DC07-XXX)
+        try:
+            from database import SessionLocal
+            from models import Factura
+            import re
+            from sqlalchemy import select
+            
+            async with SessionLocal() as db_local:
+                for factura_index, factura in enumerate(request.facturas):
+                    if factura.id:
+                        f_numedoc = request.numedoc + factura_index
+                        doc_str = f"DC07-{f_numedoc}"
+                        
+                        # Get THIS factura's specific detail from its first row
+                        current_f_detalle = factura.rows[0].detalle if factura.rows and factura.rows[0].detalle else f"FACT {factura.numero_factura}"
+                        
+                        stmt = select(Factura).where(Factura.id == factura.id)
+                        res = await db_local.execute(stmt)
+                        f_db = res.scalar_one_or_none()
+                        
+                        if f_db:
+                            from datetime import datetime
+                            # Update observations with the ACTUAL detail from the preview
+                            f_db.observaciones = f"{current_f_detalle} | Ref Doc: {doc_str}"
+                            # Update status to EN_TRAMITE (with underscore) and timestamp
+                            f_db.estado = "EN_TRAMITE"
+                            f_db.status_updated_at = datetime.now()
+                            
+                await db_local.commit()
+        except Exception as local_db_error:
+            print(f"Warning: Failed to update local DB with documento_contable/estado: {local_db_error}")
         
         numedoc_final = request.numedoc + len(request.facturas) - 1
         

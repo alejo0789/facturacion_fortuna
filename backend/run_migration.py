@@ -63,6 +63,20 @@ statements = [
     UPDATE contratos SET categoria_id = (SELECT id FROM categorias WHERE nombre = 'Internet')
     WHERE categoria_id IS NULL
     """,
+    
+    # 9. Create category-email relationship table for email-based access
+    """
+    CREATE TABLE IF NOT EXISTS categoria_usuarios (
+        id SERIAL PRIMARY KEY,
+        categoria_id INTEGER NOT NULL REFERENCES categorias(id) ON DELETE CASCADE,
+        email VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(categoria_id, email)
+    )
+    """,
+    
+    # 10. Index for emails
+    "CREATE INDEX IF NOT EXISTS idx_categoria_usuarios_email ON categoria_usuarios(email)",
 ]
 
 print("Running migration...")

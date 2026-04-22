@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Header
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
@@ -7,6 +7,7 @@ from database import get_db
 import os
 import re
 from pathlib import Path
+from routers.categorias import is_super_admin, get_user_categoria_ids
 
 router = APIRouter()
 
@@ -128,9 +129,27 @@ async def delete_contract_pdf(contrato_id: int, db: AsyncSession = Depends(get_d
     return {"message": "Archivo eliminado correctamente"}
 
 # --- Helpers for Providers/Offices ---
-@router.get("/proveedores/", response_model=List[schemas.Proveedor])
-async def read_proveedores(skip: int = 0, limit: int = 100, search: Optional[str] = None, db: AsyncSession = Depends(get_db)):
-    return await crud.get_proveedores(db, skip=skip, limit=limit, search=search)
+@router.get("/proveedores/", response_model=List[schemas.ProveedorConCategorias])
+async def read_proveedores(
+    skip: int = 0,
+    limit: int = 100,
+    search: Optional[str] = None,
+    categoria_id: Optional[int] = None,
+    x_user_id: Optional[str] = Header(None, alias="X-User-Id"),
+    x_user_rol_id: Optional[str] = Header(None, alias="X-User-Rol-Id"),
+    x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
+    db: AsyncSession = Depends(get_db)
+):
+    """List providers. Optionally filter by authorized category/area."""
+    allowed_categoria_ids = None
+    if not is_super_admin(x_user_email, int(x_user_id) if x_user_id else None):
+        rol_id_int = int(x_user_rol_id) if x_user_rol_id else None
+        allowed_categoria_ids = await get_user_categoria_ids(db, rol_id_int, x_user_email)
+        
+    return await crud.get_proveedores(
+        db, skip=skip, limit=limit, search=search, 
+        categoria_id=categoria_id, allowed_categoria_ids=allowed_categoria_ids
+    )
 
 @router.get("/proveedores/buscar-oracle/{nit}")
 async def buscar_proveedor_oracle(nit: str, db: AsyncSession = Depends(get_db)):
@@ -211,6 +230,101 @@ async def create_proveedor(proveedor: schemas.ProveedorCreate, db: AsyncSession 
     # Crear el proveedor con el NIT limpio
     proveedor_data = schemas.ProveedorCreate(nit=nit_clean, nombre=nombre)
     return await crud.create_proveedor(db, proveedor_data)
+
+
+@router.post("/proveedores/{proveedor_id}/autorizar-categoria", response_model=schemas.ProveedorConCategorias)
+async def autorizar_proveedor_categoria(
+    proveedor_id: int,
+    body: schemas.ProveedorCategoriaCreate,
+    x_user_id: Optional[str] = Header(None, alias="X-User-Id"),
+    x_user_rol_id: Optional[str] = Header(None, alias="X-User-Rol-Id"),
+    x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Authorize a provider for a specific category/area.
+    Records the authorizing user's email.
+    """
+    from sqlalchemy import select as sa_select
+    from sqlalchemy.orm import selectinload as sil
+
+    # Check if user has permission for this category
+    if not is_super_admin(x_user_email, int(x_user_id) if x_user_id else None):
+        rol_id_int = int(x_user_rol_id) if x_user_rol_id else None
+        allowed_categoria_ids = await get_user_categoria_ids(db, rol_id_int, x_user_email)
+        if body.categoria_id not in allowed_categoria_ids:
+            raise HTTPException(status_code=403, detail="No tienes permisos para autorizar en esta área")
+
+    # Verify provider exists
+    proveedor = await crud.get_proveedor(db, proveedor_id)
+    if not proveedor:
+        raise HTTPException(status_code=404, detail="Proveedor no encontrado")
+
+    # Check duplicate
+    existing = await db.execute(
+        sa_select(models.ProveedorCategoria)
+        .where(models.ProveedorCategoria.proveedor_id == proveedor_id)
+        .where(models.ProveedorCategoria.categoria_id == body.categoria_id)
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="El proveedor ya está autorizado en esta categoría")
+
+    db_pc = models.ProveedorCategoria(
+        proveedor_id=proveedor_id,
+        categoria_id=body.categoria_id,
+        autorizado_por=body.autorizado_por or x_user_email or 'desconocido'
+    )
+    db.add(db_pc)
+    await db.commit()
+
+    # Return full proveedor with updated categories
+    result = await db.execute(
+        sa_select(models.Proveedor)
+        .options(
+            sil(models.Proveedor.categorias_autorizadas)
+            .selectinload(models.ProveedorCategoria.categoria)
+        )
+        .where(models.Proveedor.id == proveedor_id)
+    )
+    p = result.scalar_one()
+    for pc in p.categorias_autorizadas:
+        pc.categoria_nombre = pc.categoria.nombre if pc.categoria else ''
+        pc.categoria_color = pc.categoria.color if pc.categoria else '#6366f1'
+    return p
+
+
+@router.delete("/proveedores/{proveedor_id}/desautorizar-categoria/{categoria_id}")
+async def desautorizar_proveedor_categoria(
+    proveedor_id: int,
+    categoria_id: int,
+    x_user_id: Optional[str] = Header(None, alias="X-User-Id"),
+    x_user_rol_id: Optional[str] = Header(None, alias="X-User-Rol-Id"),
+    x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
+    db: AsyncSession = Depends(get_db)
+):
+    """Remove authorization of a provider for a specific category/area."""
+    from sqlalchemy import select as sa_select
+
+    # Check if user has permission for this category
+    if not is_super_admin(x_user_email, int(x_user_id) if x_user_id else None):
+        rol_id_int = int(x_user_rol_id) if x_user_rol_id else None
+        allowed_categoria_ids = await get_user_categoria_ids(db, rol_id_int, x_user_email)
+        if categoria_id not in allowed_categoria_ids:
+            raise HTTPException(status_code=403, detail="No tienes permisos para quitar autorización en esta área")
+
+    result = await db.execute(
+        sa_select(models.ProveedorCategoria)
+        .where(models.ProveedorCategoria.proveedor_id == proveedor_id)
+        .where(models.ProveedorCategoria.categoria_id == categoria_id)
+    )
+    db_pc = result.scalar_one_or_none()
+    if not db_pc:
+        raise HTTPException(status_code=404, detail="Autorización no encontrada")
+
+    await db.delete(db_pc)
+    await db.commit()
+    return {"message": "Autorización eliminada correctamente"}
+
 
 @router.get("/oficinas/", response_model=List[schemas.Oficina])
 async def read_oficinas(skip: int = 0, limit: int = 100, search: Optional[str] = None, db: AsyncSession = Depends(get_db)):

@@ -17,6 +17,9 @@ from urllib.parse import unquote
 from datetime import datetime, date
 import os
 import httpx
+import img2pdf
+from PIL import Image
+import io
 import uuid
 import zipfile
 import tempfile
@@ -168,6 +171,7 @@ async def create_factura_api(
 @router.post("/facturas/crear-con-oficina")
 async def create_factura_con_oficinas(
     request: schemas.FacturaCreateConOficinas,
+    x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -288,6 +292,19 @@ async def create_factura_con_oficinas(
                     "alternativa": "Puedes crear la factura sin proveedor omitiendo el campo proveedor_nit, y asignar el proveedor manualmente después."
                 }
         
+        # Step 1.5: Determine category based on email
+        categoria_id = request.categoria_id
+        email_to_check = request.remitente_email or x_user_email
+        
+        if not categoria_id and email_to_check:
+            from routers.categorias import get_user_categoria_ids
+            # Try to automatically assign category based on the sender's email
+            cat_ids = await get_user_categoria_ids(db, email=email_to_check.strip())
+            if cat_ids:
+                categoria_id = cat_ids[0]
+                datos_guardados["categoria_autodetectada_por_email"] = True
+                datos_guardados["categoria_id"] = categoria_id
+        
         # Step 2: Create factura
         try:
             factura_data = schemas.FacturaCreate(
@@ -299,7 +316,8 @@ async def create_factura_con_oficinas(
                 valor=request.valor,
                 url_factura=request.url_factura,
                 observaciones=request.observaciones,
-                estado='PENDIENTE' if not request.oficinas else 'ASIGNADA'
+                estado='PENDIENTE' if not request.oficinas else 'ASIGNADA',
+                categoria_id=categoria_id
             )
             
             factura = await crud.create_factura(db, factura_data)
@@ -349,15 +367,27 @@ async def create_factura_con_oficinas(
                     oficina = await crud.get_oficina_by_codigo(db, of.cod_oficina)
                     
                     if oficina:
+                        # Case NIT 900154335 (WiFi SAS): ignore N8N value if we can fixed it to contract value
+                        valor_asignar = float(of.valor)
+                        nit_especial = "900154335" # WIFI SAS
+                        
+                        if request.proveedor_nit == nit_especial:
+                            # Try to find the contract for this specific office to get its valor_mensual
+                            contrato = await crud.find_contrato_by_proveedor_oficina(db, proveedor_id, oficina.id)
+                            if contrato and contrato.valor_mensual:
+                                valor_asignar = float(contrato.valor_mensual)
+                                # Log the adjustment in facturas table if possible or warnings
+                                warnings.append(f"Ajuste especial WIFI SAS: Oficina {of.cod_oficina} cargada con valor de contrato ({valor_asignar}) en lugar de valor extraído.")
+
                         # Add oficina to factura
                         await crud.add_oficina_to_factura(
-                            db, factura.id, oficina.id, float(of.valor), None
+                            db, factura.id, oficina.id, valor_asignar, None
                         )
                         oficinas_asignadas.append({
                             "cod_oficina": of.cod_oficina,
                             "oficina_id": oficina.id,
                             "oficina_nombre": oficina.nombre,
-                            "valor": str(of.valor)
+                            "valor": str(valor_asignar)
                         })
                     else:
                         oficinas_no_encontradas.append({
@@ -508,7 +538,9 @@ async def list_facturas(
     oficina_id: Optional[int] = Query(None, description="Filtrar por oficina asignada"),
     fecha_desde: Optional[str] = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     fecha_hasta: Optional[str] = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
+    usar_fecha_estado: bool = Query(False, description="Si True, filtra por fecha de cambio de estado en vez de fecha de recepción"),
     solo_pendientes: bool = Query(False, description="Solo mostrar facturas sin contrato asignado"),
+    x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
     x_user_id: Optional[int] = Header(None, alias="X-User-Id"),
     x_user_rol_id: Optional[int] = Header(None, alias="X-User-Rol-Id"),
     db: AsyncSession = Depends(get_db)
@@ -521,13 +553,12 @@ async def list_facturas(
     
     # If not super admin, get allowed categories for this role
     allowed_categoria_ids = None
-    if x_user_id and not is_super_admin(x_user_id):
-        if x_user_rol_id:
-            allowed_categoria_ids = await get_user_categoria_ids(x_user_rol_id, db)
-            # If categoria_id is specified, verify user has access
-            if categoria_id and categoria_id not in allowed_categoria_ids:
-                # Return empty - user doesn't have access to this category
-                return []
+    if not is_super_admin(x_user_email, x_user_id):
+        allowed_categoria_ids = await get_user_categoria_ids(db, rol_id=x_user_rol_id, email=x_user_email)
+        # If categoria_id is specified, verify user has access
+        if categoria_id and categoria_id not in allowed_categoria_ids:
+            # Return empty - user doesn't have access to this category
+            return []
     
     facturas_models = await crud.get_facturas(
         db, skip=skip, limit=limit, search=search, 
@@ -536,7 +567,8 @@ async def list_facturas(
         fecha_desde=fecha_desde, fecha_hasta=fecha_hasta,
         oficina_id=oficina_id,
         categoria_id=categoria_id,
-        allowed_categoria_ids=allowed_categoria_ids
+        allowed_categoria_ids=allowed_categoria_ids,
+        usar_fecha_estado=usar_fecha_estado
     )
     
     # Enrich with file info
@@ -594,7 +626,7 @@ async def asignar_oficina(
     If no matching contrato is found, only the oficina will be assigned 
     (contrato_id will remain null).
     """
-    result = await crud.asignar_oficina_a_factura(db, factura_id, request.oficina_id)
+    result = await crud.asignar_oficina_a_factura(db, factura_id, request.oficina_id, request.contrato_id)
     if not result:
         raise HTTPException(status_code=404, detail="Factura no encontrada")
     return result
@@ -716,6 +748,7 @@ async def asignar_multiples_oficinas(
     oficinas_data = [
         {
             "oficina_id": o.oficina_id,
+            "contrato_id": o.contrato_id,
             "valor": float(o.valor),
             "observaciones": o.observaciones
         }
@@ -791,7 +824,7 @@ async def ver_factura(factura_id: int, db: AsyncSession = Depends(get_db)):
 @router.put("/facturas/{factura_id}/estado")
 async def cambiar_estado(
     factura_id: int,
-    nuevo_estado: str = Query(..., description="Nuevo estado: PENDIENTE, ASIGNADA, PAGADA"),
+    nuevo_estado: str = Query(..., description="Nuevo estado: PENDIENTE, ASIGNADA, EN_TRAMITE, PAGADA"),
     db: AsyncSession = Depends(get_db)
 ):
     """Change the estado of a factura"""
@@ -799,11 +832,13 @@ async def cambiar_estado(
     if not factura:
         raise HTTPException(status_code=404, detail="Factura no encontrada")
     
-    if nuevo_estado not in ['PENDIENTE', 'ASIGNADA', 'PAGADA']:
+    if nuevo_estado not in ['PENDIENTE', 'ASIGNADA', 'EN_TRAMITE', 'PAGADA']:
         raise HTTPException(status_code=400, detail="Estado inválido")
     
     # Use raw update to change estado
-    factura.estado = nuevo_estado
+    if factura.estado != nuevo_estado:
+        factura.estado = nuevo_estado
+        factura.status_updated_at = datetime.now()
     await db.commit()
     
     return await crud.get_factura(db, factura_id)
@@ -815,23 +850,32 @@ async def cambiar_estado(
 async def resumen_facturas(db: AsyncSession = Depends(get_db)):
     """Get summary statistics for facturas"""
     from datetime import datetime
-    todas = await crud.get_facturas(db, limit=10000)
     
-    pendientes = len([f for f in todas if f.estado == 'PENDIENTE'])
-    asignadas = len([f for f in todas if f.estado == 'ASIGNADA'])
-    pagadas = len([f for f in todas if f.estado == 'PAGADA'])
+    today = datetime.now()
+    
+    # Total counts by status (all time) - used for pendientes sin oficina
+    counts_total = await crud.get_facturas_status_counts(db)
+    
+    # Monthly counts - used for En Trámite and Pagadas counters (current month)
+    counts_mes = await crud.get_facturas_status_counts_mes(db, today.year, today.month)
+    
+    pendientes = counts_total.get('PENDIENTE', 0)
+    asignadas = counts_total.get('ASIGNADA', 0)
+    en_tramite_mes = counts_mes.get('EN_TRAMITE', 0)
+    pagadas_mes = counts_mes.get('PAGADA', 0)
+    total = pendientes + asignadas + counts_total.get('EN_TRAMITE', 0) + counts_total.get('PAGADA', 0)
     
     # Calculate missing invoices for this month
-    today = datetime.now()
     missing_contracts = await crud.get_contratos_pendientes_por_llegar(db, today.year, today.month)
     pendientes_por_llegar = len(missing_contracts)
     
     return {
-        "total": len(todas),
-        "sin_oficina": pendientes, # Re-labeling or providing specific key
-        "pendientes": pendientes,   # Keeping old key for compatibility
+        "total": total,
+        "sin_oficina": pendientes,
+        "pendientes": pendientes,       # Sin oficina asignada (total histórico activo)
         "asignadas": asignadas,
-        "pagadas": pagadas,
+        "en_tramite": en_tramite_mes,   # Solo del mes actual
+        "pagadas": pagadas_mes,         # Solo del mes actual
         "pendientes_por_llegar": pendientes_por_llegar
     }
 
@@ -856,6 +900,7 @@ async def upload_factura(
     fecha_vencimiento: str = Form(None),
     valor: float = Form(None),
     observaciones: str = Form(None),
+    x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -966,6 +1011,14 @@ async def upload_factura(
             )
         
         if proveedor:
+            # Auto-detect category from email if possible
+            categoria_id = None
+            if x_user_email:
+                from routers.categorias import get_user_categoria_ids
+                cat_ids = await get_user_categoria_ids(db, email=x_user_email.strip())
+                if cat_ids:
+                    categoria_id = cat_ids[0]
+
             # Create factura
             factura_data = schemas.FacturaCreate(
                 proveedor_id=proveedor.id,
@@ -975,7 +1028,8 @@ async def upload_factura(
                 valor=valor,
                 url_factura=url_factura,
                 observaciones=observaciones,
-                estado='PENDIENTE'
+                estado='PENDIENTE',
+                categoria_id=categoria_id
             )
             
             factura_created = await crud.create_factura(db, factura_data)
@@ -994,6 +1048,7 @@ async def upload_factura(
 @router.post("/facturas/upload-pdf")
 async def upload_factura_pdf(
     file: UploadFile = File(...),
+    x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -1045,7 +1100,7 @@ async def upload_factura_pdf(
     file_path = os.path.join(INVOICE_UPLOAD_PATH, safe_filename)
     url_factura = f"file://192.168.2.20/Facturas/temp/{safe_filename}"
     
-    # Check if directory exists and save file
+    # Check if directory exists and save/convert file
     try:
         if not os.path.exists(INVOICE_UPLOAD_PATH):
             os.makedirs(INVOICE_UPLOAD_PATH, exist_ok=True)
@@ -1056,7 +1111,7 @@ async def upload_factura_pdf(
     except Exception as e:
         raise HTTPException(
             status_code=500, 
-            detail=f"Error guardando archivo: {str(e)}"
+            detail=f"Error procesando archivo: {str(e)}"
         )
     
     # Call webhook and WAIT for n8n response (timeout 120 seconds for OCR processing)
@@ -1070,7 +1125,8 @@ async def upload_factura_pdf(
                 "original_filename": file.filename,
                 "uploaded_at": datetime.now().isoformat(),
                 "converted_from_image": was_converted,
-                "original_format": file_extension.replace(".", "").upper() if was_converted else "PDF"
+                "original_format": file_extension.replace(".", "").upper() if was_converted else "PDF",
+                "x_user_email": x_user_email
             }
             
             response = await client.post(WEBHOOK_URL, json=webhook_data)

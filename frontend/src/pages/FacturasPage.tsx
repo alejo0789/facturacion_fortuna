@@ -5,7 +5,7 @@ import Modal, { FormField, inputClassName } from '../components/Modal';
 import UploadFacturaModal from '../components/UploadFacturaModal';
 import { formatCOP } from '../utils/format';
 import { useAuth } from '../contexts/AuthContext';
-import { apiGet } from '../utils/apiClient';
+import { apiGet, getAuthHeaders } from '../utils/apiClient';
 import type { Categoria } from '../types/auth';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
@@ -15,6 +15,7 @@ interface OficinaAsignacion {
     oficina_id: number;
     oficina_nombre: string;
     oficina_ciudad: string;
+    contrato_id?: number | null;
     contrato_num?: string;
     contrato_estado?: string;
     valor: string;
@@ -33,6 +34,7 @@ export default function FacturasPage() {
     const [filterFechaDesde, setFilterFechaDesde] = useState('');
     const [filterFechaHasta, setFilterFechaHasta] = useState('');
     const [filterPeriodo, setFilterPeriodo] = useState<string>(''); // 'este_mes', 'mes_anterior', 'custom'
+    const [filterUsarFechaEstado, setFilterUsarFechaEstado] = useState(false); // filter by status_updated_at
 
     // Oficina filter with autocomplete
     const [filterOficinaId, setFilterOficinaId] = useState<number | null>(null);
@@ -67,6 +69,7 @@ export default function FacturasPage() {
     const [editForm, setEditForm] = useState({
         proveedor_id: 0,
         oficina_id: null as number | null,
+        contrato_id: null as number | null,
         numero_factura: '',
         cufe: '',
         fecha_factura: '',
@@ -99,15 +102,18 @@ export default function FacturasPage() {
         total: number;
         pendientes: number;
         asignadas: number;
+        en_tramite: number;
         pagadas: number;
         pendientes_por_llegar: number;
     } | null>(null);
 
+    const [updatingStatusIds, setUpdatingStatusIds] = useState<Set<number>>(new Set());
+
     const navigate = useNavigate();
     const { isSuperAdmin } = useAuth();
 
-    // Multi-select for consolidado
-    const [selectedFacturaIds, setSelectedFacturaIds] = useState<Set<number>>(new Set());
+    // Multi-select for consolidado and causacion (persists across pages)
+    const [selectedFacturas, setSelectedFacturas] = useState<Map<number, Factura>>(new Map());
     const [generatingConsolidado, setGeneratingConsolidado] = useState(false);
 
     // Archivo Plano generation
@@ -136,6 +142,7 @@ export default function FacturasPage() {
         detalle: string;
     };
     type CausacionFacturaPreview = {
+        id?: number | null;
         numero_factura: string;
         numedoc: number;
         rows: CausacionRowPreview[];
@@ -166,6 +173,8 @@ export default function FacturasPage() {
         numedoc: 1290
     });
     const [showCausacionTable, setShowCausacionTable] = useState(false);
+    const [editingCell, setEditingCell] = useState<{ facturaIdx: number; rowIdx: number; field: string } | null>(null);
+
 
     // Historial modal - previous invoices for same proveedor + oficina
     const [isHistorialModalOpen, setIsHistorialModalOpen] = useState(false);
@@ -204,7 +213,9 @@ export default function FacturasPage() {
                 oficina_id: oficinaId.toString(),
                 limit: '50'
             });
-            const res = await fetch(`${API_URL}/facturas/?${params}`);
+            const res = await fetch(`${API_URL}/facturas/?${params}`, {
+                headers: getAuthHeaders()
+            });
             if (res.ok) {
                 setHistorialFacturas(await res.json());
             }
@@ -254,43 +265,53 @@ export default function FacturasPage() {
         }
     };
 
-    // Toggle factura selection
-    const toggleFacturaSelection = (facturaId: number) => {
-        setSelectedFacturaIds(prev => {
-            const newSet = new Set(prev);
-            if (newSet.has(facturaId)) {
-                newSet.delete(facturaId);
+    // Toggle factura selection - UPDATED TO PERSIST ACROSS PAGES
+    const toggleFacturaSelection = (factura: Factura) => {
+        const facturaId = factura.id;
+        setSelectedFacturas(prev => {
+            const newMap = new Map(prev);
+            if (newMap.has(facturaId)) {
+                newMap.delete(facturaId);
             } else {
-                newSet.add(facturaId);
+                newMap.set(facturaId, factura);
             }
-            return newSet;
+            return newMap;
         });
     };
 
     // Select/deselect all visible facturas
     const toggleSelectAll = () => {
-        if (selectedFacturaIds.size === facturas.length) {
-            setSelectedFacturaIds(new Set());
-        } else {
-            setSelectedFacturaIds(new Set(facturas.map(f => f.id)));
-        }
+        // Find how many visible ones are already in our selection map
+        const visibleSelectedCount = facturas.filter(f => selectedFacturas.has(f.id)).length;
+
+        setSelectedFacturas(prev => {
+            const newMap = new Map(prev);
+            if (visibleSelectedCount === facturas.length) {
+                // If all visible are selected, deselect all visible on this page but leave others from other pages
+                facturas.forEach(f => newMap.delete(f.id));
+            } else {
+                // Otherwise, ensure all visible on this page are selected
+                facturas.forEach(f => newMap.set(f.id, f));
+            }
+            return newMap;
+        });
     };
 
     // Clear selection
     const clearSelection = () => {
-        setSelectedFacturaIds(new Set());
+        setSelectedFacturas(new Map());
     };
 
     // Generate consolidado Excel
     const generateConsolidado = async () => {
-        if (selectedFacturaIds.size === 0) return;
+        if (selectedFacturas.size === 0) return;
 
         setGeneratingConsolidado(true);
         try {
             const res = await fetch(`${API_URL}/consolidado/generar`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ factura_ids: Array.from(selectedFacturaIds) })
+                body: JSON.stringify({ factura_ids: Array.from(selectedFacturas.keys()) })
             });
 
             if (res.ok) {
@@ -345,10 +366,10 @@ export default function FacturasPage() {
 
     // Generate Archivo Plano Excel
     const generateArchivoPlano = async () => {
-        if (selectedFacturaIds.size === 0) return;
+        if (selectedFacturas.size === 0) return;
 
-        // Get selected facturas
-        const selectedFacturasData = facturas.filter(f => selectedFacturaIds.has(f.id));
+        // Get selected facturas (ALL of them, not just visible)
+        const selectedFacturasData = Array.from(selectedFacturas.values());
 
         // Validate: all must be from same proveedor
         const proveedores = new Set(selectedFacturasData.map(f => f.proveedor_id));
@@ -387,9 +408,11 @@ export default function FacturasPage() {
         let porcentajeRetefuente = 0; // default
 
         if (firstContrato) {
-            tieneIva = firstContrato.tiene_iva === 'si';
-            if (firstContrato.tiene_retefuente === 'si' && firstContrato.retefuente_pct) {
-                porcentajeRetefuente = firstContrato.retefuente_pct;
+            tieneIva = (firstContrato.tiene_iva || '').toLowerCase() === 'si';
+
+            const tieneRete = (firstContrato.tiene_retefuente || '').toLowerCase() === 'si';
+            if (tieneRete && firstContrato.retefuente_pct) {
+                porcentajeRetefuente = Number(firstContrato.retefuente_pct);
             }
         }
 
@@ -438,10 +461,10 @@ export default function FacturasPage() {
 
     // Open Causacion Manager modal
     const openCausacionModal = async () => {
-        if (selectedFacturaIds.size === 0) return;
+        if (selectedFacturas.size === 0) return;
 
-        // Get selected facturas
-        const selectedFacturasData = facturas.filter(f => selectedFacturaIds.has(f.id));
+        // Get selected facturas (ALL of them, not just visible)
+        const selectedFacturasData = Array.from(selectedFacturas.values());
 
         // Validate: all must be from same proveedor
         const proveedores = new Set(selectedFacturasData.map(f => f.proveedor_id));
@@ -479,9 +502,11 @@ export default function FacturasPage() {
         let porcentajeRetefuente = 0;
 
         if (firstContrato) {
-            tieneIva = firstContrato.tiene_iva === 'si';
-            if (firstContrato.tiene_retefuente === 'si' && firstContrato.retefuente_pct) {
-                porcentajeRetefuente = firstContrato.retefuente_pct;
+            tieneIva = (firstContrato.tiene_iva || '').toLowerCase() === 'si';
+
+            const tieneRete = (firstContrato.tiene_retefuente || '').toLowerCase() === 'si';
+            if (tieneRete && firstContrato.retefuente_pct) {
+                porcentajeRetefuente = Number(firstContrato.retefuente_pct);
             }
         }
 
@@ -528,20 +553,21 @@ export default function FacturasPage() {
         setLoadingCausacionPreview(true);
 
         try {
-            const selectedFacturasData = facturas.filter(f => selectedFacturaIds.has(f.id));
+            const selectedFacturasData = Array.from(selectedFacturas.values());
             const firstFactura = selectedFacturasData[0];
             const proveedorNit = firstFactura.proveedor?.nit || '';
             const proveedorNombre = firstFactura.proveedor?.nombre || '';
 
             // Build facturas array with grouped offices
             const facturasForRequest: Array<{
+                id: number;
                 numero_factura: string;
                 fecha_factura: string | null;
                 oficinas: Array<{ cod_oficina: string; valor: number; nombre_oficina: string }>;
             }> = [];
 
             for (const factura of selectedFacturasData) {
-                const oficinas: Array<{ cod_oficina: string; valor: number; nombre_oficina: string }> = [];
+                const oficinas: Array<{ cod_oficina: string; valor: number; nombre_oficina: string; num_contrato?: string }> = [];
                 if (factura.oficinas_asignadas && factura.oficinas_asignadas.length > 0) {
                     for (const oa of factura.oficinas_asignadas) {
                         if (oa.oficina?.cod_oficina && oa.valor) {
@@ -556,6 +582,7 @@ export default function FacturasPage() {
                 }
                 if (oficinas.length > 0) {
                     facturasForRequest.push({
+                        id: factura.id,
                         numero_factura: factura.numero_factura || '',
                         fecha_factura: factura.fecha_factura || null,
                         oficinas: oficinas
@@ -580,6 +607,14 @@ export default function FacturasPage() {
 
             if (res.ok) {
                 const data = await res.json();
+
+                // Formatear la fecha de hoy a YYYY-MM-DD para el input de fecha
+                const today = new Date();
+                const year = today.getFullYear();
+                const month = String(today.getMonth() + 1).padStart(2, '0');
+                const day = String(today.getDate()).padStart(2, '0');
+                data.fecha_causacion = `${year}-${month}-${day}`;
+
                 setCausacionPreviewData(data);
                 setShowCausacionTable(true);
             } else {
@@ -600,7 +635,7 @@ export default function FacturasPage() {
         setIsArchivoPlanoModalOpen(false);
 
         try {
-            const selectedFacturasData = facturas.filter(f => selectedFacturaIds.has(f.id));
+            const selectedFacturasData = Array.from(selectedFacturas.values());
             const firstFactura = selectedFacturasData[0];
             const proveedorNit = firstFactura.proveedor?.nit || '';
             const proveedorNombre = firstFactura.proveedor?.nombre || '';
@@ -609,11 +644,11 @@ export default function FacturasPage() {
             const facturasForRequest: Array<{
                 numero_factura: string;
                 fecha_factura: string | null;
-                oficinas: Array<{ cod_oficina: string; valor: number; nombre_oficina: string }>;
+                oficinas: Array<{ cod_oficina: string; valor: number; nombre_oficina: string; num_contrato?: string | null }>;
             }> = [];
 
             for (const factura of selectedFacturasData) {
-                const oficinas: Array<{ cod_oficina: string; valor: number; nombre_oficina: string }> = [];
+                const oficinas: Array<{ cod_oficina: string; valor: number; nombre_oficina: string; num_contrato?: string | null }> = [];
                 if (factura.oficinas_asignadas && factura.oficinas_asignadas.length > 0) {
                     for (const oa of factura.oficinas_asignadas) {
                         if (oa.oficina?.cod_oficina && oa.valor) {
@@ -709,8 +744,13 @@ export default function FacturasPage() {
             if (filterCategoriaId) {
                 params.append('categoria_id', filterCategoriaId.toString());
             }
+            if (filterUsarFechaEstado) {
+                params.append('usar_fecha_estado', 'true');
+            }
 
-            const res = await fetch(`${API_URL}/facturas/?${params}`);
+            const res = await fetch(`${API_URL}/facturas/?${params}`, {
+                headers: getAuthHeaders()
+            });
             if (res.ok) {
                 const data = await res.json();
                 setFacturas(data);
@@ -721,11 +761,13 @@ export default function FacturasPage() {
         } finally {
             setLoading(false);
         }
-    }, [filterEstado, filterFechaDesde, filterFechaHasta, filterOficinaId, filterCategoriaId]);
+    }, [filterEstado, filterFechaDesde, filterFechaHasta, filterOficinaId, filterCategoriaId, filterUsarFechaEstado]);
 
     const fetchStats = async () => {
         try {
-            const res = await fetch(`${API_URL}/facturas/stats/resumen`);
+            const res = await fetch(`${API_URL}/facturas/stats/resumen`, {
+                headers: getAuthHeaders()
+            });
             if (res.ok) {
                 setStats(await res.json());
             }
@@ -737,7 +779,9 @@ export default function FacturasPage() {
     // Load all oficinas for filter dropdown
     const loadAllOficinas = async () => {
         try {
-            const res = await fetch(`${API_URL}/oficinas/?limit=500`);
+            const res = await fetch(`${API_URL}/oficinas/?limit=500`, {
+                headers: getAuthHeaders()
+            });
             if (res.ok) {
                 setAllOficinas(await res.json());
             }
@@ -853,7 +897,9 @@ export default function FacturasPage() {
     const loadOficinasConContrato = async (proveedorId: number) => {
         setLoadingOficinasConContrato(true);
         try {
-            const res = await fetch(`${API_URL}/contratos/proveedor/${proveedorId}/oficinas`);
+            const res = await fetch(`${API_URL}/contratos/proveedor/${proveedorId}/oficinas`, {
+                headers: getAuthHeaders()
+            });
             if (res.ok) {
                 const data: OficinaConContrato[] = await res.json();
                 setOficinasConContrato(data);
@@ -874,6 +920,7 @@ export default function FacturasPage() {
             oficina_id: oa.oficina_id,
             oficina_nombre: oa.oficina?.nombre || '',
             oficina_ciudad: oa.oficina?.ciudad || '',
+            contrato_id: oa.contrato_id || oa.contrato?.id || null,
             contrato_num: oa.contrato?.num_contrato,
             contrato_estado: oa.contrato?.estado,
             valor: oa.valor?.toString() || '0'
@@ -890,16 +937,17 @@ export default function FacturasPage() {
     // Toggle oficina selection - using functional setState to avoid stale state
     const toggleOficinaSelection = (oc: OficinaConContrato) => {
         setOficinasSeleccionadas(prev => {
-            const exists = prev.find(o => o.oficina_id === oc.oficina_id);
+            const exists = prev.find(o => o.oficina_id === oc.oficina_id && o.contrato_id === oc.contrato_id);
             if (exists) {
                 // Remove
-                return prev.filter(o => o.oficina_id !== oc.oficina_id);
+                return prev.filter(o => !(o.oficina_id === oc.oficina_id && o.contrato_id === oc.contrato_id));
             } else {
                 // Add with suggested valor from contract
                 return [...prev, {
                     oficina_id: oc.oficina_id,
                     oficina_nombre: oc.oficina_nombre || '',
                     oficina_ciudad: oc.oficina_ciudad || '',
+                    contrato_id: oc.contrato_id,
                     contrato_num: oc.contrato_num,
                     contrato_estado: oc.contrato_estado,
                     valor: oc.valor_mensual?.toString() || '0'
@@ -909,9 +957,9 @@ export default function FacturasPage() {
     };
 
     // Update valor for a selected oficina
-    const updateOficinaValor = (oficina_id: number, valor: string) => {
+    const updateOficinaValor = (oficina_id: number, contrato_id: number | null | undefined, valor: string) => {
         setOficinasSeleccionadas(prev =>
-            prev.map(o => o.oficina_id === oficina_id ? { ...o, valor } : o)
+            prev.map(o => (o.oficina_id === oficina_id && o.contrato_id === contrato_id) ? { ...o, valor } : o)
         );
     };
 
@@ -928,6 +976,7 @@ export default function FacturasPage() {
             const body = {
                 oficinas: oficinasSeleccionadas.map(o => ({
                     oficina_id: o.oficina_id,
+                    contrato_id: o.contrato_id,
                     valor: parseFloat(o.valor) || 0
                 }))
             };
@@ -951,20 +1000,42 @@ export default function FacturasPage() {
         }
     };
 
-    const openPdfViewer = (url: string) => {
-        setPdfUrl(url);
-        setIsPdfModalOpen(true);
-    };
-
     const cambiarEstado = async (factura: Factura, nuevoEstado: string) => {
+        // Set loading state
+        setUpdatingStatusIds(prev => {
+            const newSet = new Set(prev);
+            newSet.add(factura.id);
+            return newSet;
+        });
+
         try {
-            await fetch(`${API_URL}/facturas/${factura.id}/estado?nuevo_estado=${nuevoEstado}`, {
-                method: 'PUT'
+            const res = await fetch(`${API_URL}/facturas/${factura.id}/estado?nuevo_estado=${nuevoEstado}`, {
+                method: 'PUT',
+                headers: getAuthHeaders()
             });
-            fetchFacturas(search, page);
-            fetchStats();
+
+            if (res.ok) {
+                // Update the specific factura in local state instead of refetching all
+                setFacturas(prevFacturas =>
+                    prevFacturas.map(f =>
+                        f.id === factura.id
+                            ? { ...f, estado: nuevoEstado, status_updated_at: new Date().toISOString() }
+                            : f
+                    )
+                );
+
+                // Update stats in background without waiting
+                fetchStats();
+            }
         } catch (error) {
             console.error("Failed to change estado", error);
+        } finally {
+            // Clear loading state
+            setUpdatingStatusIds(prev => {
+                const newSet = new Set(prev);
+                newSet.delete(factura.id);
+                return newSet;
+            });
         }
     };
 
@@ -1029,6 +1100,7 @@ export default function FacturasPage() {
         setEditForm({
             proveedor_id: factura.proveedor_id,
             oficina_id: factura.oficina_id || null,
+            contrato_id: factura.contrato_id || null,
             numero_factura: factura.numero_factura || '',
             cufe: factura.cufe || '',
             fecha_factura: factura.fecha_factura || '',
@@ -1114,7 +1186,7 @@ export default function FacturasPage() {
                 body: JSON.stringify({
                     proveedor_id: editForm.proveedor_id,
                     oficina_id: editForm.oficina_id,
-                    contrato_id: null,
+                    contrato_id: editForm.contrato_id || null,
                     numero_factura: editForm.numero_factura || null,
                     cufe: editForm.cufe || null,
                     fecha_factura: editForm.fecha_factura || null,
@@ -1132,7 +1204,10 @@ export default function FacturasPage() {
                     await fetch(`${API_URL}/facturas/${editingFactura.id}/asignar-oficina`, {
                         method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ oficina_id: editForm.oficina_id })
+                        body: JSON.stringify({
+                            oficina_id: editForm.oficina_id,
+                            contrato_id: editForm.contrato_id
+                        })
                     });
                 }
                 setIsEditModalOpen(false);
@@ -1197,18 +1272,63 @@ export default function FacturasPage() {
                     {/* Stats Cards */}
                     {stats && (
                         <>
-                            <div className="bg-yellow-50 border border-yellow-200 rounded-lg px-4 py-2 text-center">
-                                <div className="text-2xl font-bold text-yellow-700">{stats.pendientes}</div>
-                                <div className="text-xs text-yellow-600">Sin Oficina</div>
-                            </div>
-                            <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-2 text-center">
-                                <div className="text-2xl font-bold text-blue-700">{stats.asignadas}</div>
-                                <div className="text-xs text-blue-600">Asignadas</div>
-                            </div>
-                            <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-2 text-center">
-                                <div className="text-2xl font-bold text-green-700">{stats.pagadas}</div>
-                                <div className="text-xs text-green-600">Pagadas</div>
-                            </div>
+                            {/* En Trámite - clickable filter for current month */}
+                            <button
+                                onClick={() => {
+                                    const isActive = filterEstado === 'EN_TRAMITE' && filterPeriodo === 'este_mes';
+                                    if (isActive) {
+                                        setFilterEstado('');
+                                        handlePeriodoChange('');
+                                        setFilterUsarFechaEstado(false);
+                                    } else {
+                                        setFilterEstado('EN_TRAMITE');
+                                        handlePeriodoChange('este_mes');
+                                        setFilterUsarFechaEstado(true);
+                                    }
+                                }}
+                                className={`rounded-lg px-4 py-2 text-center transition-all duration-200 border ${filterEstado === 'EN_TRAMITE' && filterPeriodo === 'este_mes'
+                                    ? 'bg-purple-600 border-purple-700 shadow-md ring-2 ring-purple-400 ring-offset-1'
+                                    : 'bg-purple-50 border-purple-200 hover:bg-purple-100 hover:border-purple-400'
+                                    }`}
+                                title="Ver facturas En Trámite de este mes"
+                            >
+                                <div className={`text-2xl font-bold ${filterEstado === 'EN_TRAMITE' && filterPeriodo === 'este_mes' ? 'text-white' : 'text-purple-700'
+                                    }`}>{stats.en_tramite || 0}</div>
+                                <div className={`text-xs font-medium ${filterEstado === 'EN_TRAMITE' && filterPeriodo === 'este_mes' ? 'text-purple-100' : 'text-purple-600'
+                                    }`}>En Trámite</div>
+                                <div className={`text-[10px] ${filterEstado === 'EN_TRAMITE' && filterPeriodo === 'este_mes' ? 'text-purple-200' : 'text-purple-400'
+                                    }`}>este mes</div>
+                            </button>
+
+                            {/* Pagadas - clickable filter for current month */}
+                            <button
+                                onClick={() => {
+                                    const isActive = filterEstado === 'PAGADA' && filterPeriodo === 'este_mes';
+                                    if (isActive) {
+                                        setFilterEstado('');
+                                        handlePeriodoChange('');
+                                        setFilterUsarFechaEstado(false);
+                                    } else {
+                                        setFilterEstado('PAGADA');
+                                        handlePeriodoChange('este_mes');
+                                        setFilterUsarFechaEstado(true);
+                                    }
+                                }}
+                                className={`rounded-lg px-4 py-2 text-center transition-all duration-200 border ${filterEstado === 'PAGADA' && filterPeriodo === 'este_mes'
+                                    ? 'bg-green-600 border-green-700 shadow-md ring-2 ring-green-400 ring-offset-1'
+                                    : 'bg-green-50 border-green-200 hover:bg-green-100 hover:border-green-400'
+                                    }`}
+                                title="Ver facturas Pagadas de este mes"
+                            >
+                                <div className={`text-2xl font-bold ${filterEstado === 'PAGADA' && filterPeriodo === 'este_mes' ? 'text-white' : 'text-green-700'
+                                    }`}>{stats.pagadas}</div>
+                                <div className={`text-xs font-medium ${filterEstado === 'PAGADA' && filterPeriodo === 'este_mes' ? 'text-green-100' : 'text-green-600'
+                                    }`}>Pagadas</div>
+                                <div className={`text-[10px] ${filterEstado === 'PAGADA' && filterPeriodo === 'este_mes' ? 'text-green-200' : 'text-green-400'
+                                    }`}>este mes</div>
+                            </button>
+
+                            {/* Pendientes por llegar - navigate to dedicated page */}
                             <button
                                 onClick={() => navigate('/facturas/pendientes')}
                                 className="bg-red-50 border border-red-200 rounded-lg px-4 py-2 text-center hover:bg-red-100 transition-colors"
@@ -1222,13 +1342,13 @@ export default function FacturasPage() {
             </div>
 
             {/* Floating Action Panel - 3 buttons */}
-            {selectedFacturaIds.size > 0 && (
+            {selectedFacturas.size > 0 && (
                 <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-2 bg-gray-900 text-white p-4 rounded-xl shadow-2xl">
                     {/* Header with count */}
                     <div className="flex items-center justify-between gap-4 pb-2 border-b border-gray-700">
                         <div className="flex items-center gap-2">
                             <span className="bg-emerald-500 px-2 py-1 rounded-lg font-bold text-sm">
-                                {selectedFacturaIds.size}
+                                {selectedFacturas.size}
                             </span>
                             <span className="text-sm text-gray-300">facturas seleccionadas</span>
                         </div>
@@ -1321,6 +1441,7 @@ export default function FacturasPage() {
                     <option value="">Todos los estados</option>
                     <option value="PENDIENTE">Pendiente</option>
                     <option value="ASIGNADA">Asignada</option>
+                    <option value="EN_TRAMITE">En Trámite</option>
                     <option value="PAGADA">Pagada</option>
                 </select>
 
@@ -1438,6 +1559,46 @@ export default function FacturasPage() {
 
             {/* Facturas List */}
             <div className="space-y-4">
+
+                {/* Select All Bar - only shown when there are facturas */}
+                {facturas.length > 0 && (
+                    <div className="flex items-center justify-between bg-white border border-gray-200 rounded-xl px-4 py-2.5 shadow-sm">
+                        <label className="flex items-center gap-3 cursor-pointer select-none">
+                            <input
+                                type="checkbox"
+                                checked={facturas.every(f => selectedFacturas.has(f.id)) && facturas.length > 0}
+                                ref={(el) => {
+                                    if (el) {
+                                        const visibleSelectedCount = facturas.filter(f => selectedFacturas.has(f.id)).length;
+                                        el.indeterminate = visibleSelectedCount > 0 && visibleSelectedCount < facturas.length;
+                                    }
+                                }}
+                                onChange={toggleSelectAll}
+                                className="w-5 h-5 text-emerald-600 rounded border-gray-300 focus:ring-emerald-500 cursor-pointer"
+                            />
+                            <span className="text-sm font-medium text-gray-700">
+                                {selectedFacturas.size === 0
+                                    ? `Seleccionar todas en esta página (${facturas.length})`
+                                    : facturas.every(f => selectedFacturas.has(f.id))
+                                        ? `Todas visibles seleccionadas (${facturas.length})`
+                                        : `${facturas.filter(f => selectedFacturas.has(f.id)).length} de ${facturas.length} visibles seleccionadas (${selectedFacturas.size} en total)`
+                                }
+                            </span>
+                        </label>
+                        {selectedFacturas.size > 0 && (
+                            <button
+                                onClick={clearSelection}
+                                className="text-xs text-gray-400 hover:text-gray-600 transition-colors flex items-center gap-1"
+                            >
+                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                                Limpiar selección ({selectedFacturas.size})
+                            </button>
+                        )}
+                    </div>
+                )}
+
                 {facturas.length === 0 && !loading ? (
                     <div className="text-center py-10 text-gray-500 bg-white rounded-xl shadow-sm border border-gray-100">
                         No se encontraron facturas.
@@ -1446,15 +1607,15 @@ export default function FacturasPage() {
                     facturas.map((f) => (
                         <div
                             key={f.id}
-                            className={`card hover:shadow-xl transition-shadow duration-300 border-l-4 ${getBorderColor(f.estado)} ${selectedFacturaIds.has(f.id) ? 'ring-2 ring-emerald-500 ring-offset-2' : ''}`}
+                            className={`card hover:shadow-xl transition-shadow duration-300 border-l-4 ${getBorderColor(f.estado)} ${selectedFacturas.has(f.id) ? 'ring-2 ring-emerald-500 ring-offset-2' : ''}`}
                         >
                             <div className="flex flex-col md:flex-row justify-between gap-4">
                                 {/* Selection Checkbox */}
                                 <div className="flex items-start">
                                     <input
                                         type="checkbox"
-                                        checked={selectedFacturaIds.has(f.id)}
-                                        onChange={() => toggleFacturaSelection(f.id)}
+                                        checked={selectedFacturas.has(f.id)}
+                                        onChange={() => toggleFacturaSelection(f)}
                                         className="w-5 h-5 text-emerald-600 rounded border-gray-300 focus:ring-emerald-500 cursor-pointer mt-1"
                                     />
                                 </div>
@@ -1490,18 +1651,22 @@ export default function FacturasPage() {
                                                             </div>
                                                             <div className="text-xs text-gray-500 flex items-center gap-2">
                                                                 <span>{oa.oficina?.ciudad || ''}</span>
-                                                                {oa.contrato && (
+                                                                {oa.contrato ? (
                                                                     <>
                                                                         <span>•</span>
                                                                         <span className="font-mono">{oa.contrato.num_contrato}</span>
-                                                                        <span className={`px-1.5 py-0.5 rounded text-xs ${oa.contrato.estado === 'ACTIVO'
-                                                                            ? 'bg-green-100 text-green-700'
-                                                                            : 'bg-red-100 text-red-700'
-                                                                            }`}>
+                                                                        <span className={`px-1.5 py-0.5 rounded text-xs ${oa.contrato.estado === 'ACTIVO' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                                                                             {oa.contrato.estado}
                                                                         </span>
                                                                     </>
-                                                                )}
+                                                                ) : oa.info_contrato_audit ? (
+                                                                    <>
+                                                                        <span>•</span>
+                                                                        <span className="bg-orange-100 text-orange-700 px-2 py-0.5 rounded text-[10px] font-bold border border-orange-200" title="Contrato borrado pero conservado en auditoría">
+                                                                            ⚠️ Contrato eliminado: {oa.info_contrato_audit}
+                                                                        </span>
+                                                                    </>
+                                                                ) : null}
                                                             </div>
                                                         </div>
                                                         <div className="flex items-center gap-2">
@@ -1544,14 +1709,17 @@ export default function FacturasPage() {
                                                     <span className="font-semibold text-gray-700">Oficina:</span>{' '}
                                                     <span className="text-gray-600">{f.oficina.nombre} ({f.oficina.ciudad})</span>
                                                 </div>
-                                                {f.contrato && (
+                                                {f.contrato ? (
                                                     <div className="text-sm mt-1">
                                                         <span className="font-semibold text-gray-700">Contrato:</span>{' '}
                                                         <span className="text-gray-600 font-mono">{f.contrato.num_contrato}</span>
-                                                        <span className={`ml-2 px-2 py-0.5 rounded text-xs ${f.contrato.estado === 'ACTIVO' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-                                                            }`}>
+                                                        <span className={`ml-2 px-2 py-0.5 rounded text-xs ${f.contrato.estado === 'ACTIVO' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                                                             {f.contrato.estado}
                                                         </span>
+                                                    </div>
+                                                ) : f.info_contrato_audit && (
+                                                    <div className="text-xs mt-1 text-orange-700 bg-orange-50 px-2 py-1 rounded border border-orange-200 inline-block font-medium">
+                                                        ⚠️ Contrato eliminado: {f.info_contrato_audit}
                                                     </div>
                                                 )}
                                             </>
@@ -1586,6 +1754,24 @@ export default function FacturasPage() {
                                         <div>
                                             <span className="block text-gray-400 text-xs uppercase">Vencimiento</span>
                                             <span className="text-gray-700">{f.fecha_vencimiento || '-'}</span>
+                                        </div>
+                                        <div className="col-span-2 mt-2 pt-2 border-t border-dashed border-gray-200">
+                                            <span className="block text-gray-400 text-xs uppercase mb-1">Estado: {f.estado}</span>
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-sm font-semibold text-gray-700">
+                                                    {f.status_updated_at
+                                                        ? new Date(f.status_updated_at).toLocaleString('es-CO')
+                                                        : (f.created_at ? new Date(f.created_at).toLocaleString('es-CO') : '-')
+                                                    }
+                                                </span>
+                                                <span className={`px-2 py-0.5 rounded text-xs font-bold ${f.estado === 'PAGADA' ? 'bg-green-100 text-green-700' :
+                                                    f.estado === 'ASIGNADA' ? 'bg-blue-100 text-blue-700' :
+                                                        f.estado === 'EN_TRAMITE' ? 'bg-purple-100 text-purple-700' :
+                                                            'bg-yellow-100 text-yellow-700'
+                                                    }`}>
+                                                    {f.estado}
+                                                </span>
+                                            </div>
                                         </div>
                                         <div>
                                             <span className="block text-gray-400 text-xs uppercase">Procesada</span>
@@ -1665,18 +1851,36 @@ export default function FacturasPage() {
                                         </button>
                                     )}
 
-                                    {/* Estado Toggle */}
-                                    {f.estado === 'ASIGNADA' && (
-                                        <button
-                                            onClick={() => cambiarEstado(f, 'PAGADA')}
-                                            className="flex items-center justify-center gap-1 px-3 py-2 text-sm bg-green-50 text-green-600 rounded-lg hover:bg-green-100 transition-colors"
+                                    {/* Estado Selector */}
+                                    <div className="relative">
+                                        <select
+                                            value={f.estado}
+                                            onChange={(e) => cambiarEstado(f, e.target.value)}
+                                            disabled={updatingStatusIds.has(f.id)}
+                                            className={`appearance-none w-full px-4 py-2.5 text-sm font-semibold rounded-lg transition-all cursor-pointer border-2 shadow-sm hover:shadow-md ${f.estado === 'PAGADA'
+                                                ? 'bg-gradient-to-r from-emerald-50 to-green-50 text-emerald-700 border-emerald-300 hover:border-emerald-400'
+                                                : f.estado === 'ASIGNADA'
+                                                    ? 'bg-gradient-to-r from-blue-50 to-cyan-50 text-blue-700 border-blue-300 hover:border-blue-400'
+                                                    : f.estado === 'EN_TRAMITE'
+                                                        ? 'bg-gradient-to-r from-purple-50 to-fuchsia-50 text-purple-700 border-purple-300 hover:border-purple-400'
+                                                        : 'bg-gradient-to-r from-amber-50 to-yellow-50 text-amber-700 border-amber-300 hover:border-amber-400'
+                                                } ${updatingStatusIds.has(f.id) ? 'opacity-60 cursor-wait' : ''}`}
                                         >
-                                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                            </svg>
-                                            Marcar Pagada
-                                        </button>
-                                    )}
+                                            <option value="PENDIENTE">📋 Pendiente</option>
+                                            <option value="ASIGNADA">📌 Asignada</option>
+                                            <option value="EN_TRAMITE">⚙️ En Trámite</option>
+                                            <option value="PAGADA">✅ Pagada</option>
+                                        </select>
+                                        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3">
+                                            {updatingStatusIds.has(f.id) ? (
+                                                <div className="animate-spin h-4 w-4 border-2 border-blue-600 border-t-transparent rounded-full"></div>
+                                            ) : (
+                                                <svg className="h-4 w-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 9l-7 7-7-7" />
+                                                </svg>
+                                            )}
+                                        </div>
+                                    </div>
 
                                     {/* Delete Button */}
                                     <button
@@ -1776,8 +1980,8 @@ export default function FacturasPage() {
                                 Oficinas seleccionadas ({oficinasSeleccionadas.length}):
                             </div>
                             <div className="space-y-2">
-                                {oficinasSeleccionadas.map((os) => (
-                                    <div key={os.oficina_id} className="flex items-center gap-2 bg-white rounded p-2 border border-green-200">
+                                {oficinasSeleccionadas.map((os, idx) => (
+                                    <div key={`${os.oficina_id}-${os.contrato_id || 'nocontract'}-${idx}`} className="flex items-center gap-2 bg-white rounded p-2 border border-green-200">
                                         <div className="flex-1 min-w-0">
                                             <div className="font-medium text-gray-900 text-sm truncate">{os.oficina_nombre}</div>
                                             <div className="text-xs text-gray-500">{os.oficina_ciudad} • {os.contrato_num || 'Sin contrato'}</div>
@@ -1785,13 +1989,13 @@ export default function FacturasPage() {
                                         <input
                                             type="number"
                                             value={os.valor}
-                                            onChange={(e) => updateOficinaValor(os.oficina_id, e.target.value)}
+                                            onChange={(e) => updateOficinaValor(os.oficina_id, os.contrato_id, e.target.value)}
                                             className="w-28 px-2 py-1 border rounded text-sm text-right"
                                             placeholder="Valor"
                                         />
                                         <button
                                             type="button"
-                                            onClick={() => setOficinasSeleccionadas(prev => prev.filter(o => o.oficina_id !== os.oficina_id))}
+                                            onClick={() => setOficinasSeleccionadas(prev => prev.filter(o => !(o.oficina_id === os.oficina_id && o.contrato_id === os.contrato_id)))}
                                             className="text-red-500 hover:text-red-700 p-1"
                                         >
                                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1831,6 +2035,7 @@ export default function FacturasPage() {
                                                     oficina_id: oc.oficina_id,
                                                     oficina_nombre: oc.oficina_nombre || '',
                                                     oficina_ciudad: oc.oficina_ciudad || '',
+                                                    contrato_id: oc.contrato_id,
                                                     contrato_num: oc.contrato_num,
                                                     contrato_estado: oc.contrato_estado,
                                                     valor: oc.valor_mensual?.toString() || '0'
@@ -1846,7 +2051,7 @@ export default function FacturasPage() {
                             </div>
                             <div className="max-h-48 overflow-y-auto border rounded-lg">
                                 {oficinasConContrato.map((oc) => {
-                                    const isSelected = oficinasSeleccionadas.some(o => o.oficina_id === oc.oficina_id);
+                                    const isSelected = oficinasSeleccionadas.some(o => o.oficina_id === oc.oficina_id && o.contrato_id === oc.contrato_id);
                                     return (
                                         <button
                                             key={`${oc.oficina_id}-${oc.contrato_id}`}
@@ -2078,7 +2283,7 @@ export default function FacturasPage() {
                                                     type="button"
                                                     onClick={() => {
                                                         setSelectedOficinaConContrato(oc);
-                                                        setEditForm({ ...editForm, oficina_id: oc.oficina_id });
+                                                        setEditForm({ ...editForm, oficina_id: oc.oficina_id, contrato_id: oc.contrato_id });
                                                     }}
                                                     className="w-full text-left px-3 py-2 border-b last:border-b-0 hover:bg-gray-50"
                                                 >
@@ -2226,6 +2431,7 @@ export default function FacturasPage() {
                         >
                             <option value="PENDIENTE">Pendiente</option>
                             <option value="ASIGNADA">Asignada</option>
+                            <option value="EN_TRAMITE">En Trámite</option>
                             <option value="PAGADA">Pagada</option>
                         </select>
                     </FormField>
@@ -2325,6 +2531,19 @@ export default function FacturasPage() {
                                                     <div className="text-sm text-gray-500 mt-1">
                                                         Fecha: {hf.fecha_factura || '-'} | Recibida: {hf.created_at?.split('T')[0] || '-'}
                                                     </div>
+                                                    {(() => {
+                                                        const asignacion = hf.oficinas_asignadas?.find(
+                                                            oa => oa.oficina_id === historialInfo?.oficinaId
+                                                        );
+                                                        if (asignacion?.info_contrato_audit) {
+                                                            return (
+                                                                <div className="text-[10px] text-orange-700 font-bold mt-1 bg-orange-50 px-2 py-1 rounded border border-orange-100 inline-block">
+                                                                    ⚠️ Contrato eliminado: {asignacion.info_contrato_audit}
+                                                                </div>
+                                                            );
+                                                        }
+                                                        return null;
+                                                    })()}
                                                 </div>
                                                 <div className="text-right">
                                                     {/* Show value assigned to this specific oficina */}
@@ -2677,7 +2896,22 @@ export default function FacturasPage() {
                                         </div>
                                         <div className="bg-blue-50 rounded-lg p-4">
                                             <div className="text-xs text-blue-600 uppercase font-medium">Fecha Causación</div>
-                                            <div className="text-lg font-bold text-blue-800">{causacionPreviewData.fecha_causacion}</div>
+                                            <div className="mt-1">
+                                                <input
+                                                    type="date"
+                                                    max={new Date().toISOString().split('T')[0]}
+                                                    value={
+                                                        causacionPreviewData.fecha_causacion.includes('/')
+                                                            ? causacionPreviewData.fecha_causacion.split('/').reverse().join('-')
+                                                            : causacionPreviewData.fecha_causacion
+                                                    }
+                                                    onChange={(e) => {
+                                                        const newVal = e.target.value;
+                                                        setCausacionPreviewData(prev => prev ? { ...prev, fecha_causacion: newVal } : prev);
+                                                    }}
+                                                    className="w-full px-2 py-1 text-sm font-bold text-blue-800 bg-white border border-blue-200 rounded focus:ring-2 focus:ring-blue-500 outline-none"
+                                                />
+                                            </div>
                                         </div>
                                         <div className="bg-green-50 rounded-lg p-4">
                                             <div className="text-xs text-green-600 uppercase font-medium">NUMEDOC</div>
@@ -2715,31 +2949,288 @@ export default function FacturasPage() {
                                                             <th className="px-3 py-2 text-left font-medium text-gray-600">Destino</th>
                                                             <th className="px-3 py-2 text-right font-medium text-gray-600">Valor</th>
                                                             <th className="px-3 py-2 text-left font-medium text-gray-600 min-w-[400px]">Detalle</th>
+                                                            <th className="px-3 py-2 text-center font-medium text-gray-600">Acciones</th>
                                                         </tr>
                                                     </thead>
                                                     <tbody className="divide-y divide-gray-100">
-                                                        {factura.rows.map((row, rowIdx) => (
-                                                            <tr key={rowIdx} className={row.tipo_movimiento === 'CREDITO' ? 'bg-green-50' : 'bg-white'}>
-                                                                <td className="px-3 py-2 text-gray-500">{row.row_num}</td>
-                                                                <td className="px-3 py-2 font-mono text-gray-800">{row.cuenta}</td>
-                                                                <td className="px-3 py-2">
-                                                                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${row.tipo_movimiento === 'DEBITO'
-                                                                        ? 'bg-blue-100 text-blue-700'
-                                                                        : 'bg-green-100 text-green-700'
-                                                                        }`}>
-                                                                        {row.tipo_movimiento}
-                                                                    </span>
-                                                                </td>
-                                                                <td className="px-3 py-2 font-mono text-gray-600">{row.ccosto || '-'}</td>
-                                                                <td className="px-3 py-2 font-mono text-gray-600">{row.destino}</td>
-                                                                <td className="px-3 py-2 text-right font-mono font-medium text-gray-800">
-                                                                    ${row.valor.toLocaleString('es-CO', { minimumFractionDigits: 0 })}
-                                                                </td>
-                                                                <td className="px-3 py-2 text-gray-600 whitespace-nowrap">
-                                                                    {row.detalle}
-                                                                </td>
-                                                            </tr>
-                                                        ))}
+                                                        {factura.rows.map((row, rowIdx) => {
+                                                            const isEditingCuenta = editingCell?.facturaIdx === idx && editingCell?.rowIdx === rowIdx && editingCell?.field === 'cuenta';
+                                                            const isEditingTipo = editingCell?.facturaIdx === idx && editingCell?.rowIdx === rowIdx && editingCell?.field === 'tipo';
+                                                            const isEditingCcosto = editingCell?.facturaIdx === idx && editingCell?.rowIdx === rowIdx && editingCell?.field === 'ccosto';
+                                                            const isEditingDestino = editingCell?.facturaIdx === idx && editingCell?.rowIdx === rowIdx && editingCell?.field === 'destino';
+                                                            const isEditingValor = editingCell?.facturaIdx === idx && editingCell?.rowIdx === rowIdx && editingCell?.field === 'valor';
+                                                            const isEditingDetalle = editingCell?.facturaIdx === idx && editingCell?.rowIdx === rowIdx && editingCell?.field === 'detalle';
+
+                                                            return (
+                                                                <tr key={rowIdx} className={row.tipo_movimiento === 'CREDITO' ? 'bg-green-50' : 'bg-white'}>
+                                                                    <td className="px-3 py-2 text-gray-500">{row.row_num}</td>
+
+                                                                    {/* Cuenta - Click to edit */}
+                                                                    <td className="px-3 py-2">
+                                                                        {isEditingCuenta ? (
+                                                                            <input
+                                                                                type="text"
+                                                                                value={row.cuenta}
+                                                                                autoFocus
+                                                                                onChange={(e) => {
+                                                                                    setCausacionPreviewData(prev => {
+                                                                                        if (!prev) return prev;
+                                                                                        const newFacturas = [...prev.facturas];
+                                                                                        newFacturas[idx].rows[rowIdx].cuenta = e.target.value;
+                                                                                        return { ...prev, facturas: newFacturas };
+                                                                                    });
+                                                                                }}
+                                                                                onBlur={() => setEditingCell(null)}
+                                                                                onKeyDown={(e) => e.key === 'Enter' && setEditingCell(null)}
+                                                                                className="w-full px-2 py-1 text-sm font-mono bg-white border-2 border-purple-500 rounded focus:outline-none"
+                                                                            />
+                                                                        ) : (
+                                                                            <div
+                                                                                onClick={() => setEditingCell({ facturaIdx: idx, rowIdx, field: 'cuenta' })}
+                                                                                className="font-mono text-gray-800 cursor-pointer hover:bg-purple-50 px-2 py-1 rounded transition-colors"
+                                                                            >
+                                                                                {row.cuenta}
+                                                                            </div>
+                                                                        )}
+                                                                    </td>
+                                                                    {/* Tipo - Click to select */}
+                                                                    <td className="px-3 py-2">
+                                                                        {isEditingTipo ? (
+                                                                            <select
+                                                                                value={row.tipo_movimiento}
+                                                                                autoFocus
+                                                                                onChange={(e) => {
+                                                                                    setCausacionPreviewData(prev => {
+                                                                                        if (!prev) return prev;
+                                                                                        const newFacturas = [...prev.facturas];
+                                                                                        newFacturas[idx].rows[rowIdx].tipo_movimiento = e.target.value as 'DEBITO' | 'CREDITO';
+
+                                                                                        // Recalculate totals
+                                                                                        let debitos = 0;
+                                                                                        let creditos = 0;
+                                                                                        newFacturas[idx].rows.forEach(r => {
+                                                                                            if (r.tipo_movimiento === 'DEBITO') debitos += r.valor;
+                                                                                            else creditos += r.valor;
+                                                                                        });
+                                                                                        newFacturas[idx].total_debitos = debitos;
+                                                                                        newFacturas[idx].total_creditos = creditos;
+
+                                                                                        const totalDebitos = newFacturas.reduce((sum, f) => sum + f.total_debitos, 0);
+                                                                                        const totalCreditos = newFacturas.reduce((sum, f) => sum + f.total_creditos, 0);
+
+                                                                                        setEditingCell(null);
+
+                                                                                        return {
+                                                                                            ...prev,
+                                                                                            facturas: newFacturas,
+                                                                                            total_debitos: totalDebitos,
+                                                                                            total_creditos: totalCreditos,
+                                                                                            balance: totalDebitos - totalCreditos
+                                                                                        };
+                                                                                    });
+                                                                                }}
+                                                                                onBlur={() => setEditingCell(null)}
+                                                                                className="px-2 py-1 text-xs font-medium border-2 border-purple-500 rounded focus:outline-none"
+                                                                            >
+                                                                                <option value="DEBITO">DEBITO</option>
+                                                                                <option value="CREDITO">CREDITO</option>
+                                                                            </select>
+                                                                        ) : (
+                                                                            <span
+                                                                                onClick={() => setEditingCell({ facturaIdx: idx, rowIdx, field: 'tipo' })}
+                                                                                className={`px-2 py-0.5 rounded text-xs font-medium cursor-pointer transition-colors ${row.tipo_movimiento === 'DEBITO'
+                                                                                    ? 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                                                                                    : 'bg-green-100 text-green-700 hover:bg-green-200'
+                                                                                    }`}
+                                                                            >
+                                                                                {row.tipo_movimiento}
+                                                                            </span>
+                                                                        )}
+                                                                    </td>
+                                                                    {/* C.Costo - Click to edit */}
+                                                                    <td className="px-3 py-2">
+                                                                        {isEditingCcosto ? (
+                                                                            <input
+                                                                                type="text"
+                                                                                value={row.ccosto || ''}
+                                                                                autoFocus
+                                                                                onChange={(e) => {
+                                                                                    setCausacionPreviewData(prev => {
+                                                                                        if (!prev) return prev;
+                                                                                        const newFacturas = [...prev.facturas];
+                                                                                        newFacturas[idx].rows[rowIdx].ccosto = e.target.value;
+                                                                                        return { ...prev, facturas: newFacturas };
+                                                                                    });
+                                                                                }}
+                                                                                onBlur={() => setEditingCell(null)}
+                                                                                onKeyDown={(e) => e.key === 'Enter' && setEditingCell(null)}
+                                                                                className="w-full px-2 py-1 text-sm font-mono bg-white border-2 border-purple-500 rounded focus:outline-none"
+                                                                                placeholder="-"
+                                                                            />
+                                                                        ) : (
+                                                                            <div
+                                                                                onClick={() => setEditingCell({ facturaIdx: idx, rowIdx, field: 'ccosto' })}
+                                                                                className="font-mono text-gray-600 cursor-pointer hover:bg-purple-50 px-2 py-1 rounded transition-colors"
+                                                                            >
+                                                                                {row.ccosto || '-'}
+                                                                            </div>
+                                                                        )}
+                                                                    </td>
+                                                                    {/* Destino - Click to edit */}
+                                                                    <td className="px-3 py-2">
+                                                                        {isEditingDestino ? (
+                                                                            <input
+                                                                                type="text"
+                                                                                value={row.destino}
+                                                                                autoFocus
+                                                                                onChange={(e) => {
+                                                                                    setCausacionPreviewData(prev => {
+                                                                                        if (!prev) return prev;
+                                                                                        const newFacturas = [...prev.facturas];
+                                                                                        newFacturas[idx].rows[rowIdx].destino = e.target.value;
+                                                                                        return { ...prev, facturas: newFacturas };
+                                                                                    });
+                                                                                }}
+                                                                                onBlur={() => setEditingCell(null)}
+                                                                                onKeyDown={(e) => e.key === 'Enter' && setEditingCell(null)}
+                                                                                className="w-full px-2 py-1 text-sm font-mono bg-white border-2 border-purple-500 rounded focus:outline-none"
+                                                                            />
+                                                                        ) : (
+                                                                            <div
+                                                                                onClick={() => setEditingCell({ facturaIdx: idx, rowIdx, field: 'destino' })}
+                                                                                className="font-mono text-gray-600 cursor-pointer hover:bg-purple-50 px-2 py-1 rounded transition-colors"
+                                                                            >
+                                                                                {row.destino}
+                                                                            </div>
+                                                                        )}
+                                                                    </td>
+                                                                    {/* Valor - Click to edit */}
+                                                                    <td className="px-3 py-2">
+                                                                        {isEditingValor ? (
+                                                                            <input
+                                                                                type="number"
+                                                                                value={row.valor}
+                                                                                autoFocus
+                                                                                onChange={(e) => {
+                                                                                    setCausacionPreviewData(prev => {
+                                                                                        if (!prev) return prev;
+                                                                                        const newFacturas = [...prev.facturas];
+                                                                                        const newValor = parseFloat(e.target.value) || 0;
+                                                                                        newFacturas[idx].rows[rowIdx].valor = newValor;
+
+                                                                                        // Recalculate totals
+                                                                                        let debitos = 0;
+                                                                                        let creditos = 0;
+                                                                                        newFacturas[idx].rows.forEach(r => {
+                                                                                            if (r.tipo_movimiento === 'DEBITO') debitos += r.valor;
+                                                                                            else creditos += r.valor;
+                                                                                        });
+                                                                                        newFacturas[idx].total_debitos = debitos;
+                                                                                        newFacturas[idx].total_creditos = creditos;
+
+                                                                                        const totalDebitos = newFacturas.reduce((sum, f) => sum + f.total_debitos, 0);
+                                                                                        const totalCreditos = newFacturas.reduce((sum, f) => sum + f.total_creditos, 0);
+
+                                                                                        return {
+                                                                                            ...prev,
+                                                                                            facturas: newFacturas,
+                                                                                            total_debitos: totalDebitos,
+                                                                                            total_creditos: totalCreditos,
+                                                                                            balance: totalDebitos - totalCreditos
+                                                                                        };
+                                                                                    });
+                                                                                }}
+                                                                                onBlur={() => setEditingCell(null)}
+                                                                                onKeyDown={(e) => e.key === 'Enter' && setEditingCell(null)}
+                                                                                className="w-full px-2 py-1 text-sm font-mono text-right bg-white border-2 border-purple-500 rounded focus:outline-none"
+                                                                            />
+                                                                        ) : (
+                                                                            <div
+                                                                                onClick={() => setEditingCell({ facturaIdx: idx, rowIdx, field: 'valor' })}
+                                                                                className="font-mono font-medium text-gray-800 cursor-pointer hover:bg-purple-50 px-2 py-1 rounded transition-colors text-right"
+                                                                            >
+                                                                                ${row.valor.toLocaleString('es-CO', { minimumFractionDigits: 0 })}
+                                                                            </div>
+                                                                        )}
+                                                                    </td>
+                                                                    {/* Detalle - Click to edit */}
+                                                                    <td className="px-3 py-2">
+                                                                        {isEditingDetalle ? (
+                                                                            <input
+                                                                                type="text"
+                                                                                value={row.detalle}
+                                                                                autoFocus
+                                                                                onChange={(e) => {
+                                                                                    setCausacionPreviewData(prev => {
+                                                                                        if (!prev) return prev;
+                                                                                        const newFacturas = [...prev.facturas];
+                                                                                        newFacturas[idx].rows[rowIdx].detalle = e.target.value;
+                                                                                        return { ...prev, facturas: newFacturas };
+                                                                                    });
+                                                                                }}
+                                                                                onBlur={() => setEditingCell(null)}
+                                                                                onKeyDown={(e) => e.key === 'Enter' && setEditingCell(null)}
+                                                                                className="w-full px-2 py-1 text-sm bg-white border-2 border-purple-500 rounded focus:outline-none min-w-[350px]"
+                                                                            />
+                                                                        ) : (
+                                                                            <div
+                                                                                onClick={() => setEditingCell({ facturaIdx: idx, rowIdx, field: 'detalle' })}
+                                                                                className="text-gray-600 cursor-pointer hover:bg-purple-50 px-2 py-1 rounded transition-colors"
+                                                                            >
+                                                                                {row.detalle}
+                                                                            </div>
+                                                                        )}
+                                                                    </td>
+                                                                    {/* Acciones */}
+                                                                    <td className="px-3 py-2 text-center">
+                                                                        <button
+                                                                            onClick={() => {
+                                                                                setCausacionPreviewData(prev => {
+                                                                                    if (!prev) return prev;
+                                                                                    const newFacturas = [...prev.facturas];
+                                                                                    const currentFactura = { ...newFacturas[idx] };
+                                                                                    const currentRows = [...currentFactura.rows];
+
+                                                                                    // Remove row
+                                                                                    currentRows.splice(rowIdx, 1);
+
+                                                                                    // Recalculate totals
+                                                                                    let debitos = 0;
+                                                                                    let creditos = 0;
+                                                                                    currentRows.forEach((r, idxr) => {
+                                                                                        r.row_num = idxr + 1; // Update row numbers
+                                                                                        if (r.tipo_movimiento === 'DEBITO') debitos += r.valor;
+                                                                                        else creditos += r.valor;
+                                                                                    });
+
+                                                                                    currentFactura.rows = currentRows;
+                                                                                    currentFactura.total_debitos = debitos;
+                                                                                    currentFactura.total_creditos = creditos;
+                                                                                    newFacturas[idx] = currentFactura;
+
+                                                                                    const totalDebitos = newFacturas.reduce((sum, f) => sum + f.total_debitos, 0);
+                                                                                    const totalCreditos = newFacturas.reduce((sum, f) => sum + f.total_creditos, 0);
+
+                                                                                    return {
+                                                                                        ...prev,
+                                                                                        facturas: newFacturas,
+                                                                                        total_debitos: totalDebitos,
+                                                                                        total_creditos: totalCreditos,
+                                                                                        balance: totalDebitos - totalCreditos
+                                                                                    };
+                                                                                });
+                                                                            }}
+                                                                            className="p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
+                                                                            title="Eliminar fila"
+                                                                        >
+                                                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                                                            </svg>
+                                                                        </button>
+                                                                    </td>
+                                                                </tr>
+                                                            );
+                                                        })}
                                                     </tbody>
                                                     <tfoot className="bg-gray-100">
                                                         <tr>
@@ -2750,9 +3241,43 @@ export default function FacturasPage() {
                                                                 ${factura.total_debitos.toLocaleString('es-CO')} / ${factura.total_creditos.toLocaleString('es-CO')}
                                                             </td>
                                                             <td></td>
+                                                            <td></td>
                                                         </tr>
                                                     </tfoot>
                                                 </table>
+                                            </div>
+                                            <div className="bg-gray-50 border-t border-gray-200 px-4 py-2">
+                                                <button
+                                                    onClick={() => {
+                                                        setCausacionPreviewData(prev => {
+                                                            if (!prev) return prev;
+                                                            const newFacturas = [...prev.facturas];
+                                                            const currentFactura = { ...newFacturas[idx] };
+                                                            const currentRows = [...currentFactura.rows];
+
+                                                            const newRowNum = currentRows.length + 1;
+                                                            currentRows.push({
+                                                                row_num: newRowNum,
+                                                                cuenta: '',
+                                                                tipo_movimiento: 'DEBITO',
+                                                                ccosto: '',
+                                                                destino: '',
+                                                                valor: 0,
+                                                                detalle: `FACT ${factura.numero_factura}`
+                                                            });
+
+                                                            currentFactura.rows = currentRows;
+                                                            newFacturas[idx] = currentFactura;
+                                                            return { ...prev, facturas: newFacturas };
+                                                        });
+                                                    }}
+                                                    className="text-sm text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1 transition-colors"
+                                                >
+                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                                                    </svg>
+                                                    Agregar Cuenta
+                                                </button>
                                             </div>
                                         </div>
                                     ))}
@@ -2773,21 +3298,8 @@ export default function FacturasPage() {
                                         </div>
                                     </div>
 
-                                    {/* Warning */}
-                                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                                        <div className="flex items-start gap-3">
-                                            <svg className="w-5 h-5 text-yellow-600 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-                                                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                                            </svg>
-                                            <div>
-                                                <div className="font-medium text-yellow-800">Nota Importante</div>
-                                                <p className="text-sm text-yellow-700 mt-1">
-                                                    La funcionalidad de inserción directa en Manager ERP está pendiente de implementación.
-                                                    Por ahora, puede descargar el archivo Excel usando el botón "Generar Archivo Plano".
-                                                </p>
-                                            </div>
-                                        </div>
-                                    </div>
+
+
                                 </div>
                             )}
                         </div>
@@ -2937,44 +3449,14 @@ export default function FacturasPage() {
                                                 if (!confirmed) return;
 
                                                 try {
-                                                    // Prepare the request body matching the preview request
-                                                    const selectedFacturasData = facturas.filter(f => selectedFacturaIds.has(f.id));
-
-                                                    const facturasForRequest: Array<{
-                                                        numero_factura: string;
-                                                        fecha_factura: string | null;
-                                                        oficinas: Array<{ cod_oficina: string; valor: number; nombre_oficina: string }>;
-                                                    }> = [];
-
-                                                    for (const factura of selectedFacturasData) {
-                                                        const oficinas: Array<{ cod_oficina: string; valor: number; nombre_oficina: string }> = [];
-                                                        if (factura.oficinas_asignadas && factura.oficinas_asignadas.length > 0) {
-                                                            for (const oa of factura.oficinas_asignadas) {
-                                                                if (oa.oficina?.cod_oficina && oa.valor) {
-                                                                    oficinas.push({
-                                                                        cod_oficina: oa.oficina.cod_oficina,
-                                                                        valor: oa.valor,
-                                                                        nombre_oficina: oa.oficina.nombre || oa.oficina.cod_oficina
-                                                                    });
-                                                                }
-                                                            }
-                                                        }
-                                                        if (oficinas.length > 0) {
-                                                            facturasForRequest.push({
-                                                                numero_factura: factura.numero_factura || '',
-                                                                fecha_factura: factura.fecha_factura || null,
-                                                                oficinas: oficinas
-                                                            });
-                                                        }
-                                                    }
-
                                                     const requestBody = {
+                                                        fecha_causacion: causacionPreviewData.fecha_causacion,
                                                         proveedor_nit: causacionPreviewData.proveedor_nit,
                                                         proveedor_nombre: causacionPreviewData.proveedor_nombre,
                                                         tiene_iva: causacionPreviewData.tiene_iva,
                                                         porcentaje_retefuente: causacionPreviewData.porcentaje_retefuente,
                                                         numedoc: causacionPreviewData.numedoc_inicial,
-                                                        facturas: facturasForRequest
+                                                        facturas: causacionPreviewData.facturas
                                                     };
 
                                                     const res = await fetch(`${API_URL}/causacion-manager/insertar`, {
@@ -2993,7 +3475,9 @@ export default function FacturasPage() {
                                                             `Registros MNGMCN: ${result.total_registros_mngmcn}`
                                                         );
                                                         setIsCausacionModalOpen(false);
-                                                        setSelectedFacturaIds(new Set());
+                                                        setSelectedFacturas(new Map());
+                                                        fetchFacturas(search, page);
+                                                        fetchStats();
                                                     } else {
                                                         alert(
                                                             `❌ ERROR EN CAUSACIÓN\n\n` +

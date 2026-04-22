@@ -65,16 +65,7 @@ const formatCurrency = (value: number) => {
 };
 
 // Formato compacto para cards (ej: $412M)
-const formatCompact = (value: number) => {
-    if (value >= 1000000000) {
-        return `$${(value / 1000000000).toFixed(1)}B`;
-    } else if (value >= 1000000) {
-        return `$${(value / 1000000).toFixed(1)}M`;
-    } else if (value >= 1000) {
-        return `$${(value / 1000).toFixed(0)}K`;
-    }
-    return `$${value.toLocaleString()}`;
-};
+
 
 interface StatCardProps {
     title: string;
@@ -453,7 +444,7 @@ export default function DashboardHome() {
                                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
                                 <XAxis dataKey="mes" tick={{ fontSize: 12, fill: '#64748b' }} tickLine={false} />
                                 <YAxis tick={{ fontSize: 12, fill: '#64748b' }} tickFormatter={(v) => `${(v / 1000000).toFixed(0)}M`} tickLine={false} axisLine={false} />
-                                <Tooltip formatter={(value: number) => formatCurrency(value)} contentStyle={{ backgroundColor: '#0f172a', border: 'none', borderRadius: '12px', color: '#fff' }} />
+                                <Tooltip formatter={(value: number | undefined) => value !== undefined ? formatCurrency(value) : ''} contentStyle={{ backgroundColor: '#0f172a', border: 'none', borderRadius: '12px', color: '#fff' }} />
                                 <Legend />
                                 <Bar dataKey="valor" name="Facturado" fill={COLORS.primary} radius={[8, 8, 0, 0]} />
                             </BarChart>
@@ -473,7 +464,7 @@ export default function DashboardHome() {
                                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={true} vertical={false} />
                                 <XAxis type="number" tick={{ fontSize: 11, fill: '#64748b' }} tickFormatter={(v) => `${(v / 1000000).toFixed(0)}M`} axisLine={false} tickLine={false} />
                                 <YAxis type="category" dataKey="nombre" tick={{ fontSize: 11, fill: '#64748b' }} width={120} axisLine={false} tickLine={false} />
-                                <Tooltip formatter={(value: number) => formatCurrency(value)} contentStyle={{ backgroundColor: '#0f172a', border: 'none', borderRadius: '12px', color: '#fff' }} />
+                                <Tooltip formatter={(value: number | undefined) => value !== undefined ? formatCurrency(value) : ''} contentStyle={{ backgroundColor: '#0f172a', border: 'none', borderRadius: '12px', color: '#fff' }} />
                                 <Bar dataKey="total" fill={COLORS.primary} radius={[0, 8, 8, 0]} />
                             </BarChart>
                         </ResponsiveContainer>

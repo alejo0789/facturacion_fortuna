@@ -2,8 +2,13 @@ import { useState, useEffect, useMemo } from 'react';
 import type { Proveedor } from '../types';
 import DataTable from '../components/DataTable';
 import Modal, { FormField, inputClassName } from '../components/Modal';
+import { apiGet, apiPost, apiPut, apiDelete, API_URL } from '../utils/apiClient';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+interface CategoriaSimple {
+    id: number;
+    nombre: string;
+    color?: string;
+}
 
 // Estado para la búsqueda en Oracle
 interface OracleSearchState {
@@ -15,12 +20,17 @@ interface OracleSearchState {
 
 export default function ProveedoresPage() {
     const [proveedores, setProveedores] = useState<Proveedor[]>([]);
+    const [categorias, setCategorias] = useState<CategoriaSimple[]>([]);
+    const [selectedCategoriaId, setSelectedCategoriaId] = useState<string>('');
     const [loading, setLoading] = useState(false);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingItem, setEditingItem] = useState<Proveedor | null>(null);
     const [formData, setFormData] = useState<Partial<Proveedor>>({});
     const [search, setSearch] = useState('');
     const [saving, setSaving] = useState(false);
+    const [addingCategory, setAddingCategory] = useState(false);
+    const [newCategoryId, setNewCategoryId] = useState('');
+    const [initialCategoryId, setInitialCategoryId] = useState('');
 
     // Estado para búsqueda en Oracle
     const [oracleSearch, setOracleSearch] = useState<OracleSearchState>({
@@ -33,14 +43,33 @@ export default function ProveedoresPage() {
     const fetchData = async () => {
         setLoading(true);
         try {
-            const res = await fetch(`${API_URL}/proveedores/`);
-            if (res.ok) setProveedores(await res.json());
+            const params: any = {};
+            if (selectedCategoriaId) params.categoria_id = selectedCategoriaId;
+            const res = await apiGet<Proveedor[]>('/proveedores/', params);
+            setProveedores(res);
+        } catch (err) {
+            console.error(err);
         } finally {
             setLoading(false);
         }
     };
 
-    useEffect(() => { fetchData(); }, []);
+    const fetchCategorias = async () => {
+        try {
+            const res = await apiGet<CategoriaSimple[]>('/categorias/mis-categorias');
+            setCategorias(res);
+        } catch (err) {
+            console.error('Error loading categories:', err);
+        }
+    };
+
+    useEffect(() => {
+        fetchCategorias();
+    }, []);
+
+    useEffect(() => { 
+        fetchData(); 
+    }, [selectedCategoriaId]);
 
     // Client-side filtering
     const filteredData = useMemo(() => {
@@ -125,34 +154,76 @@ export default function ProveedoresPage() {
 
         setSaving(true);
         try {
-            const method = editingItem ? 'PUT' : 'POST';
-            const url = editingItem
-                ? `${API_URL}/proveedores/${editingItem.id}`
-                : `${API_URL}/proveedores/`;
+            const endpoint = editingItem
+                ? `/proveedores/${editingItem.id}`
+                : `/proveedores/`;
 
-            const res = await fetch(url, {
-                method,
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    nit: formData.nit,
-                    nombre: formData.nombre || 'PENDING_ORACLE_LOOKUP',
-                    nombre_comercial: formData.nombre_comercial || null
-                })
-            });
+            const payload = {
+                nit: formData.nit,
+                nombre: formData.nombre || 'PENDING_ORACLE_LOOKUP',
+                nombre_comercial: formData.nombre_comercial || null
+            };
 
-            if (!res.ok) {
-                const error = await res.json();
-                alert(error.detail || 'Error al guardar');
-                return;
+            let savedProveedor: Proveedor;
+            if (editingItem) {
+                savedProveedor = await apiPut<Proveedor>(endpoint, payload);
+            } else {
+                savedProveedor = await apiPost<Proveedor>(endpoint, payload);
+                // Si es nuevo, autorizarlo automáticamente para la categoría inicial seleccionada
+                if (initialCategoryId) {
+                    await apiPost<Proveedor>(`/proveedores/${savedProveedor.id}/autorizar-categoria`, {
+                        categoria_id: parseInt(initialCategoryId)
+                    });
+                }
             }
 
             setIsModalOpen(false);
             setEditingItem(null);
             setFormData({});
+            setInitialCategoryId('');
             setOracleSearch({ status: 'idle', message: '', nombre: null, nit: null });
             fetchData();
+        } catch (err: any) {
+            alert(err.message || 'Error al guardar');
         } finally {
             setSaving(false);
+        }
+    };
+
+    const handleAssignCategory = async () => {
+        if (!editingItem || !newCategoryId) return;
+        setAddingCategory(true);
+        try {
+            const updated = await apiPost<Proveedor>(`/proveedores/${editingItem.id}/autorizar-categoria`, {
+                categoria_id: parseInt(newCategoryId)
+            });
+            setEditingItem(updated);
+            setFormData(updated);
+            setNewCategoryId('');
+            // Also update the list in background
+            fetchData();
+        } catch (err: any) {
+            alert(err.message || 'Error al autorizar categoría');
+        } finally {
+            setAddingCategory(false);
+        }
+    };
+
+    const handleRemoveCategory = async (categoriaId: number) => {
+        if (!editingItem) return;
+        if (!confirm('¿Quitar autorización para esta área?')) return;
+        try {
+            await apiDelete(`/proveedores/${editingItem.id}/desautorizar-categoria/${categoriaId}`);
+            // Remove locally to update UI immediately
+            const updatedItem = {
+                ...editingItem,
+                categorias_autorizadas: editingItem.categorias_autorizadas?.filter(c => c.categoria_id !== categoriaId)
+            };
+            setEditingItem(updatedItem);
+            setFormData(updatedItem);
+            fetchData();
+        } catch (err: any) {
+            alert(err.message || 'Error al quitar categoría');
         }
     };
 
@@ -165,13 +236,18 @@ export default function ProveedoresPage() {
 
     const handleDelete = async (item: Proveedor) => {
         if (!confirm('¿Está seguro de eliminar este proveedor?')) return;
-        await fetch(`${API_URL}/proveedores/${item.id}`, { method: 'DELETE' });
-        fetchData();
+        try {
+            await apiDelete(`/proveedores/${item.id}`);
+            fetchData();
+        } catch (err: any) {
+            alert(err.message || 'Error al eliminar');
+        }
     };
 
     const openNewModal = () => {
         setFormData({});
         setEditingItem(null);
+        setInitialCategoryId(categorias.length === 1 ? String(categorias[0].id) : ''); // Select first if only one
         setOracleSearch({ status: 'idle', message: '', nombre: null, nit: null });
         setIsModalOpen(true);
     };
@@ -180,12 +256,34 @@ export default function ProveedoresPage() {
         { key: 'nit', header: 'NIT' },
         { key: 'nombre', header: 'Nombre Legal' },
         { key: 'nombre_comercial', header: 'Nombre Comercial' },
+        { 
+            key: 'categorias', 
+            header: 'Áreas Autorizadas',
+            render: (item: Proveedor) => (
+                <div className="flex flex-wrap gap-1">
+                    {item.categorias_autorizadas && item.categorias_autorizadas.length > 0 ? (
+                        item.categorias_autorizadas.map(cat => (
+                            <span 
+                                key={cat.categoria_id} 
+                                className="px-2 py-0.5 text-xs font-medium rounded-full text-white cursor-help"
+                                style={{ backgroundColor: cat.categoria_color || '#6366f1' }}
+                                title={`Autorizado por: ${cat.autorizado_por || 'desconocido'}`}
+                            >
+                                {cat.categoria_nombre}
+                            </span>
+                        ))
+                    ) : (
+                        <span className="text-gray-400 text-xs italic">Ninguna</span>
+                    )}
+                </div>
+            )
+        },
     ];
 
     // Determinar si se puede guardar
     const canSave = editingItem
         ? (formData.nit && formData.nombre)
-        : (oracleSearch.status === 'found' && oracleSearch.nombre);
+        : (oracleSearch.status === 'found' && oracleSearch.nombre && initialCategoryId);
 
     return (
         <div className="space-y-6">
@@ -199,18 +297,32 @@ export default function ProveedoresPage() {
                 </button>
             </div>
 
-            {/* Search Bar */}
-            <div className="relative">
-                <input
-                    type="text"
-                    placeholder="Buscar por NIT o nombre del proveedor..."
-                    className="w-full px-4 py-3 pl-11 bg-white border border-gray-200 rounded-xl shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                />
-                <svg className="absolute left-4 top-3.5 h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                </svg>
+            {/* Filters & Search */}
+            <div className="flex flex-col md:flex-row gap-4">
+                <div className="w-full md:w-64">
+                    <select
+                        value={selectedCategoriaId}
+                        onChange={(e) => setSelectedCategoriaId(e.target.value)}
+                        className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                    >
+                        <option value="">Todas las áreas</option>
+                        {categorias.map(cat => (
+                            <option key={cat.id} value={cat.id}>{cat.nombre}</option>
+                        ))}
+                    </select>
+                </div>
+                <div className="relative flex-1">
+                    <input
+                        type="text"
+                        placeholder="Buscar por NIT o nombre del proveedor..."
+                        className="w-full px-4 py-3 pl-11 bg-white border border-gray-200 rounded-xl shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                    />
+                    <svg className="absolute left-4 top-3.5 h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                </div>
             </div>
 
             <DataTable
@@ -361,6 +473,25 @@ export default function ProveedoresPage() {
                         </FormField>
                     )}
 
+                    {/* Categoría Inicial para Proveedor Nuevo */}
+                    {!editingItem && oracleSearch.status === 'found' && (
+                        <FormField label="Área de Autorización Inicial" required>
+                            <select
+                                className={inputClassName}
+                                value={initialCategoryId}
+                                onChange={e => setInitialCategoryId(e.target.value)}
+                            >
+                                <option value="">Seleccione el área donde operará...</option>
+                                {categorias.map(cat => (
+                                    <option key={cat.id} value={cat.id}>{cat.nombre}</option>
+                                ))}
+                            </select>
+                            <p className="text-xs text-gray-500 mt-1">
+                                El proveedor se creará e inmediatamente será autorizado para esta área.
+                            </p>
+                        </FormField>
+                    )}
+
                     {/* Instrucciones para nuevo proveedor */}
                     {!editingItem && oracleSearch.status === 'idle' && (
                         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
@@ -375,6 +506,67 @@ export default function ProveedoresPage() {
                                         verificar que existe en el sistema y obtener el nombre automáticamente.
                                     </p>
                                 </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Autorizaciones por Área (Solo al Editar) */}
+                    {editingItem && (
+                        <div className="border-t pt-4 mt-4">
+                            <h3 className="text-sm font-semibold text-gray-900 mb-3">Áreas Autorizadas</h3>
+                            
+                            {/* Lista de autorizadas actuales */}
+                            <div className="space-y-2 mb-4">
+                                {editingItem.categorias_autorizadas && editingItem.categorias_autorizadas.length > 0 ? (
+                                    editingItem.categorias_autorizadas.map(cat => (
+                                        <div key={cat.categoria_id} className="flex items-center justify-between bg-gray-50 p-2 rounded-lg border border-gray-100">
+                                            <div className="flex flex-col">
+                                                <div className="flex items-center gap-2">
+                                                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: cat.categoria_color || '#6366f1' }}></div>
+                                                    <span className="text-sm font-medium">{cat.categoria_nombre}</span>
+                                                </div>
+                                                {cat.autorizado_por && (
+                                                    <span className="text-xs text-gray-500 mt-0.5 ml-5">
+                                                        Autorizado por: {cat.autorizado_por}
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleRemoveCategory(cat.categoria_id)}
+                                                className="text-red-500 hover:text-red-700 text-sm px-2 py-1"
+                                            >
+                                                Quitar
+                                            </button>
+                                        </div>
+                                    ))
+                                ) : (
+                                    <p className="text-sm text-gray-500 italic">Este proveedor no está autorizado en ninguna área.</p>
+                                )}
+                            </div>
+
+                            {/* Agregar nueva autorización */}
+                            <div className="flex gap-2">
+                                <select
+                                    value={newCategoryId}
+                                    onChange={e => setNewCategoryId(e.target.value)}
+                                    className="flex-1 text-sm border-gray-300 rounded-lg shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                                >
+                                    <option value="">Seleccione un área para autorizar...</option>
+                                    {categorias
+                                        .filter(c => !editingItem.categorias_autorizadas?.some(ec => ec.categoria_id === c.id))
+                                        .map(cat => (
+                                        <option key={cat.id} value={cat.id}>{cat.nombre}</option>
+                                    ))}
+                                </select>
+                                <button
+                                    type="button"
+                                    onClick={handleAssignCategory}
+                                    disabled={!newCategoryId || addingCategory}
+                                    className="px-3 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 disabled:opacity-50"
+                                >
+                                    {addingCategory ? 'Autorizando...' : 'Autorizar'}
+                                </button>
                             </div>
                         </div>
                     )}

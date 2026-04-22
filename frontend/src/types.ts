@@ -1,8 +1,17 @@
+export interface ProveedorCategoriaInfo {
+    categoria_id: number;
+    categoria_nombre: string;
+    categoria_color?: string;
+    autorizado_por?: string;
+    created_at?: string;
+}
+
 export interface Proveedor {
     id: number;
     nit: string;
     nombre: string;
     nombre_comercial?: string;
+    categorias_autorizadas?: ProveedorCategoriaInfo[];
 }
 
 export interface Oficina {
@@ -79,8 +88,12 @@ export interface Factura {
     url_factura?: string;
     observaciones?: string;
     created_at?: string;  // When invoice was received/uploaded
+    status_updated_at?: string; // When status last changed
     storage_path?: string; // Expected network path
     file_exists?: boolean; // Whether the file exists
+
+    // Audit info for deleted contracts
+    info_contrato_audit?: string;
 
     // New: multiple oficinas with individual values
     oficinas_asignadas?: FacturaOficina[];
@@ -97,6 +110,7 @@ export interface FacturaOficina {
     observaciones?: string;
     oficina?: Oficina;
     contrato?: Contrato;
+    info_contrato_audit?: string;
 }
 
 // Oficina with contract info - used for selecting oficina when assigning to factura

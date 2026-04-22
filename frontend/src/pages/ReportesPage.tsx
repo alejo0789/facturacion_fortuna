@@ -40,12 +40,15 @@ interface MonthData {
 interface ReportRow {
     nit_proveedor: string;
     nombre_proveedor: string;
+    nombre_comercial?: string;
     cod_oficina: string;
     nombre_oficina: string;
     direccion: string;
     ciudad: string;
+    zona: string;
     tipo: string;
     num_contrato: string;
+    estado_contrato: string;
     tipo_plan: string;
     tipo_canal: string;
     valor_mensual: number;
@@ -774,10 +777,13 @@ export default function ReportesPage() {
                             <thead className="bg-gray-50 border-b">
                                 <tr>
                                     <th className="px-4 py-3 text-left font-semibold text-gray-700">Proveedor</th>
+                                    <th className="px-4 py-3 text-left font-semibold text-gray-700">Nombre Comercial</th>
                                     <th className="px-4 py-3 text-left font-semibold text-gray-700">Oficina</th>
                                     <th className="px-4 py-3 text-left font-semibold text-gray-700">Ciudad</th>
+                                    <th className="px-4 py-3 text-left font-semibold text-gray-700">Zona</th>
                                     <th className="px-4 py-3 text-left font-semibold text-gray-700">Tipo</th>
                                     <th className="px-4 py-3 text-left font-semibold text-gray-700">Contrato</th>
+                                    <th className="px-4 py-3 text-left font-semibold text-gray-700">Estado</th>
                                     <th className="px-4 py-3 text-right font-semibold text-gray-700">Valor Mensual</th>
                                     {preview.meses.map(m => (
                                         <th key={`${m.year}-${m.month}`} className="px-4 py-3 text-right font-semibold text-gray-700 bg-green-50">
@@ -793,17 +799,30 @@ export default function ReportesPage() {
                                             <div className="font-medium text-gray-900">{row.nombre_proveedor}</div>
                                             <div className="text-xs text-gray-500">{row.nit_proveedor}</div>
                                         </td>
+                                        <td className="px-4 py-3 text-gray-600">
+                                            {row.nombre_comercial || '-'}
+                                        </td>
                                         <td className="px-4 py-3">
                                             <div className="font-medium text-gray-800">{row.nombre_oficina}</div>
                                             <div className="text-xs text-gray-500">{row.cod_oficina}</div>
                                         </td>
                                         <td className="px-4 py-3 text-gray-600">{row.ciudad}</td>
+                                        <td className="px-4 py-3 text-gray-600">{row.zona}</td>
                                         <td className="px-4 py-3">
                                             <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${row.tipo === 'Fijo' ? 'bg-blue-100 text-blue-800' : row.tipo === 'Movil' ? 'bg-purple-100 text-purple-800' : row.tipo === 'Colaboracion' ? 'bg-yellow-100 text-yellow-800' : row.tipo === 'Leasing' ? 'bg-orange-100 text-orange-800' : 'bg-gray-100 text-gray-600'}`}>
                                                 {row.tipo || '-'}
                                             </span>
                                         </td>
                                         <td className="px-4 py-3 font-mono text-gray-700">{row.num_contrato}</td>
+                                        <td className="px-4 py-3">
+                                            <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                                                row.estado_contrato === 'ACTIVO' ? 'bg-green-100 text-green-800' : 
+                                                row.estado_contrato === 'CANCELADO' ? 'bg-red-100 text-red-800' : 
+                                                'bg-gray-100 text-gray-600'
+                                            }`}>
+                                                {row.estado_contrato || '-'}
+                                            </span>
+                                        </td>
                                         <td className="px-4 py-3 text-right font-semibold text-gray-900">{formatCurrency(row.valor_mensual)}</td>
                                         {preview.meses.map(m => {
                                             const key = `${m.year}-${String(m.month).padStart(2, '0')}`;

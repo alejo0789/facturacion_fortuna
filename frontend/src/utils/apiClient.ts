@@ -13,29 +13,40 @@ export interface FetchOptions extends RequestInit {
 /**
  * Get user identity from localStorage for auth headers
  */
-function getAuthHeaders(): Record<string, string> {
+export function getAuthHeaders(): Record<string, string> {
     const headers: Record<string, string> = {};
     try {
         const stored = localStorage.getItem('identity');
         if (stored) {
             const identity = JSON.parse(stored);
-            if (identity.id) {
-                headers['X-User-Id'] = String(identity.id);
+            // Support both 'usuario' (manager) and 'user' (others)
+            const userObj = identity.usuario || identity.user || identity;
+            
+            if (userObj.id) headers['X-User-Id'] = String(userObj.id);
+            
+            const rolId = userObj.rol_id ?? userObj.rol?.id;
+            if (rolId) headers['X-User-Rol-Id'] = String(rolId);
+            
+            const name = userObj.name || userObj.primer_nombre ? `${userObj.primer_nombre || ''} ${userObj.primer_apellido || ''}`.trim() : '';
+            if (name) headers['X-User-Name'] = name;
+            
+            const email = userObj.notificaciones?.data || userObj.email;
+            if (email) headers['X-User-Email'] = email;
+            
+            // Failsafe: if we have a partial "identity" object (like a dummy dev identity)
+            // that lacks an email and id, we manually inject our Super Admin values (ONLY IN DEV).
+            if (!headers['X-User-Id'] && !headers['X-User-Email'] && import.meta.env.DEV) {
+                headers['X-User-Id'] = import.meta.env.VITE_DEV_USER_ID || '725';
+                headers['X-User-Name'] = userObj.nombre || 'Dev Super Admin';
+                headers['X-User-Email'] = 'ingenieroia@acertemos.com';
             }
-            const rolId = identity.rol_id ?? identity.rol?.id;
-            if (rolId) {
-                headers['X-User-Rol-Id'] = String(rolId);
-            }
-            if (identity.primer_nombre) {
-                headers['X-User-Name'] = `${identity.primer_nombre} ${identity.primer_apellido || ''}`.trim();
-            }
+            
         } else {
-            // Localhost development fallback - use super admin ID from env or default
-            const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-            if (isLocalhost) {
-                // Use a default super admin ID for development (should match SUPER_ADMIN_USER_IDS in backend .env)
+            // No identity found - fallback for standalone testing (ONLY IN DEV)
+            if (import.meta.env.DEV) {
                 headers['X-User-Id'] = import.meta.env.VITE_DEV_USER_ID || '725';
                 headers['X-User-Name'] = 'Dev Super Admin';
+                headers['X-User-Email'] = 'ingenieroia@acertemos.com';
             }
         }
     } catch (e) {

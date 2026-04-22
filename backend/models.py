@@ -24,8 +24,10 @@ class Categoria(Base):
     
     # Relationships
     roles = relationship("CategoriaRol", back_populates="categoria", cascade="all, delete-orphan")
+    usuarios = relationship("CategoriaUsuario", back_populates="categoria", cascade="all, delete-orphan")
     facturas = relationship("Factura", back_populates="categoria")
     contratos = relationship("Contrato", back_populates="categoria")
+    proveedores_autorizados = relationship("ProveedorCategoria", back_populates="categoria", cascade="all, delete-orphan")
 
 
 class CategoriaRol(Base):
@@ -48,6 +50,45 @@ class CategoriaRol(Base):
     categoria = relationship("Categoria", back_populates="roles")
 
 
+class CategoriaUsuario(Base):
+    """
+    Many-to-many relationship between Categoria and specific users (by email).
+    """
+    __tablename__ = "categoria_usuarios"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    categoria_id = Column(Integer, ForeignKey("categorias.id", ondelete="CASCADE"), nullable=False)
+    email = Column(String(255), nullable=False)  # Email of the assigned user
+    created_at = Column(DateTime, server_default=func.now())
+    
+    # Unique constraint to prevent duplicate assignments
+    __table_args__ = (UniqueConstraint('categoria_id', 'email', name='uq_categoria_usuario'),)
+    
+    # Relationships
+    categoria = relationship("Categoria", back_populates="usuarios")
+
+
+class ProveedorCategoria(Base):
+    """
+    Authorization table: which categories/areas have approved a provider.
+    A provider is global but must be authorized per category before being used.
+    Tracks who authorized it and when.
+    """
+    __tablename__ = "proveedor_categorias"
+
+    id = Column(Integer, primary_key=True, index=True)
+    proveedor_id = Column(Integer, ForeignKey("proveedores.id", ondelete="CASCADE"), nullable=False)
+    categoria_id = Column(Integer, ForeignKey("categorias.id", ondelete="CASCADE"), nullable=False)
+    autorizado_por = Column(String(255), nullable=True)   # email of who authorized
+    created_at = Column(DateTime, server_default=func.now())
+
+    __table_args__ = (UniqueConstraint('proveedor_id', 'categoria_id', name='uq_proveedor_categoria'),)
+
+    # Relationships
+    proveedor = relationship("Proveedor", back_populates="categorias_autorizadas")
+    categoria = relationship("Categoria", back_populates="proveedores_autorizados")
+
+
 # ============================================
 # Core Business Models
 # ============================================
@@ -62,6 +103,7 @@ class Proveedor(Base):
     
     # Relationships
     contratos = relationship("Contrato", back_populates="proveedor")
+    categorias_autorizadas = relationship("ProveedorCategoria", back_populates="proveedor", cascade="all, delete-orphan")
 
 class Oficina(Base):
     __tablename__ = "oficinas"
@@ -166,7 +208,11 @@ class Factura(Base):
     
     # Audit
     created_at = Column(DateTime, server_default=func.now())  # When the invoice was received/uploaded
+    status_updated_at = Column(DateTime, nullable=True)  # When the status was last changed
     observaciones = Column(Text)
+    
+    # New: Field to keep info if the linked contract is deleted
+    info_contrato_audit = Column(Text, nullable=True)
     
     # Relationships
     proveedor = relationship("Proveedor")
@@ -200,6 +246,9 @@ class FacturaOficina(Base):
     
     # Audit
     observaciones = Column(Text)
+    
+    # New: Field to keep info if the linked contract is deleted
+    info_contrato_audit = Column(Text, nullable=True)
     
     # Relationships
     factura = relationship("Factura", back_populates="oficinas_asignadas")
@@ -258,3 +307,23 @@ class ProveedorFeedback(Base):
     proveedor = relationship("Proveedor")
     factura = relationship("Factura")
 
+class ContratoAuditoria(Base):
+    """
+    Historical record of deleted contracts to maintain traceability in invoices.
+    """
+    __tablename__ = "contrato_auditoria"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    original_id = Column(Integer)
+    num_contrato = Column(String(100))
+    proveedor_nit = Column(String(50))
+    proveedor_nombre = Column(String(255))
+    oficina_cod = Column(String(50))
+    oficina_nombre = Column(String(255))
+    valor_mensual = Column(Numeric(12, 2))
+    
+    # Full JSON snapshot of the contract for deep history
+    detalles_completos = Column(Text)
+    
+    fecha_eliminacion = Column(DateTime, server_default=func.now())
+    motivo = Column(String(255), default="Eliminación manual por usuario")

@@ -20,6 +20,20 @@ class CategoriaRol(CategoriaRolBase):
     class Config:
         from_attributes = True
 
+class CategoriaUsuarioBase(BaseModel):
+    email: str
+
+class CategoriaUsuarioCreate(CategoriaUsuarioBase):
+    pass
+
+class CategoriaUsuario(CategoriaUsuarioBase):
+    id: int
+    categoria_id: int
+    created_at: Optional[datetime] = None
+    
+    class Config:
+        from_attributes = True
+
 class CategoriaBase(BaseModel):
     nombre: str
     descripcion: Optional[str] = None
@@ -40,6 +54,7 @@ class Categoria(CategoriaBase):
     created_at: Optional[datetime] = None
     created_by: Optional[str] = None
     roles: List[CategoriaRol] = []
+    usuarios: List[CategoriaUsuario] = []
     
     class Config:
         from_attributes = True
@@ -63,8 +78,29 @@ class ProveedorBase(BaseModel):
 class ProveedorCreate(ProveedorBase):
     pass
 
+class ProveedorCategoriaInfo(BaseModel):
+    """Simplified info about a category that has authorized a provider"""
+    categoria_id: int
+    categoria_nombre: str
+    categoria_color: Optional[str] = '#6366f1'
+    autorizado_por: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+class ProveedorCategoriaCreate(BaseModel):
+    """Request body to authorize a provider for a category"""
+    categoria_id: int
+    autorizado_por: Optional[str] = None  # email; taken from auth header if omitted
+
 class Proveedor(ProveedorBase):
     id: int
+    class Config:
+        from_attributes = True
+
+class ProveedorConCategorias(Proveedor):
+    categorias_autorizadas: List[ProveedorCategoriaInfo] = []
     class Config:
         from_attributes = True
 
@@ -156,8 +192,10 @@ class FacturaBase(BaseModel):
     fecha_vencimiento: Optional[date] = None
     valor: Optional[Decimal] = None
     estado: Optional[str] = "PENDIENTE"
+    status_updated_at: Optional[datetime] = None
     url_factura: Optional[str] = None
     observaciones: Optional[str] = None
+    info_contrato_audit: Optional[str] = None
 
 class FacturaCreate(FacturaBase):
     """Full factura creation (for internal use)"""
@@ -209,6 +247,7 @@ class FacturaCreateConOficinas(BaseModel):
     url_factura: Optional[str] = None
     observaciones: Optional[str] = None
     oficinas: Optional[list[OficinaConValor]] = None  # Opcional: lista de oficinas con valores
+    remitente_email: Optional[str] = None # Para asignar categoria basada en correo
     # Campos ignorados (pueden venir pero no se usan)
     contrato_id: Optional[int] = None
     oficina_id: Optional[int] = None
@@ -236,16 +275,19 @@ class FacturaCreateConOficinas(BaseModel):
         extra = 'ignore'  # Ignora campos extra que no están en el schema
 
 class AsignarOficinaRequest(BaseModel):
-    """Request to assign oficina to a factura (will auto-detect contrato)"""
+    """Request to assign oficina to a factura (will auto-detect contrato if not provided)"""
     oficina_id: int
+    contrato_id: Optional[int] = None
 
 # --- FacturaOficina Schemas (many-to-many with individual values) ---
 
 class FacturaOficinaBase(BaseModel):
     oficina_id: int
+    contrato_id: Optional[int] = None
     valor: Decimal
     estado: Optional[str] = 'PENDIENTE'
     observaciones: Optional[str] = None
+    info_contrato_audit: Optional[str] = None
 
 class FacturaOficinaCreate(FacturaOficinaBase):
     """Create a new assignment of oficina to factura"""

@@ -23,31 +23,55 @@ import schemas
 router = APIRouter()
 
 # Configuration
-SUPER_ADMIN_USER_IDS = [int(id.strip()) for id in os.getenv("SUPER_ADMIN_USER_IDS", "").split(",") if id.strip()]
+SUPER_ADMIN_EMAILS = [email.strip() for email in os.getenv("SUPER_ADMIN_EMAILS", "ingenieroia@acertemos.com").split(",") if email.strip()]
+SUPER_ADMIN_USER_IDS = [int(id.strip()) for id in os.getenv("SUPER_ADMIN_USER_IDS", "725").split(",") if id.strip()]
 PARENT_SYSTEM_ROLES_URL = os.getenv("PARENT_SYSTEM_ROLES_URL", "")
 PARENT_SYSTEM_API_TOKEN = os.getenv("PARENT_SYSTEM_API_TOKEN", "")
 
+def is_super_admin(identifier: Optional[str] = None, user_id: Optional[int] = None) -> bool:
+    """Check if user is a super admin based on email or user_id"""
+    print(f"DEBUG is_super_admin CHECK: identifier={identifier}, user_id={user_id}")
+    print(f"DEBUG SUPER_ADMIN_EMAILS={SUPER_ADMIN_EMAILS}, SUPER_ADMIN_USER_IDS={SUPER_ADMIN_USER_IDS}")
+    if identifier and identifier in SUPER_ADMIN_EMAILS:
+        print("DEBUG: User is super admin by EMAIL")
+        return True
+    if user_id and user_id in SUPER_ADMIN_USER_IDS:
+        print("DEBUG: User is super admin by USER_ID")
+        return True
+    print("DEBUG: User is NOT super admin")
+    return False
 
-def is_super_admin(user_id: int) -> bool:
-    """Check if user is a super admin based on user_id"""
-    return user_id in SUPER_ADMIN_USER_IDS
 
-
-async def get_user_categoria_ids(rol_id: int, db: AsyncSession) -> List[int]:
-    """Get category IDs accessible to a role"""
-    result = await db.execute(
-        select(models.CategoriaRol.categoria_id)
-        .where(models.CategoriaRol.rol_id == rol_id)
-    )
-    return [r[0] for r in result.fetchall()]
+async def get_user_categoria_ids(db: AsyncSession, rol_id: Optional[int] = None, email: Optional[str] = None) -> List[int]:
+    """Get category IDs accessible to a role or email"""
+    cat_ids = set()
+    
+    if rol_id:
+        result = await db.execute(
+            select(models.CategoriaRol.categoria_id)
+            .where(models.CategoriaRol.rol_id == rol_id)
+        )
+        for r in result.fetchall():
+            cat_ids.add(r[0])
+            
+    if email:
+        result = await db.execute(
+            select(models.CategoriaUsuario.categoria_id)
+            .where(models.CategoriaUsuario.email == email)
+        )
+        for r in result.fetchall():
+            cat_ids.add(r[0])
+            
+    return list(cat_ids)
 
 
 # ============================================
-# Category CRUD (Super Admin Only)
+# Core Categories (CRUD)
 # ============================================
 
 @router.get("/", response_model=List[schemas.Categoria])
 async def list_categorias(
+    x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
     x_user_id: Optional[int] = Header(None, alias="X-User-Id"),
     x_user_rol_id: Optional[int] = Header(None, alias="X-User-Rol-Id"),
     db: AsyncSession = Depends(get_db)
@@ -55,20 +79,20 @@ async def list_categorias(
     """
     List all categories.
     - Super admin sees all categories
-    - Regular users see only categories assigned to their role
+    - Regular users see only categories assigned to their role or email
     """
     query = select(models.Categoria).options(
-        selectinload(models.Categoria.roles)
+        selectinload(models.Categoria.roles),
+        selectinload(models.Categoria.usuarios)
     ).where(models.Categoria.activa == True)
     
-    # If not super admin, filter by role
-    if x_user_id and not is_super_admin(x_user_id):
-        if x_user_rol_id:
-            categoria_ids = await get_user_categoria_ids(x_user_rol_id, db)
-            if categoria_ids:
-                query = query.where(models.Categoria.id.in_(categoria_ids))
-            else:
-                return []  # No categories assigned to this role
+    # If not super admin, filter by role/email
+    if not is_super_admin(x_user_email, x_user_id):
+        categoria_ids = await get_user_categoria_ids(db, rol_id=x_user_rol_id, email=x_user_email)
+        if categoria_ids:
+            query = query.where(models.Categoria.id.in_(categoria_ids))
+        else:
+            return []  # No categories assigned to this user
     
     query = query.order_by(models.Categoria.nombre)
     result = await db.execute(query)
@@ -77,27 +101,26 @@ async def list_categorias(
 
 @router.get("/mis-categorias", response_model=List[schemas.CategoriaSimple])
 async def get_mis_categorias(
+    x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
     x_user_id: Optional[int] = Header(None, alias="X-User-Id"),
     x_user_rol_id: Optional[int] = Header(None, alias="X-User-Rol-Id"),
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Get categories accessible to the current user's role.
+    Get categories accessible to the current user's role or email.
     Returns simplified category info for dropdowns.
     """
     query = select(models.Categoria).where(models.Categoria.activa == True)
     
     # Super admin sees all
-    if x_user_id and is_super_admin(x_user_id):
+    if is_super_admin(x_user_email, x_user_id):
         pass  # No filter
-    elif x_user_rol_id:
-        categoria_ids = await get_user_categoria_ids(x_user_rol_id, db)
+    else:
+        categoria_ids = await get_user_categoria_ids(db, rol_id=x_user_rol_id, email=x_user_email)
         if categoria_ids:
             query = query.where(models.Categoria.id.in_(categoria_ids))
         else:
             return []
-    else:
-        return []
     
     query = query.order_by(models.Categoria.nombre)
     result = await db.execute(query)
@@ -107,12 +130,13 @@ async def get_mis_categorias(
 @router.post("/", response_model=schemas.Categoria)
 async def create_categoria(
     categoria: schemas.CategoriaCreate,
+    x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
     x_user_id: Optional[int] = Header(None, alias="X-User-Id"),
     x_user_name: Optional[str] = Header(None, alias="X-User-Name"),
     db: AsyncSession = Depends(get_db)
 ):
     """Create a new category (Super Admin only)"""
-    if not x_user_id or not is_super_admin(x_user_id):
+    if not is_super_admin(x_user_email, x_user_id):
         raise HTTPException(status_code=403, detail="Solo super admin puede crear categorías")
     
     # Check if name already exists
@@ -133,7 +157,7 @@ async def create_categoria(
     # Reload with relationships
     result = await db.execute(
         select(models.Categoria)
-        .options(selectinload(models.Categoria.roles))
+        .options(selectinload(models.Categoria.roles), selectinload(models.Categoria.usuarios))
         .where(models.Categoria.id == db_categoria.id)
     )
     return result.scalar_one()
@@ -147,7 +171,7 @@ async def get_categoria(
     """Get a single category by ID"""
     result = await db.execute(
         select(models.Categoria)
-        .options(selectinload(models.Categoria.roles))
+        .options(selectinload(models.Categoria.roles), selectinload(models.Categoria.usuarios))
         .where(models.Categoria.id == categoria_id)
     )
     categoria = result.scalar_one_or_none()
@@ -160,11 +184,12 @@ async def get_categoria(
 async def update_categoria(
     categoria_id: int,
     categoria: schemas.CategoriaUpdate,
+    x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
     x_user_id: Optional[int] = Header(None, alias="X-User-Id"),
     db: AsyncSession = Depends(get_db)
 ):
     """Update a category (Super Admin only)"""
-    if not x_user_id or not is_super_admin(x_user_id):
+    if not is_super_admin(x_user_email, x_user_id):
         raise HTTPException(status_code=403, detail="Solo super admin puede editar categorías")
     
     result = await db.execute(
@@ -192,7 +217,7 @@ async def update_categoria(
     # Reload with relationships
     result = await db.execute(
         select(models.Categoria)
-        .options(selectinload(models.Categoria.roles))
+        .options(selectinload(models.Categoria.roles), selectinload(models.Categoria.usuarios))
         .where(models.Categoria.id == categoria_id)
     )
     return result.scalar_one()
@@ -201,11 +226,12 @@ async def update_categoria(
 @router.delete("/{categoria_id}")
 async def delete_categoria(
     categoria_id: int,
+    x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
     x_user_id: Optional[int] = Header(None, alias="X-User-Id"),
     db: AsyncSession = Depends(get_db)
 ):
     """Delete a category (Super Admin only)"""
-    if not x_user_id or not is_super_admin(x_user_id):
+    if not is_super_admin(x_user_email, x_user_id):
         raise HTTPException(status_code=403, detail="Solo super admin puede eliminar categorías")
     
     result = await db.execute(
@@ -237,11 +263,12 @@ async def delete_categoria(
 @router.get("/{categoria_id}/roles", response_model=List[schemas.CategoriaRol])
 async def get_categoria_roles(
     categoria_id: int,
+    x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
     x_user_id: Optional[int] = Header(None, alias="X-User-Id"),
     db: AsyncSession = Depends(get_db)
 ):
     """Get all roles assigned to a category (Super Admin only)"""
-    if not x_user_id or not is_super_admin(x_user_id):
+    if not is_super_admin(x_user_email, x_user_id):
         raise HTTPException(status_code=403, detail="Solo super admin puede ver roles de categorías")
     
     result = await db.execute(
@@ -254,11 +281,12 @@ async def get_categoria_roles(
 async def assign_rol_to_categoria(
     categoria_id: int,
     rol: schemas.CategoriaRolCreate,
+    x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
     x_user_id: Optional[int] = Header(None, alias="X-User-Id"),
     db: AsyncSession = Depends(get_db)
 ):
     """Assign a role to a category (Super Admin only)"""
-    if not x_user_id or not is_super_admin(x_user_id):
+    if not is_super_admin(x_user_email, x_user_id):
         raise HTTPException(status_code=403, detail="Solo super admin puede asignar roles")
     
     # Verify category exists
@@ -292,11 +320,12 @@ async def assign_rol_to_categoria(
 async def remove_rol_from_categoria(
     categoria_id: int,
     rol_id: int,
+    x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
     x_user_id: Optional[int] = Header(None, alias="X-User-Id"),
     db: AsyncSession = Depends(get_db)
 ):
     """Remove a role from a category (Super Admin only)"""
-    if not x_user_id or not is_super_admin(x_user_id):
+    if not is_super_admin(x_user_email, x_user_id):
         raise HTTPException(status_code=403, detail="Solo super admin puede quitar roles")
     
     result = await db.execute(
@@ -319,13 +348,14 @@ async def remove_rol_from_categoria(
 
 @router.get("/roles-disponibles")
 async def get_roles_disponibles(
+    x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
     x_user_id: Optional[int] = Header(None, alias="X-User-Id"),
 ):
     """
     Fetch available roles from parent system (Super Admin only).
     Configure PARENT_SYSTEM_ROLES_URL in .env
     """
-    if not x_user_id or not is_super_admin(x_user_id):
+    if not is_super_admin(x_user_email, x_user_id):
         raise HTTPException(status_code=403, detail="Solo super admin puede consultar roles")
     
     if not PARENT_SYSTEM_ROLES_URL:
@@ -352,11 +382,101 @@ async def get_roles_disponibles(
 
 @router.get("/check-super-admin")
 async def check_super_admin(
+    x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
     x_user_id: Optional[int] = Header(None, alias="X-User-Id"),
 ):
     """Check if current user is super admin"""
     return {
-        "is_super_admin": is_super_admin(x_user_id) if x_user_id else False,
+        "is_super_admin": is_super_admin(x_user_email, x_user_id),
+        "user_email": x_user_email,
         "user_id": x_user_id,
-        "super_admin_ids": SUPER_ADMIN_USER_IDS
+        "super_admin_emails": SUPER_ADMIN_EMAILS
     }
+
+# ============================================
+# User (Email) Assignment (Super Admin Only)
+# ============================================
+
+@router.get("/{categoria_id}/usuarios", response_model=List[schemas.CategoriaUsuario])
+async def get_categoria_usuarios(
+    categoria_id: int,
+    x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
+    x_user_id: Optional[int] = Header(None, alias="X-User-Id"),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get all users (emails) assigned to a category (Super Admin only)"""
+    if not is_super_admin(x_user_email, x_user_id):
+        raise HTTPException(status_code=403, detail="Solo super admin puede ver usuarios de categorías")
+    
+    result = await db.execute(
+        select(models.CategoriaUsuario).where(models.CategoriaUsuario.categoria_id == categoria_id)
+    )
+    return result.scalars().all()
+
+
+@router.post("/{categoria_id}/usuarios", response_model=schemas.CategoriaUsuario)
+async def assign_usuario_to_categoria(
+    categoria_id: int,
+    usuario: schemas.CategoriaUsuarioCreate,
+    x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
+    x_user_id: Optional[int] = Header(None, alias="X-User-Id"),
+    db: AsyncSession = Depends(get_db)
+):
+    """Assign a user email to a category (Super Admin only)"""
+    if not is_super_admin(x_user_email, x_user_id):
+        raise HTTPException(status_code=403, detail="Solo super admin puede asignar usuarios")
+    
+    usuario.email = usuario.email.lower().strip()
+    
+    # Verify category exists
+    result = await db.execute(
+        select(models.Categoria).where(models.Categoria.id == categoria_id)
+    )
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Categoría no encontrada")
+    
+    # Check if assignment already exists
+    existing = await db.execute(
+        select(models.CategoriaUsuario)
+        .where(models.CategoriaUsuario.categoria_id == categoria_id)
+        .where(models.CategoriaUsuario.email == usuario.email)
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="Este usuario ya está asignado a la categoría")
+    
+    db_usr = models.CategoriaUsuario(
+        categoria_id=categoria_id,
+        email=usuario.email
+    )
+    db.add(db_usr)
+    await db.commit()
+    await db.refresh(db_usr)
+    return db_usr
+
+
+@router.delete("/{categoria_id}/usuarios/{email}")
+async def remove_usuario_from_categoria(
+    categoria_id: int,
+    email: str,
+    x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
+    x_user_id: Optional[int] = Header(None, alias="X-User-Id"),
+    db: AsyncSession = Depends(get_db)
+):
+    """Remove a user email from a category (Super Admin only)"""
+    if not is_super_admin(x_user_email, x_user_id):
+        raise HTTPException(status_code=403, detail="Solo super admin puede quitar usuarios")
+    
+    email = email.lower().strip()
+    
+    result = await db.execute(
+        select(models.CategoriaUsuario)
+        .where(models.CategoriaUsuario.categoria_id == categoria_id)
+        .where(models.CategoriaUsuario.email == email)
+    )
+    db_usr = result.scalar_one_or_none()
+    if not db_usr:
+        raise HTTPException(status_code=404, detail="Asignación no encontrada")
+    
+    await db.delete(db_usr)
+    await db.commit()
+    return {"message": "Usuario removido de la categoría"}

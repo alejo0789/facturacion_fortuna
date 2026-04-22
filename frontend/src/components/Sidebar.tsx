@@ -42,6 +42,28 @@ const navItems = [
         color: 'from-emerald-500 to-emerald-600'
     },
     {
+        to: '/pagos',
+        label: 'Pagos',
+        description: 'Programación de pagos',
+        icon: (
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
+            </svg>
+        ),
+        color: 'from-teal-500 to-teal-600'
+    },
+    {
+        to: '/asistente-buscador',
+        label: 'Buscador',
+        description: 'Buscador inteligente',
+        icon: (
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+        ),
+        color: 'from-cyan-500 to-cyan-600'
+    },
+    {
         to: '/oficinas',
         label: 'Oficinas',
         description: 'Puntos de servicio',
@@ -74,6 +96,7 @@ const navItems = [
         ),
         color: 'from-rose-500 to-rose-600'
     },
+
 ];
 
 // Admin items - only shown to super admins
@@ -97,8 +120,9 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
     const { user, isSuperAdmin, isAuthenticated, rolNombre } = useAuth();
 
     // Get user display name
-    const userName = user
-        ? `${user.primer_nombre || ''} ${user.primer_apellido || ''}`.trim() || 'Usuario'
+    const userObj = user?.usuario || user;
+    const userName = userObj
+        ? (userObj.name || `${userObj.primer_nombre || ''} ${userObj.primer_apellido || ''}`.trim() || 'Usuario')
         : 'Usuario';
     const userRole = rolNombre || (isSuperAdmin ? 'Super Admin' : 'Usuario');
 
@@ -159,8 +183,8 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                         </svg>
                     </div>
                     <div>
-                        <h1 className="text-sm font-bold text-white leading-tight">La Fortuna</h1>
-                        <p className="text-[10px] text-slate-400">Proveedores</p>
+                        <h1 className="text-sm font-bold text-white leading-tight">Facturación Céntrica</h1>
+                        <p className="text-[10px] text-slate-400">Control de Proveedores</p>
                     </div>
                 </div>
                 <button
@@ -176,6 +200,27 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
             {/* Navigation */}
             <nav className="p-2">
+                <ul className="space-y-1 mb-4">
+                    <li>
+                        <a
+                            href="https://saman.lafortuna.com.co/#/home"
+                            className={`group relative flex items-center gap-2 px-2 py-2 rounded-lg transition-all duration-200 overflow-hidden text-slate-300 hover:text-white hover:bg-slate-800/80`}
+                            title={collapsed ? 'Volver a Céntrica' : undefined}
+                        >
+                            <div className="relative z-10 w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 bg-slate-800 group-hover:bg-slate-700 border border-slate-700 group-hover:border-slate-600">
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11 15l-3-3m0 0l3-3m-3 3h8M3 12a9 9 0 1118 0 9 9 0 01-18 0z" />
+                                </svg>
+                            </div>
+                            {!collapsed && (
+                                <div className="relative z-10 flex-1 min-w-0">
+                                    <div className="font-bold text-sm tracking-wide">CÉNTRICA</div>
+                                </div>
+                            )}
+                        </a>
+                    </li>
+                </ul>
+
                 {!collapsed && (
                     <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2 px-2">
                         Menú

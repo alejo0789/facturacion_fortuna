@@ -1,12 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { apiGet, apiPost, apiPut, apiDelete } from '../utils/apiClient';
-import type { Categoria, CategoriaRol } from '../types/auth';
+import type { Categoria, CategoriaRol, CategoriaUsuario } from '../types/auth';
 
-interface RolDisponible {
-    id: number;
-    nombre: string;
-}
+
 
 export default function CategoriasAdminPage() {
     const { isSuperAdmin, loading: authLoading, user } = useAuth();
@@ -26,9 +23,10 @@ export default function CategoriasAdminPage() {
 
     // Role assignment state
     const [selectedCategoria, setSelectedCategoria] = useState<Categoria | null>(null);
-    const [rolesDisponibles, setRolesDisponibles] = useState<RolDisponible[]>([]);
     const [newRolId, setNewRolId] = useState('');
     const [newRolNombre, setNewRolNombre] = useState('');
+    const [newEmail, setNewEmail] = useState('');
+    const [activeTab, setActiveTab] = useState<'roles' | 'usuarios'>('roles');
 
     useEffect(() => {
         if (!authLoading) {
@@ -46,17 +44,6 @@ export default function CategoriasAdminPage() {
             console.error(err);
         } finally {
             setLoading(false);
-        }
-    }
-
-    async function loadRolesDisponibles() {
-        try {
-            const data = await apiGet<RolDisponible[]>('/categorias/roles-disponibles');
-            setRolesDisponibles(Array.isArray(data) ? data : []);
-        } catch (err) {
-            console.error('Could not load roles from parent system:', err);
-            // If API fails, allow manual entry
-            setRolesDisponibles([]);
         }
     }
 
@@ -108,6 +95,22 @@ export default function CategoriasAdminPage() {
         }
     }
 
+    async function handleAssignEmail() {
+        if (!selectedCategoria || !newEmail) return;
+        try {
+            await apiPost(`/categorias/${selectedCategoria.id}/usuarios`, {
+                email: newEmail.trim()
+            });
+            const updated = await apiGet<Categoria>(`/categorias/${selectedCategoria.id}`);
+            setSelectedCategoria(updated);
+            setNewEmail('');
+            loadCategorias();
+        } catch (err: any) {
+            setError(err.message || 'Error al asignar correo');
+            console.error(err);
+        }
+    }
+
     async function handleRemoveRole(rolId: number) {
         if (!selectedCategoria) return;
         try {
@@ -121,9 +124,22 @@ export default function CategoriasAdminPage() {
         }
     }
 
+    async function handleRemoveEmail(email: string) {
+        if (!selectedCategoria) return;
+        try {
+            await apiDelete(`/categorias/${selectedCategoria.id}/usuarios/${email}`);
+            const updated = await apiGet<Categoria>(`/categorias/${selectedCategoria.id}`);
+            setSelectedCategoria(updated);
+            loadCategorias();
+        } catch (err) {
+            setError('Error removing user email');
+            console.error(err);
+        }
+    }
+
     function openRoleModal(categoria: Categoria) {
         setSelectedCategoria(categoria);
-        loadRolesDisponibles();
+        setActiveTab('roles');
     }
 
     if (authLoading || loading) {
@@ -259,65 +275,139 @@ export default function CategoriasAdminPage() {
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
                     <div className="bg-white rounded-xl p-6 w-full max-w-lg">
                         <h2 className="text-lg font-semibold mb-2">
-                            Roles de "{selectedCategoria.nombre}"
+                            Configuración de Acceso a "{selectedCategoria.nombre}"
                         </h2>
-                        <p className="text-slate-600 text-sm mb-4">
-                            Los usuarios con estos roles podrán ver las facturas de esta categoría
-                        </p>
+                        
+                        {/* Tabs */}
+                        <div className="flex gap-4 border-b mb-4">
+                            <button
+                                className={`pb-2 px-1 font-medium text-sm transition-colors ${activeTab === 'roles' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}
+                                onClick={() => setActiveTab('roles')}
+                            >
+                                Por Rol
+                            </button>
+                            <button
+                                className={`pb-2 px-1 font-medium text-sm transition-colors ${activeTab === 'usuarios' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}
+                                onClick={() => setActiveTab('usuarios')}
+                            >
+                                Por Correo Individual
+                            </button>
+                        </div>
 
-                        {/* Current roles */}
-                        <div className="mb-4">
-                            <h3 className="text-sm font-medium text-slate-700 mb-2">Roles Asignados</h3>
-                            {selectedCategoria.roles && selectedCategoria.roles.length > 0 ? (
-                                <div className="space-y-2">
-                                    {selectedCategoria.roles.map((rol: CategoriaRol) => (
-                                        <div key={rol.id} className="flex items-center justify-between bg-slate-50 px-3 py-2 rounded">
-                                            <span>{rol.rol_nombre} (ID: {rol.rol_id})</span>
-                                            <button
-                                                onClick={() => handleRemoveRole(rol.rol_id)}
-                                                className="text-red-600 hover:text-red-700"
-                                            >
-                                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                                </svg>
-                                            </button>
+                        {activeTab === 'roles' ? (
+                            <>
+                                <p className="text-slate-600 text-sm mb-4">
+                                    Los usuarios con estos roles podrán ver las facturas de esta categoría
+                                </p>
+
+                                {/* Current roles */}
+                                <div className="mb-4">
+                                    <h3 className="text-sm font-medium text-slate-700 mb-2">Roles Asignados</h3>
+                                    {selectedCategoria.roles && selectedCategoria.roles.length > 0 ? (
+                                        <div className="space-y-2">
+                                            {selectedCategoria.roles.map((rol: CategoriaRol) => (
+                                                <div key={rol.id} className="flex items-center justify-between bg-slate-50 px-3 py-2 rounded">
+                                                    <span>{rol.rol_nombre} (ID: {rol.rol_id})</span>
+                                                    <button
+                                                        onClick={() => handleRemoveRole(rol.rol_id)}
+                                                        className="text-red-600 hover:text-red-700"
+                                                    >
+                                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                                        </svg>
+                                                    </button>
+                                                </div>
+                                            ))}
                                         </div>
-                                    ))}
+                                    ) : (
+                                        <p className="text-slate-500 text-sm italic">No hay roles asignados</p>
+                                    )}
                                 </div>
-                            ) : (
-                                <p className="text-slate-500 text-sm italic">No hay roles asignados</p>
-                            )}
-                        </div>
 
-                        {/* Add new role */}
-                        <div className="border-t pt-4">
-                            <h3 className="text-sm font-medium text-slate-700 mb-3">Agregar Rol</h3>
-                            <div className="space-y-3">
-                                <div className="flex flex-col sm:flex-row gap-2">
-                                    <input
-                                        type="number"
-                                        placeholder="ID del Rol"
-                                        value={newRolId}
-                                        onChange={e => setNewRolId(e.target.value)}
-                                        className="flex-1 border rounded-lg px-3 py-2 text-sm"
-                                    />
-                                    <input
-                                        type="text"
-                                        placeholder="Nombre del Rol"
-                                        value={newRolNombre}
-                                        onChange={e => setNewRolNombre(e.target.value)}
-                                        className="flex-1 border rounded-lg px-3 py-2 text-sm"
-                                    />
+                                {/* Add new role */}
+                                <div className="border-t pt-4">
+                                    <h3 className="text-sm font-medium text-slate-700 mb-3">Agregar Rol</h3>
+                                    <div className="space-y-3">
+                                        <div className="flex flex-col sm:flex-row gap-2">
+                                            <input
+                                                type="number"
+                                                placeholder="ID del Rol"
+                                                value={newRolId}
+                                                onChange={e => setNewRolId(e.target.value)}
+                                                className="flex-1 border rounded-lg px-3 py-2 text-sm"
+                                            />
+                                            <input
+                                                type="text"
+                                                placeholder="Nombre del Rol"
+                                                value={newRolNombre}
+                                                onChange={e => setNewRolNombre(e.target.value)}
+                                                className="flex-1 border rounded-lg px-3 py-2 text-sm"
+                                            />
+                                        </div>
+                                        <button
+                                            onClick={handleAssignRole}
+                                            disabled={!newRolId}
+                                            className="w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
+                                        >
+                                            Agregar Rol
+                                        </button>
+                                    </div>
                                 </div>
-                                <button
-                                    onClick={handleAssignRole}
-                                    disabled={!newRolId}
-                                    className="w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
-                                >
-                                    Agregar Rol
-                                </button>
-                            </div>
-                        </div>
+                            </>
+                        ) : (
+                            <>
+                                <p className="text-slate-600 text-sm mb-4">
+                                    Añade correos específicos para dar acceso directo a usuarios particulares
+                                </p>
+
+                                {/* Current Emails */}
+                                <div className="mb-4">
+                                    <h3 className="text-sm font-medium text-slate-700 mb-2">Correos Autorizados</h3>
+                                    {selectedCategoria.usuarios && selectedCategoria.usuarios.length > 0 ? (
+                                        <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
+                                            {selectedCategoria.usuarios.map((usr: CategoriaUsuario) => (
+                                                <div key={usr.id} className="flex items-center justify-between bg-slate-50 px-3 py-2 rounded">
+                                                    <span className="text-sm">{usr.email}</span>
+                                                    <button
+                                                        onClick={() => handleRemoveEmail(usr.email)}
+                                                        className="text-red-600 hover:text-red-700"
+                                                    >
+                                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                                        </svg>
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <p className="text-slate-500 text-sm italic">No hay correos asignados manualmente</p>
+                                    )}
+                                </div>
+
+                                {/* Add new Email */}
+                                <div className="border-t pt-4">
+                                    <h3 className="text-sm font-medium text-slate-700 mb-3">Agregar Correo</h3>
+                                    <div className="space-y-3">
+                                        <div className="flex flex-col sm:flex-row gap-2">
+                                            <input
+                                                type="email"
+                                                placeholder="Ej. juan.perez@empresa.com"
+                                                value={newEmail}
+                                                onChange={e => setNewEmail(e.target.value)}
+                                                className="flex-1 border rounded-lg px-3 py-2 text-sm"
+                                            />
+                                        </div>
+                                        <button
+                                            onClick={handleAssignEmail}
+                                            disabled={!newEmail}
+                                            className="w-full px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+                                        >
+                                            Autorizar Correo
+                                        </button>
+                                    </div>
+                                </div>
+                            </>
+                        )}
 
                         <div className="flex justify-end mt-6">
                             <button
@@ -339,7 +429,7 @@ export default function CategoriasAdminPage() {
                             <th className="text-left px-4 py-3 text-sm font-semibold text-slate-600">Color</th>
                             <th className="text-left px-4 py-3 text-sm font-semibold text-slate-600">Nombre</th>
                             <th className="text-left px-4 py-3 text-sm font-semibold text-slate-600">Descripción</th>
-                            <th className="text-left px-4 py-3 text-sm font-semibold text-slate-600">Roles</th>
+                            <th className="text-left px-4 py-3 text-sm font-semibold text-slate-600">Roles / Usuarios</th>
                             <th className="text-left px-4 py-3 text-sm font-semibold text-slate-600">Estado</th>
                             <th className="text-right px-4 py-3 text-sm font-semibold text-slate-600">Acciones</th>
                         </tr>
@@ -358,12 +448,17 @@ export default function CategoriasAdminPage() {
                                 <td className="px-4 py-3">
                                     <button
                                         onClick={() => openRoleModal(cat)}
-                                        className="text-indigo-600 hover:text-indigo-700 flex items-center gap-1"
+                                        className="text-indigo-600 hover:text-indigo-700 flex flex-col gap-1 text-sm bg-indigo-50 px-2 py-1.5 rounded"
                                     >
-                                        <span>{cat.roles?.length || 0} roles</span>
-                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                                        </svg>
+                                        <div className="flex items-center gap-1 font-medium">
+                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                            </svg>
+                                            Administrar Accesos
+                                        </div>
+                                        <div className="text-xs text-indigo-500 font-normal">
+                                            {cat.roles?.length || 0} roles • {cat.usuarios?.length || 0} correos
+                                        </div>
                                     </button>
                                 </td>
                                 <td className="px-4 py-3">

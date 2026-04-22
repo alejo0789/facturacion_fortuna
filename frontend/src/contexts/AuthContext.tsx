@@ -1,8 +1,8 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
 import type { AuthState, ParentSystemIdentity } from '../types/auth';
 
-// Super admin user IDs - should match backend .env
-const SUPER_ADMIN_USER_IDS = [725];
+// Super admin emails - should match backend .env
+const SUPER_ADMIN_EMAILS = ['ingenieroia@acertemos.com'];
 
 interface AuthContextType extends AuthState {
     refreshAuth: () => void;
@@ -46,14 +46,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const identity = getIdentityFromStorage();
 
         if (identity) {
-            const userId = identity.id;
-            const rolId = identity.rol_id ?? identity.rol?.id ?? null;
-            const rolNombre = identity.rol?.nombre ?? null;
-
+            const userObj = identity.usuario || identity;
+            const userId = userObj.id as number;
+            const rolId = userObj.rol_id ?? userObj.rol?.id ?? null;
+            const rolNombre = userObj.rolNombre ?? userObj.rol?.name ?? userObj.rol?.nombre ?? null;
+            
+            // Try to extract email from notificaciones or flat email field
+            const userEmail = userObj.notificaciones?.data || userObj.email || '';
+            const isLocalDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || import.meta.env.DEV;
+            
             setState({
                 user: identity,
                 isAuthenticated: true,
-                isSuperAdmin: SUPER_ADMIN_USER_IDS.includes(userId),
+                isSuperAdmin: isLocalDev || SUPER_ADMIN_EMAILS.includes(userEmail),
                 userId,
                 rolId,
                 rolNombre,
@@ -114,13 +119,17 @@ export function getAuthHeaders(): Record<string, string> {
     const headers: Record<string, string> = {};
 
     if (identity) {
-        headers['X-User-Id'] = String(identity.id);
-        if (identity.rol_id ?? identity.rol?.id) {
-            headers['X-User-Rol-Id'] = String(identity.rol_id ?? identity.rol?.id);
-        }
-        if (identity.primer_nombre) {
-            headers['X-User-Name'] = `${identity.primer_nombre} ${identity.primer_apellido || ''}`.trim();
-        }
+        const userObj = identity.usuario || identity;
+        if (userObj.id) headers['X-User-Id'] = String(userObj.id);
+        
+        const rolId = userObj.rol_id ?? userObj.rol?.id;
+        if (rolId) headers['X-User-Rol-Id'] = String(rolId);
+        
+        const name = userObj.name || userObj.primer_nombre ? `${userObj.primer_nombre || ''} ${userObj.primer_apellido || ''}`.trim() : '';
+        if (name) headers['X-User-Name'] = name;
+        
+        const email = userObj.notificaciones?.data || userObj.email;
+        if (email) headers['X-User-Email'] = email;
     }
 
     return headers;

@@ -1,0 +1,360 @@
+{
+  "name": "Buscar PDFs Outlook por Fecha y Remitente",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "buscar-facturas",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "name": "Webhook Entrada",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        176,
+        720
+      ],
+      "id": "a0033c9d-af44-4d83-a6f7-28a63f1ab577",
+      "webhookId": "a9190a4f-4396-4719-bfe2-c3dab7587780"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.body.email}}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      },
+      "name": "Validar Datos",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        368,
+        720
+      ],
+      "id": "e8a4d02c-ba14-4676-9bb1-120b4e497043"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "returnAll": true,
+        "output": "raw",
+        "filtersUI": {
+          "values": {
+            "filters": {
+              "receivedAfter": "={{$json.body.startDate}}",
+              "receivedBefore": "={{$json.body.endDate}}",
+              "sender": "={{$json.body.email}}"
+            }
+          }
+        },
+        "options": {
+          "attachmentsPrefix": "data",
+          "downloadAttachments": true
+        }
+      },
+      "name": "Buscar Correos Outlook",
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [
+        640,
+        656
+      ],
+      "id": "a2bc5351-a448-4d0b-8a95-524462614896",
+      "webhookId": "5520b7fb-4e47-48e0-aefb-2a06ac3f7c31"
+    },
+    {
+      "parameters": {
+        "functionCode": "const out = [];\nconst seenFiles = new Set();\n\nfor (const item of items) {\n  if (!item.binary) continue;\n\n  // Preserve metadata from the email\n  const messageId = item.json.id;\n  const receivedDate = item.json.receivedDateTime;\n  const sender = item.json.from ? item.json.from.emailAddress.address : '';\n\n  for (const key of Object.keys(item.binary)) {\n    const f = item.binary[key];\n    const name = f.fileName.toLowerCase();\n\n    if ((name.endsWith('.pdf') || name.endsWith('.zip')) && !seenFiles.has(name)) {\n      seenFiles.add(name);\n      out.push({\n        json: {\n          filename: f.fileName,\n          size: f.fileSize ? parseInt(f.fileSize) : 0,\n          type: f.mimeType,\n          sourceId: messageId,\n          date: receivedDate,\n          sender: sender,\n          isZip: name.endsWith('.zip'),\n          requestId: $json.body.requestId // Pass requestId through\n        },\n        binary: { data: f }\n      });\n    }\n  }\n}\n\nreturn out;"
+      },
+      "name": "Filtrar PDF y ZIP",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        864,
+        720
+      ],
+      "id": "eb6ed493-fed1-4de6-b912-b9a2bf87c11e"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.isZip}}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "name": "Es ZIP?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1088,
+        720
+      ],
+      "id": "db437255-1171-407b-b91a-1b1e5dc729fe"
+    },
+    {
+      "parameters": {
+        "operation": "extract",
+        "binaryPropertyName": "data"
+      },
+      "name": "Descomprimir ZIP",
+      "type": "n8n-nodes-base.compression",
+      "typeVersion": 1,
+      "position": [
+        1312,
+        592
+      ],
+      "id": "56b995d2-53d3-4f56-8c9a-9478860d2079"
+    },
+    {
+      "parameters": {
+        "functionCode": "const pdfs = [];\n\nfor (const item of items) {\n  if (!item.binary) continue;\n\n  // Propagate parent metadata if available, otherwise just use filename\n  // The Compression node preserves input JSON, so we can use it.\n  const messageId = item.json.sourceId;\n  const receivedDate = item.json.date;\n  const sender = item.json.sender;\n  const requestId = item.json.requestId;\n\n  for (const key of Object.keys(item.binary)) {\n    const f = item.binary[key];\n    if (f.fileName.toLowerCase().endsWith('.pdf')) {\n      pdfs.push({\n        json: {\n          filename: f.fileName,\n          size: f.fileSize ? parseInt(f.fileSize) : 0,\n          type: f.mimeType,\n          sourceId: messageId,\n          date: receivedDate,\n          sender: sender,\n          requestId: requestId\n        },\n        // We don't strictly need to pass binary here if we are just listing, \n        // but keeping it is good practice for testing\n        binary: { data: f }\n      });\n    }\n  }\n}\n\nreturn pdfs;"
+      },
+      "name": "Solo PDFs ZIP",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        1552,
+        592
+      ],
+      "id": "3713112a-c49c-4521-ad6e-4a50dd9fd999"
+    },
+    {
+      "parameters": {},
+      "name": "PDF Directo",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1312,
+        832
+      ],
+      "id": "3ec75d67-f1fe-4091-874b-62af88427063"
+    },
+    {
+      "parameters": {},
+      "name": "Unir PDFs",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 1,
+      "position": [
+        1744,
+        720
+      ],
+      "id": "043d55ed-234a-4632-a23c-0d12e7cf3f97"
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "=\\\\\\\\192.168.2.20\\\\Facturas\\\\temp_buscador\\\\temp_{{$json.requestId}}_{{$json.filename}}",
+        "dataPropertyName": "data"
+      },
+      "name": "Guardar Temporal",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        1850,
+        720
+      ],
+      "id": "write-temp-file-001"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "returnAll": true,
+        "output": "raw",
+        "filtersUI": {
+          "values": {
+            "filters": {
+              "receivedAfter": "={{$json.body.startDate}}",
+              "receivedBefore": "={{$json.body.endDate}}"
+            }
+          }
+        },
+        "options": {
+          "attachmentsPrefix": "data",
+          "downloadAttachments": true
+        }
+      },
+      "name": "Buscar Correos Outlook1",
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [
+        640,
+        816
+      ],
+      "id": "2b7d6072-7b02-47ce-b05b-48937cf7fa6b",
+      "webhookId": "5520b7fb-4e47-48e0-aefb-2a06ac3f7c31"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:8000/api/asistente/callback/search-results",
+        "sendBinaryData": false,
+        "options": {},
+        "bodyParametersUi": {
+          "parameter": [
+            {
+              "name": "requestId",
+              "value": "={{ $('Webhook Entrada').first().json.body.requestId }}"
+            },
+            {
+              "name": "files",
+              "value": "={{ $items(\"Guardar Temporal\").map(i => ({ filename: i.json.filename, size: i.json.size, type: i.json.type, sourceId: i.json.sourceId, date: i.json.date, sender: i.json.sender, storage_path: i.json.fileName || ('temp_' + i.json.requestId + '_' + i.json.filename) })) }}"
+            }
+          ]
+        }
+      },
+      "name": "Callback Backend",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        2050,
+        720
+      ],
+      "id": "0476db83-6e28-4d02-8071-608f7a1f5a1a"
+    }
+  ],
+  "connections": {
+    "Webhook Entrada": {
+      "main": [
+        [
+          {
+            "node": "Validar Datos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar Datos": {
+      "main": [
+        [
+          {
+            "node": "Buscar Correos Outlook",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Buscar Correos Outlook1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar Correos Outlook": {
+      "main": [
+        [
+          {
+            "node": "Filtrar PDF y ZIP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filtrar PDF y ZIP": {
+      "main": [
+        [
+          {
+            "node": "Es ZIP?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Es ZIP?": {
+      "main": [
+        [
+          {
+            "node": "Descomprimir ZIP",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "PDF Directo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Descomprimir ZIP": {
+      "main": [
+        [
+          {
+            "node": "Solo PDFs ZIP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Solo PDFs ZIP": {
+      "main": [
+        [
+          {
+            "node": "Unir PDFs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PDF Directo": {
+      "main": [
+        [
+          {
+            "node": "Unir PDFs",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Buscar Correos Outlook1": {
+      "main": [
+        [
+          {
+            "node": "Filtrar PDF y ZIP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Unir PDFs": {
+      "main": [
+        [
+          {
+            "node": "Guardar Temporal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar Temporal": {
+      "main": [
+        [
+          {
+            "node": "Callback Backend",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

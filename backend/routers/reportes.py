@@ -200,12 +200,15 @@ async def get_report_data(
         row = {
             'nit_proveedor': contrato.proveedor.nit if contrato.proveedor else '',
             'nombre_proveedor': contrato.proveedor.nombre if contrato.proveedor else '',
+            'nombre_comercial': contrato.proveedor.nombre_comercial if contrato.proveedor else '',
             'cod_oficina': contrato.oficina.cod_oficina if contrato.oficina else '',
             'nombre_oficina': contrato.oficina.nombre if contrato.oficina else '',
             'direccion': contrato.oficina.direccion if contrato.oficina else '',
             'ciudad': contrato.oficina.ciudad if contrato.oficina else '',
+            'zona': contrato.oficina.zona if contrato.oficina else '',
             'tipo': contrato.tipo or '',
             'num_contrato': contrato.num_contrato or '',
+            'estado_contrato': contrato.estado or '',
             'tipo_plan': contrato.tipo_plan or '',
             'tipo_canal': contrato.tipo_canal or '',
             'valor_mensual': float(contrato.valor_mensual) if contrato.valor_mensual else 0,
@@ -242,12 +245,15 @@ async def get_report_data(
                 row = {
                     'nit_proveedor': fo_info.factura.proveedor.nit if fo_info.factura and fo_info.factura.proveedor else '',
                     'nombre_proveedor': fo_info.factura.proveedor.nombre if fo_info.factura and fo_info.factura.proveedor else '',
+                    'nombre_comercial': fo_info.factura.proveedor.nombre_comercial if fo_info.factura and fo_info.factura.proveedor else '',
                     'cod_oficina': fo_info.oficina.cod_oficina if fo_info.oficina else '',
                     'nombre_oficina': fo_info.oficina.nombre if fo_info.oficina else '',
                     'direccion': fo_info.oficina.direccion if fo_info.oficina else '',
                     'ciudad': fo_info.oficina.ciudad if fo_info.oficina else '',
+                    'zona': fo_info.oficina.zona if fo_info.oficina else '',
                     'tipo': '',
                     'num_contrato': 'SIN CONTRATO',
+                    'estado_contrato': 'SIN CONTRATO',
                     'tipo_plan': '',
                     'tipo_canal': '',
                     'valor_mensual': 0,
@@ -292,12 +298,15 @@ def create_excel_report(data: List[dict], months: List[tuple], titulo: str = "Re
     static_headers = [
         'NIT Proveedor',
         'Nombre Proveedor',
+        'Nombre Comercial',
         'Código Oficina',
         'Nombre Oficina',
         'Dirección',
         'Ciudad',
+        'Zona',
         'Tipo',
         'Número Contrato',
+        'Estado del Contrato',
         'Tipo Plan',
         'Tipo Canal',
         'Valor Mensual'
@@ -349,12 +358,15 @@ def create_excel_report(data: List[dict], months: List[tuple], titulo: str = "Re
         # Static columns
         ws.cell(row=row_num, column=col, value=item['nit_proveedor']).border = thin_border; col += 1
         ws.cell(row=row_num, column=col, value=item['nombre_proveedor']).border = thin_border; col += 1
+        ws.cell(row=row_num, column=col, value=item.get('nombre_comercial', '')).border = thin_border; col += 1
         ws.cell(row=row_num, column=col, value=item['cod_oficina']).border = thin_border; col += 1
         ws.cell(row=row_num, column=col, value=item['nombre_oficina']).border = thin_border; col += 1
         ws.cell(row=row_num, column=col, value=item['direccion']).border = thin_border; col += 1
         ws.cell(row=row_num, column=col, value=item['ciudad']).border = thin_border; col += 1
+        ws.cell(row=row_num, column=col, value=item['zona']).border = thin_border; col += 1
         ws.cell(row=row_num, column=col, value=item['tipo']).border = thin_border; col += 1
         ws.cell(row=row_num, column=col, value=item['num_contrato']).border = thin_border; col += 1
+        ws.cell(row=row_num, column=col, value=item['estado_contrato']).border = thin_border; col += 1
         ws.cell(row=row_num, column=col, value=item['tipo_plan']).border = thin_border; col += 1
         ws.cell(row=row_num, column=col, value=item['tipo_canal']).border = thin_border; col += 1
         
@@ -833,11 +845,11 @@ async def get_contratos_by_nit(
     Get all contracts for a provider by their NIT.
     Returns: num_contrato, valor, cod_oficina, nombre_oficina, direccion, ciudad
     """
-    # First find the provider by NIT
+    # First find the provider by NIT (allow partial match)
     proveedor_result = await db.execute(
-        select(models.Proveedor).filter(models.Proveedor.nit == nit)
+        select(models.Proveedor).filter(models.Proveedor.nit.like(f"{nit}%"))
     )
-    proveedor = proveedor_result.scalar_one_or_none()
+    proveedor = proveedor_result.scalars().first()
     
     if not proveedor:
         return {
@@ -851,6 +863,7 @@ async def get_contratos_by_nit(
         select(models.Contrato)
         .options(selectinload(models.Contrato.oficina))
         .filter(models.Contrato.proveedor_id == proveedor.id)
+        .filter(models.Contrato.estado != 'CANCELADO')
         .order_by(models.Contrato.id)
     )
     contratos = contratos_result.scalars().all()

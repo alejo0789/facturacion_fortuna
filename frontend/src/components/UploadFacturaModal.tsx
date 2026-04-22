@@ -108,8 +108,8 @@ export default function UploadFacturaModal({ isOpen, onClose, onSuccess }: Uploa
 
         if (file) {
             const fileName = file.name.toLowerCase();
-            if (!fileName.endsWith('.pdf') && !fileName.endsWith('.zip')) {
-                setError('Solo se permiten archivos PDF o ZIP');
+            if (!fileName.endsWith('.pdf') && !fileName.endsWith('.zip') && !fileName.match(/\.(jpg|jpeg|png)$/)) {
+                setError('Solo se permiten archivos PDF, ZIP o Imágenes (JPG, PNG)');
                 setSelectedFile(null);
                 return;
             }
@@ -146,8 +146,8 @@ export default function UploadFacturaModal({ isOpen, onClose, onSuccess }: Uploa
         if (files && files.length > 0) {
             const file = files[0];
             const fileName = file.name.toLowerCase();
-            if (!fileName.endsWith('.pdf') && !fileName.endsWith('.zip')) {
-                setError('Solo se permiten archivos PDF o ZIP');
+            if (!fileName.endsWith('.pdf') && !fileName.endsWith('.zip') && !fileName.match(/\.(jpg|jpeg|png)$/)) {
+                setError('Solo se permiten archivos PDF, ZIP o Imágenes (JPG, PNG)');
                 setSelectedFile(null);
                 return;
             }
@@ -458,7 +458,7 @@ export default function UploadFacturaModal({ isOpen, onClose, onSuccess }: Uploa
                         <input
                             ref={fileInputRef}
                             type="file"
-                            accept=".pdf,.zip,application/pdf,application/zip"
+                            accept=".pdf,.zip,application/pdf,application/zip,image/jpeg,image/png"
                             onChange={handleFileChange}
                             className="hidden"
                         />
@@ -471,7 +471,7 @@ export default function UploadFacturaModal({ isOpen, onClose, onSuccess }: Uploa
                                     </svg>
                                 </div>
                                 <p className="text-green-400 font-medium text-lg">¡Suelta el archivo aquí!</p>
-                                <p className="text-slate-400 text-sm">Archivos PDF o ZIP</p>
+                                <p className="text-slate-400 text-sm">Archivos PDF, ZIP o Imágenes</p>
                             </div>
                         ) : selectedFile ? (
                             <div className="space-y-3">
@@ -510,7 +510,7 @@ export default function UploadFacturaModal({ isOpen, onClose, onSuccess }: Uploa
                                 <p className="text-slate-300">
                                     <span className="text-red-400 font-medium">Click para seleccionar</span> o arrastra un archivo
                                 </p>
-                                <p className="text-slate-500 text-sm">Archivos PDF o ZIP (con PDFs)</p>
+                                <p className="text-slate-500 text-sm">Archivos PDF, ZIP o Imágenes (JPG o PNG)</p>
                             </button>
                         )}
                     </div>
