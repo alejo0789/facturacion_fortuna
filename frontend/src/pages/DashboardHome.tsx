@@ -197,42 +197,28 @@ export default function DashboardHome() {
         const fetchData = async () => {
             setLoading(true);
             try {
-                let statsUrl = `${API_URL}/reportes/estadisticas?año=${selectedYear}`;
-                if (selectedOficina) {
-                    statsUrl += `&oficina_id=${selectedOficina}`;
-                }
-                if (filterCategoriaId) {
-                    statsUrl += `&categoria_id=${filterCategoriaId}`;
-                }
-                const statsRes = await fetch(statsUrl);
-                if (statsRes.ok) {
-                    setEstadisticas(await statsRes.json());
-                }
+                // Use apiGet to ensure headers (X-User-Id, etc.) are sent
+                const params: any = { año: selectedYear };
+                if (selectedOficina) params.oficina_id = selectedOficina;
+                if (filterCategoriaId) params.categoria_id = filterCategoriaId;
 
-                let invoicesUrl = `${API_URL}/facturas/?limit=5&skip=0`;
-                if (filterCategoriaId) {
-                    invoicesUrl += `&categoria_id=${filterCategoriaId}`;
-                }
-                const invoicesRes = await fetch(invoicesUrl);
-                if (invoicesRes.ok) {
-                    const invoices = await invoicesRes.json();
-                    setRecentInvoices(invoices.map((inv: {
-                        id: number;
-                        numero_factura?: string;
-                        proveedor?: { nombre: string };
-                        valor?: number;
-                        fecha_factura?: string;
-                        created_at?: string;
-                        estado?: string;
-                    }) => ({
-                        id: inv.id,
-                        numero_factura: inv.numero_factura || 'Sin número',
-                        proveedor_nombre: inv.proveedor?.nombre || 'Sin proveedor',
-                        valor: inv.valor || 0,
-                        fecha: inv.fecha_factura || inv.created_at || '',
-                        estado: inv.estado || 'PENDIENTE'
-                    })));
-                }
+                const statsData = await apiGet<Estadisticas>('/reportes/estadisticas', params);
+                setEstadisticas(statsData);
+
+                const invoicesData = await apiGet<any[]>('/facturas/', { 
+                    limit: 5, 
+                    skip: 0, 
+                    ...(filterCategoriaId ? { categoria_id: filterCategoriaId } : {}) 
+                });
+                
+                setRecentInvoices(invoicesData.map((inv: any) => ({
+                    id: inv.id,
+                    numero_factura: inv.numero_factura || 'Sin número',
+                    proveedor_nombre: inv.proveedor?.nombre || 'Sin proveedor',
+                    valor: inv.valor || 0,
+                    fecha: inv.fecha_factura || inv.created_at || '',
+                    estado: inv.estado || 'PENDIENTE'
+                })));
             } catch (error) {
                 console.error('Error fetching data:', error);
             } finally {
