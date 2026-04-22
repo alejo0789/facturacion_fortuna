@@ -16,7 +16,10 @@ from pathlib import Path
 from urllib.parse import unquote
 from datetime import datetime, date
 import os
+from dotenv import load_dotenv
 import httpx
+
+load_dotenv()
 import img2pdf
 from PIL import Image
 import io
