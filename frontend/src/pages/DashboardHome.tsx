@@ -378,25 +378,11 @@ export default function DashboardHome() {
                     icon={<svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>}
                 />
                 <StatCard
-                    title="Facturas Pagadas"
-                    value={estadisticas?.resumen.facturas_pagadas || 0}
-                    subtitle="Completadas"
+                    title="Facturas Procesadas"
+                    value={estadisticas?.resumen.facturas_procesadas || 0}
+                    subtitle="Total este año"
                     gradient="bg-gradient-to-br from-emerald-500 to-teal-600"
                     icon={<svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
-                />
-                <StatCard
-                    title="Facturas Pendientes"
-                    value={estadisticas?.resumen.facturas_pendientes || 0}
-                    subtitle="Por autorizar"
-                    gradient="bg-gradient-to-br from-amber-500 to-orange-600"
-                    icon={<svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
-                />
-                <StatCard
-                    title="En Trámite"
-                    value={estadisticas?.resumen.facturas_en_tramite || 0}
-                    subtitle="En proceso"
-                    gradient="bg-gradient-to-br from-blue-500 to-indigo-600"
-                    icon={<svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
                 />
                 <StatCard
                     title="Contratos Activos"
