@@ -45,21 +45,18 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
                     throw new Error("No valid token found");
                 }
 
-                // 3. Filtrado por Correo Electrónico (Solo para Producción)
-                // Según la estructura proporcionada: identity.usuario.notificaciones.data
-                const userEmail = identity.usuario?.notificaciones?.data;
+                // 3. Validación de correo (Asegurarse de que exista el campo)
+                const userEmail = identity.usuario?.notificaciones?.data || identity.usuario?.email;
 
                 if (!userEmail) {
                     console.error("No se pudo extraer el correo electrónico del objeto identity");
                     throw new Error("Email not found in identity object");
                 }
 
-                if (!ALL_ALLOWED_EMAILS.includes(userEmail)) {
-                    console.error(`Acceso denegado: El correo ${userEmail} no está en la lista de permitidos`);
-                    throw new Error("User email not authorized for this application");
-                }
-
-                // Si pasó todas las validaciones
+                // NOTA: Se eliminó el filtrado por lista blanca (ALL_ALLOWED_EMAILS) 
+                // para permitir que el backend gestione el acceso mediante categorías y roles dinámicos.
+                
+                // Si pasó las validaciones de token e identidad básica
                 setIsAuthenticated(true);
             } catch (e) {
                 console.error("Error de autenticación:", e);
