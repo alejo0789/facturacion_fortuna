@@ -763,7 +763,7 @@ async def asignar_multiples_oficinas(db: AsyncSession, factura_id: int, oficinas
     return await get_factura(db, factura_id)
 
 
-async def get_contratos_pendientes_por_llegar(db: AsyncSession, year: int, month: int, allowed_categoria_ids: Optional[List[int]] = None):
+async def get_contratos_pendientes_por_llegar(db: AsyncSession, year: int, month: int, allowed_categoria_ids: Optional[List[int]] = None, categoria_id: Optional[int] = None):
     """
     Find active contracts that do not have an associated invoice for the given month/year.
     Assumes monthly billing.
@@ -831,6 +831,9 @@ async def get_contratos_pendientes_por_llegar(db: AsyncSession, year: int, month
             )
         )
     )
+
+    if categoria_id:
+        query = query.filter(models.Contrato.categoria_id == categoria_id)
 
     if allowed_categoria_ids is not None:
         if len(allowed_categoria_ids) > 0:

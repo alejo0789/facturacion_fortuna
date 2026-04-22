@@ -891,7 +891,7 @@ async def resumen_facturas(
     total = pendientes + asignadas + counts_total.get('EN_TRAMITE', 0) + counts_total.get('PAGADA', 0)
     
     # Calculate missing invoices for this month
-    missing_contracts = await crud.get_contratos_pendientes_por_llegar(db, today.year, today.month, allowed_categoria_ids=allowed_categoria_ids)
+    missing_contracts = await crud.get_contratos_pendientes_por_llegar(db, today.year, today.month, allowed_categoria_ids=allowed_categoria_ids, categoria_id=final_categoria_id)
     pendientes_por_llegar = len(missing_contracts)
     
     return {
