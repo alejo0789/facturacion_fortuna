@@ -28,17 +28,18 @@ SUPER_ADMIN_USER_IDS = [int(id.strip()) for id in os.getenv("SUPER_ADMIN_USER_ID
 PARENT_SYSTEM_ROLES_URL = os.getenv("PARENT_SYSTEM_ROLES_URL", "")
 PARENT_SYSTEM_API_TOKEN = os.getenv("PARENT_SYSTEM_API_TOKEN", "")
 
-def is_super_admin(identifier: Optional[str] = None, user_id: Optional[int] = None) -> bool:
-    """Check if user is a super admin based on email or user_id"""
-    print(f"DEBUG is_super_admin CHECK: identifier={identifier}, user_id={user_id}")
-    print(f"DEBUG SUPER_ADMIN_EMAILS={SUPER_ADMIN_EMAILS}, SUPER_ADMIN_USER_IDS={SUPER_ADMIN_USER_IDS}")
+def is_super_admin(identifier: Optional[str] = None, user_id: Optional[int] = None, rol_id: Optional[int] = None) -> bool:
+    """Check if user is a super admin based on email, user_id, or rol_id"""
+    # Role ID 1 is always Super Admin
+    if rol_id == 1:
+        return True
+        
     if identifier and identifier in SUPER_ADMIN_EMAILS:
-        print("DEBUG: User is super admin by EMAIL")
         return True
+        
     if user_id and user_id in SUPER_ADMIN_USER_IDS:
-        print("DEBUG: User is super admin by USER_ID")
         return True
-    print("DEBUG: User is NOT super admin")
+        
     return False
 
 

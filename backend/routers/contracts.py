@@ -261,8 +261,9 @@ async def create_proveedor(
     
     # --- Auto-Autorización por Categoría ---
     # Si no es Super Admin, obtener sus categorías y autorizar la primera (o todas)
-    if not is_super_admin(x_user_email, int(x_user_id) if x_user_id else None):
-        rol_id_int = int(x_user_rol_id) if x_user_rol_id else None
+    user_id_int = int(x_user_id) if x_user_id else None
+    rol_id_int = int(x_user_rol_id) if x_user_rol_id else None
+    if not is_super_admin(x_user_email, user_id_int, rol_id_int):
         allowed_ids = await get_user_categoria_ids(db, rol_id_int, x_user_email)
         
         for cat_id in allowed_ids:
@@ -302,8 +303,9 @@ async def autorizar_proveedor_categoria(
     from sqlalchemy.orm import selectinload as sil
 
     # Check if user has permission for this category
-    if not is_super_admin(x_user_email, int(x_user_id) if x_user_id else None):
-        rol_id_int = int(x_user_rol_id) if x_user_rol_id else None
+    user_id_int = int(x_user_id) if x_user_id else None
+    rol_id_int = int(x_user_rol_id) if x_user_rol_id else None
+    if not is_super_admin(x_user_email, user_id_int, rol_id_int):
         allowed_categoria_ids = await get_user_categoria_ids(db, rol_id_int, x_user_email)
         if body.categoria_id not in allowed_categoria_ids:
             raise HTTPException(status_code=403, detail="No tienes permisos para autorizar en esta área")

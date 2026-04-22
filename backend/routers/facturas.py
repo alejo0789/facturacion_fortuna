@@ -849,8 +849,8 @@ async def cambiar_estado(
 @router.get("/facturas/stats/resumen")
 async def resumen_facturas(
     x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
-    x_user_id: Optional[int] = Header(None, alias="X-User-Id"),
-    x_user_rol_id: Optional[int] = Header(None, alias="X-User-Rol-Id"),
+    x_user_id: Optional[str] = Header(None, alias="X-User-Id"),
+    x_user_rol_id: Optional[str] = Header(None, alias="X-User-Rol-Id"),
     db: AsyncSession = Depends(get_db)
 ):
     """Get summary statistics for facturas"""
@@ -861,8 +861,10 @@ async def resumen_facturas(
     
     # RBAC filtering
     allowed_categoria_ids = None
-    if not is_super_admin(x_user_email, x_user_id):
-        allowed_categoria_ids = await get_user_categoria_ids(db, rol_id=x_user_rol_id, email=x_user_email)
+    user_id_int = int(x_user_id) if x_user_id else None
+    rol_id_int = int(x_user_rol_id) if x_user_rol_id else None
+    if not is_super_admin(x_user_email, user_id_int, rol_id_int):
+        allowed_categoria_ids = await get_user_categoria_ids(db, rol_id=rol_id_int, email=x_user_email)
     
     # Total counts by status (all time) - used for pendientes sin oficina
     counts_total = await crud.get_facturas_status_counts(db, allowed_categoria_ids=allowed_categoria_ids)
