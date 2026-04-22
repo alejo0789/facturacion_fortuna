@@ -385,13 +385,18 @@ async def get_facturas(db: AsyncSession, skip: int = 0, limit: int = 100,
     if categoria_id:
         query = query.filter(models.Factura.categoria_id == categoria_id)
     
-    # Role-based category restriction - only show facturas from allowed categories
+    # Role-based category restriction - only show facturas from allowed categories or UNASSIGNED
     if allowed_categoria_ids is not None:
         if len(allowed_categoria_ids) > 0:
-            query = query.filter(models.Factura.categoria_id.in_(allowed_categoria_ids))
+            query = query.filter(
+                or_(
+                    models.Factura.categoria_id.in_(allowed_categoria_ids),
+                    models.Factura.categoria_id.is_(None)
+                )
+            )
         else:
-            # User has no categories assigned, return empty
-            return []
+            # User has no categories assigned, only show unassigned invoices
+            query = query.filter(models.Factura.categoria_id.is_(None))
 
     # Date filters
     if fecha_desde or fecha_hasta:
