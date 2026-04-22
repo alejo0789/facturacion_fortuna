@@ -820,7 +820,8 @@ async def get_contratos_pendientes_por_llegar(db: AsyncSession, year: int, month
         select(models.Contrato)
         .options(
             selectinload(models.Contrato.proveedor),
-            selectinload(models.Contrato.oficina)
+            selectinload(models.Contrato.oficina),
+            selectinload(models.Contrato.categoria)
         )
         .filter(
             and_(
