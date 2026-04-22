@@ -38,23 +38,25 @@ async def search_contratos(
     Search contracts by Provider Name, Office Name, or Contract Number.
     Optionally filter by categoria_id.
     """
-    # Check if user is super admin
-    from routers.categorias import is_super_admin, get_user_categoria_ids
+    # Get user context
+    user_id_int = int(x_user_id) if x_user_id else None
+    rol_id_int = int(x_user_rol_id) if x_user_rol_id else None
+    is_admin = is_super_admin(x_user_email, user_id_int, rol_id_int)
     
     # If not super admin, get allowed categories for this role
     allowed_categoria_ids = None
-    user_id_int = int(x_user_id) if x_user_id else None
-    rol_id_int = int(x_user_rol_id) if x_user_rol_id else None
-    
-    if not is_super_admin(x_user_email, user_id_int, rol_id_int):
+    if not is_admin:
         allowed_categoria_ids = await get_user_categoria_ids(db, rol_id=rol_id_int, email=x_user_email)
         # If categoria_id is specified, verify user has access
         if categoria_id and (allowed_categoria_ids is None or int(categoria_id) not in allowed_categoria_ids):
             return []
+    
+    # Super admin can see any category, but if they explicitly picked one, we filter by it
+    final_categoria_id = int(categoria_id) if categoria_id else None
             
     return await crud.get_contratos(
         db, skip=skip, limit=limit, search=search, 
-        categoria_id=int(categoria_id) if categoria_id else None,
+        categoria_id=final_categoria_id,
         allowed_categoria_ids=allowed_categoria_ids
     )
 

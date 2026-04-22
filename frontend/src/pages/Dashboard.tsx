@@ -29,24 +29,22 @@ export default function Dashboard() {
         setLoading(true);
         try {
             const skip = (pageNum - 1) * ITEMS_PER_PAGE;
-            const params = new URLSearchParams({
-                skip: skip.toString(),
-                limit: ITEMS_PER_PAGE.toString(),
-            });
+            const params: any = {
+                skip,
+                limit: ITEMS_PER_PAGE,
+            };
 
             if (searchQuery.trim()) {
-                params.append('search', searchQuery.trim());
+                params.search = searchQuery.trim();
             }
             if (filterCategoriaId) {
-                params.append('categoria_id', filterCategoriaId.toString());
+                params.categoria_id = filterCategoriaId;
             }
 
-            const res = await fetch(`${API_URL}/contratos/?${params}`);
-            if (res.ok) {
-                const data = await res.json();
-                setContratos(data);
-                setHasMore(data.length === ITEMS_PER_PAGE);
-            }
+            // Use apiGet to ensure headers (X-User-Id, etc.) are sent
+            const data = await apiGet<Contrato[]>('/contratos/', params);
+            setContratos(data);
+            setHasMore(data.length === ITEMS_PER_PAGE);
         } catch (error) {
             console.error("Failed to fetch contracts", error);
         } finally {
@@ -78,12 +76,17 @@ export default function Dashboard() {
     // Toggle contract status
     const toggleStatus = async (contract: Contrato) => {
         const newStatus = contract.estado === 'ACTIVO' ? 'CANCELADO' : 'ACTIVO';
-        await fetch(`${API_URL}/contratos/${contract.id}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...contract, estado: newStatus, proveedor: undefined, oficina: undefined })
-        });
-        fetchContratos(search, page);
+        try {
+            await apiPut(`/contratos/${contract.id}`, { 
+                ...contract, 
+                estado: newStatus, 
+                proveedor: undefined, 
+                oficina: undefined 
+            });
+            fetchContratos(search, page);
+        } catch (error) {
+            console.error("Failed to toggle status", error);
+        }
     };
 
     const openEditModal = (contract: Contrato) => {
@@ -104,16 +107,11 @@ export default function Dashboard() {
         if (!confirm(`¿Está seguro de eliminar el contrato ${contract.num_contrato || contract.id}?\n\nEsta acción no se puede deshacer.`)) return;
 
         try {
-            const res = await fetch(`${API_URL}/contratos/${contract.id}`, { method: 'DELETE' });
-            if (res.ok) {
-                fetchContratos(search, page);
-            } else {
-                const error = await res.json();
-                alert(error.detail || 'Error al eliminar el contrato');
-            }
-        } catch (error) {
+            await apiDelete(`/contratos/${contract.id}`);
+            fetchContratos(search, page);
+        } catch (error: any) {
             console.error("Failed to delete contract", error);
-            alert('Error de conexión al eliminar el contrato');
+            alert(error.message || 'Error al eliminar el contrato');
         }
     };
 

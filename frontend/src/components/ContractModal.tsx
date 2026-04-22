@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Contrato, Proveedor, Oficina } from '../types';
 import Modal, { FormField, inputClassName } from './Modal';
+import { apiGet, apiPost, apiPut, apiDelete } from '../utils/apiClient';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
@@ -54,19 +55,17 @@ function ServerSearchableSelect<T extends { id: number }>({
     const fetchItems = useCallback(async (query: string) => {
         setLoading(true);
         try {
-            const params = new URLSearchParams({
-                skip: '0',
-                limit: '20',
-            });
+            const params: any = {
+                skip: 0,
+                limit: 20,
+            };
             if (query.trim()) {
-                params.append('search', query.trim());
+                params.search = query.trim();
             }
-            // MODIFICACIÓN: Se añade el slash final antes de los parámetros
-            const res = await fetch(`${API_URL}/${endpoint}/?${params}`);
-            if (res.ok) {
-                const data = await res.json();
-                setItems(data);
-            }
+            
+            // Use apiGet to ensure headers (X-User-Id, etc.) are sent
+            const data = await apiGet<T[]>(`/${endpoint}/`, params);
+            setItems(data);
         } catch (error) {
             console.error('Error fetching items:', error);
         } finally {
@@ -261,19 +260,12 @@ export default function ContractModal({ isOpen, onClose, onSave, contract }: Con
         formDataFile.append('file', selectedFile);
 
         try {
-            const res = await fetch(`${API_URL}/contratos/${contratoId}/upload-pdf`, {
-                method: 'POST',
-                body: formDataFile
-            });
-
-            if (!res.ok) {
-                const error = await res.json();
-                throw new Error(error.detail || 'Error al subir el archivo');
-            }
+            // Use apiPost which handles FormData correctly
+            await apiPost(`/contratos/${contratoId}/upload-pdf`, formDataFile);
             return true;
-        } catch (error) {
+        } catch (error: any) {
             console.error('Error uploading file:', error);
-            setFileError(error instanceof Error ? error.message : 'Error al subir el archivo');
+            setFileError(error.message || 'Error al subir el archivo');
             return false;
         }
     };
@@ -281,33 +273,25 @@ export default function ContractModal({ isOpen, onClose, onSave, contract }: Con
     const handleSubmit = async () => {
         setUploading(true);
         try {
-            const url = contract
-                ? `${API_URL}/contratos/${contract.id}`
-                : `${API_URL}/contratos/`;
+            const endpoint = contract ? `/contratos/${contract.id}` : '/contratos/';
+            const method = contract ? apiPut : apiPost;
 
-            const res = await fetch(url, {
-                method: contract ? 'PUT' : 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(formData)
-            });
+            const savedContract = await method<any>(endpoint, formData);
 
-            if (res.ok) {
-                const savedContract = await res.json();
-
-                // Upload file if selected
-                if (selectedFile) {
-                    const uploadSuccess = await uploadFile(savedContract.id);
-                    if (!uploadSuccess) {
-                        setUploading(false);
-                        return; // Don't close modal if upload failed
-                    }
+            // Upload file if selected
+            if (selectedFile) {
+                const uploadSuccess = await uploadFile(savedContract.id);
+                if (!uploadSuccess) {
+                    setUploading(false);
+                    return; // Don't close modal if upload failed
                 }
-
-                onSave();
-                onClose();
-            } else {
-                alert('Error al guardar el contrato');
             }
+
+            onSave();
+            onClose();
+        } catch (error) {
+            console.error('Error saving contract:', error);
+            alert('Error al guardar el contrato');
         } finally {
             setUploading(false);
         }
@@ -323,14 +307,9 @@ export default function ContractModal({ isOpen, onClose, onSave, contract }: Con
         if (!contract?.id || !confirm('¿Está seguro de eliminar el archivo adjunto?')) return;
 
         try {
-            const res = await fetch(`${API_URL}/contratos/${contract.id}/pdf`, {
-                method: 'DELETE'
-            });
-
-            if (res.ok) {
-                setFormData({ ...formData, archivo_contrato: undefined });
-                onSave(); // Refresh the list
-            }
+            await apiDelete(`/contratos/${contract.id}/pdf`);
+            setFormData({ ...formData, archivo_contrato: undefined });
+            onSave(); // Refresh the list
         } catch (error) {
             console.error('Error deleting file:', error);
         }
