@@ -971,6 +971,14 @@ async def upload_factura(
     """
     url_factura = None
     
+    # Auto-detect category from email if not provided explicitly
+    detected_categoria_id = categoria_id
+    if not detected_categoria_id and x_user_email:
+        from routers.categorias import get_user_categoria_ids
+        cat_ids = await get_user_categoria_ids(db, email=x_user_email.strip())
+        if cat_ids:
+            detected_categoria_id = cat_ids[0]
+
     # Handle PDF file upload
     if file and file.filename:
         # Validate file type
@@ -1021,7 +1029,9 @@ async def upload_factura(
                     "original_filename": file.filename,
                     "uploaded_at": datetime.now().isoformat(),
                     "proveedor_nit": proveedor_nit,
-                    "numero_factura": numero_factura
+                    "numero_factura": numero_factura,
+                    "user_email": x_user_email,
+                    "categoria_id": detected_categoria_id
                 }
                 
                 response = await client.post(WEBHOOK_URL, json=webhook_data)
@@ -1068,14 +1078,6 @@ async def upload_factura(
             )
         
         if proveedor:
-            # Auto-detect category from email if not provided explicitly
-            detected_categoria_id = categoria_id
-            if not detected_categoria_id and x_user_email:
-                from routers.categorias import get_user_categoria_ids
-                cat_ids = await get_user_categoria_ids(db, email=x_user_email.strip())
-                if cat_ids:
-                    detected_categoria_id = cat_ids[0]
-
             # Create factura
             factura_data = schemas.FacturaCreate(
                 proveedor_id=proveedor.id,
