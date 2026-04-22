@@ -255,16 +255,12 @@ export default function UploadFacturaModal({ isOpen, onClose, onSuccess }: Uploa
                 }
             });
 
-                setTimeout(() => {
-                    onSuccess();
-                    onClose();
-                }, 1500);
-            } else {
-                const errorData = await res.json();
-                setError(errorData.detail || 'Error al crear la factura');
-            }
-        } catch (e) {
-            setError('Error de conexión al servidor');
+            setTimeout(() => {
+                onSuccess();
+                onClose();
+            }, 1500);
+        } catch (e: any) {
+            setError(e.message || 'Error de conexión al servidor');
             console.error('Submit error:', e);
         } finally {
             setUploading(false);
