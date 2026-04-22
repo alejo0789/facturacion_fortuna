@@ -38,8 +38,8 @@ except ImportError:
 router = APIRouter()
 
 # Configuration for invoice uploads
-INVOICE_UPLOAD_PATH = r"\\192.168.2.20\Facturas\temp"
-WEBHOOK_URL = "https://saman.lafortuna.com.co/n8n/webhook/d15fc127-671d-4b24-8221-bac74a6f4648"
+INVOICE_UPLOAD_PATH = os.getenv("INVOICE_UPLOAD_PATH", r"\\192.168.2.20\Facturas\temp")
+WEBHOOK_URL = os.getenv("N8N_UPLOAD_WEBHOOK", "https://saman.lafortuna.com.co/n8n/webhook/d15fc127-671d-4b24-8221-bac74a6f4648")
 
 # Supported file types
 PDF_EXTENSIONS = ['.pdf']
