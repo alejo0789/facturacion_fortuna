@@ -29,13 +29,31 @@ async def search_contratos(
     limit: int = 100, 
     search: Optional[str] = None,
     categoria_id: Optional[int] = None,
+    x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
+    x_user_id: Optional[int] = Header(None, alias="X-User-Id"),
+    x_user_rol_id: Optional[int] = Header(None, alias="X-User-Rol-Id"),
     db: AsyncSession = Depends(get_db)
 ):
     """
     Search contracts by Provider Name, Office Name, or Contract Number.
     Optionally filter by categoria_id.
     """
-    return await crud.get_contratos(db, skip=skip, limit=limit, search=search, categoria_id=categoria_id)
+    # Check if user is super admin
+    from routers.categorias import is_super_admin, get_user_categoria_ids
+    
+    # If not super admin, get allowed categories for this role
+    allowed_categoria_ids = None
+    if not is_super_admin(x_user_email, x_user_id):
+        allowed_categoria_ids = await get_user_categoria_ids(db, rol_id=x_user_rol_id, email=x_user_email)
+        # If categoria_id is specified, verify user has access
+        if categoria_id and categoria_id not in allowed_categoria_ids:
+            return []
+            
+    return await crud.get_contratos(
+        db, skip=skip, limit=limit, search=search, 
+        categoria_id=categoria_id,
+        allowed_categoria_ids=allowed_categoria_ids
+    )
 
 @router.get("/contratos/{contrato_id}", response_model=schemas.Contrato)
 async def read_contrato(contrato_id: int, db: AsyncSession = Depends(get_db)):

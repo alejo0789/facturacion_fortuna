@@ -120,7 +120,9 @@ async def get_contrato(db: AsyncSession, contrato_id: int):
     )
     return result.scalars().first()
 
-async def get_contratos(db: AsyncSession, skip: int = 0, limit: int = 100, search: Optional[str] = None, categoria_id: Optional[int] = None):
+async def get_contratos(db: AsyncSession, skip: int = 0, limit: int = 100, 
+                        search: Optional[str] = None, categoria_id: Optional[int] = None,
+                        allowed_categoria_ids: Optional[List[int]] = None):
     query = (
         select(models.Contrato)
         .options(
@@ -149,6 +151,12 @@ async def get_contratos(db: AsyncSession, skip: int = 0, limit: int = 100, searc
     
     if categoria_id:
         query = query.filter(models.Contrato.categoria_id == categoria_id)
+
+    if allowed_categoria_ids is not None:
+        if len(allowed_categoria_ids) > 0:
+            query = query.filter(models.Contrato.categoria_id.in_(allowed_categoria_ids))
+        else:
+            return []
     
     result = await db.execute(query.offset(skip).limit(limit))
     return result.scalars().all()
@@ -418,12 +426,17 @@ async def get_facturas(db: AsyncSession, skip: int = 0, limit: int = 100,
     return result.scalars().all()
 
 
-async def get_facturas_status_counts(db: AsyncSession):
+async def get_facturas_status_counts(db: AsyncSession, allowed_categoria_ids: Optional[List[int]] = None):
     """Get counts of facturas by status efficiently"""
-    result = await db.execute(
-        select(models.Factura.estado, func.count(models.Factura.id))
-        .group_by(models.Factura.estado)
-    )
+    query = select(models.Factura.estado, func.count(models.Factura.id))
+    
+    if allowed_categoria_ids is not None:
+        if len(allowed_categoria_ids) > 0:
+            query = query.filter(models.Factura.categoria_id.in_(allowed_categoria_ids))
+        else:
+            return {s: 0 for s in ['PENDIENTE', 'ASIGNADA', 'EN_TRAMITE', 'PAGADA']}
+
+    result = await db.execute(query.group_by(models.Factura.estado))
     # result is list of tuples (estado, count)
     counts = {row[0]: row[1] for row in result.all()}
     
@@ -434,23 +447,28 @@ async def get_facturas_status_counts(db: AsyncSession):
         'PAGADA': counts.get('PAGADA', 0)
     }
 
-async def get_facturas_status_counts_mes(db: AsyncSession, year: int, month: int):
+async def get_facturas_status_counts_mes(db: AsyncSession, year: int, month: int, allowed_categoria_ids: Optional[List[int]] = None):
     """Get counts of facturas by status for a specific month, filtered by status_updated_at.
     Uses COALESCE(status_updated_at, created_at) so invoices that never changed state
     are counted by their creation date.
     Example: a factura from January paid in February appears in February's PAGADA count."""
     from sqlalchemy import extract, and_
     fecha_ref = func.coalesce(models.Factura.status_updated_at, models.Factura.created_at)
-    result = await db.execute(
-        select(models.Factura.estado, func.count(models.Factura.id))
-        .filter(
-            and_(
-                extract('year', fecha_ref) == year,
-                extract('month', fecha_ref) == month,
-            )
+    
+    query = select(models.Factura.estado, func.count(models.Factura.id)).filter(
+        and_(
+            extract('year', fecha_ref) == year,
+            extract('month', fecha_ref) == month,
         )
-        .group_by(models.Factura.estado)
     )
+
+    if allowed_categoria_ids is not None:
+        if len(allowed_categoria_ids) > 0:
+            query = query.filter(models.Factura.categoria_id.in_(allowed_categoria_ids))
+        else:
+            return {s: 0 for s in ['PENDIENTE', 'ASIGNADA', 'EN_TRAMITE', 'PAGADA']}
+
+    result = await db.execute(query.group_by(models.Factura.estado))
     counts = {row[0]: row[1] for row in result.all()}
     return {
         'PENDIENTE': counts.get('PENDIENTE', 0),
@@ -739,7 +757,7 @@ async def asignar_multiples_oficinas(db: AsyncSession, factura_id: int, oficinas
     return await get_factura(db, factura_id)
 
 
-async def get_contratos_pendientes_por_llegar(db: AsyncSession, year: int, month: int):
+async def get_contratos_pendientes_por_llegar(db: AsyncSession, year: int, month: int, allowed_categoria_ids: Optional[List[int]] = None):
     """
     Find active contracts that do not have an associated invoice for the given month/year.
     Assumes monthly billing.
@@ -807,6 +825,12 @@ async def get_contratos_pendientes_por_llegar(db: AsyncSession, year: int, month
             )
         )
     )
+
+    if allowed_categoria_ids is not None:
+        if len(allowed_categoria_ids) > 0:
+            query = query.filter(models.Contrato.categoria_id.in_(allowed_categoria_ids))
+        else:
+            return []
     
     result = await db.execute(query)
     return result.scalars().all()

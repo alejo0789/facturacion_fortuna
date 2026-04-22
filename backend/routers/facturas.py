@@ -847,17 +847,28 @@ async def cambiar_estado(
 # --- Statistics ---
 
 @router.get("/facturas/stats/resumen")
-async def resumen_facturas(db: AsyncSession = Depends(get_db)):
+async def resumen_facturas(
+    x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
+    x_user_id: Optional[int] = Header(None, alias="X-User-Id"),
+    x_user_rol_id: Optional[int] = Header(None, alias="X-User-Rol-Id"),
+    db: AsyncSession = Depends(get_db)
+):
     """Get summary statistics for facturas"""
     from datetime import datetime
+    from routers.categorias import is_super_admin, get_user_categoria_ids
     
     today = datetime.now()
     
+    # RBAC filtering
+    allowed_categoria_ids = None
+    if not is_super_admin(x_user_email, x_user_id):
+        allowed_categoria_ids = await get_user_categoria_ids(db, rol_id=x_user_rol_id, email=x_user_email)
+    
     # Total counts by status (all time) - used for pendientes sin oficina
-    counts_total = await crud.get_facturas_status_counts(db)
+    counts_total = await crud.get_facturas_status_counts(db, allowed_categoria_ids=allowed_categoria_ids)
     
     # Monthly counts - used for En Trámite and Pagadas counters (current month)
-    counts_mes = await crud.get_facturas_status_counts_mes(db, today.year, today.month)
+    counts_mes = await crud.get_facturas_status_counts_mes(db, today.year, today.month, allowed_categoria_ids=allowed_categoria_ids)
     
     pendientes = counts_total.get('PENDIENTE', 0)
     asignadas = counts_total.get('ASIGNADA', 0)
@@ -866,7 +877,7 @@ async def resumen_facturas(db: AsyncSession = Depends(get_db)):
     total = pendientes + asignadas + counts_total.get('EN_TRAMITE', 0) + counts_total.get('PAGADA', 0)
     
     # Calculate missing invoices for this month
-    missing_contracts = await crud.get_contratos_pendientes_por_llegar(db, today.year, today.month)
+    missing_contracts = await crud.get_contratos_pendientes_por_llegar(db, today.year, today.month, allowed_categoria_ids=allowed_categoria_ids)
     pendientes_por_llegar = len(missing_contracts)
     
     return {
@@ -881,11 +892,24 @@ async def resumen_facturas(db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/facturas/stats/contratos-pendientes", response_model=List[schemas.Contrato])
-async def list_missing_contracts(db: AsyncSession = Depends(get_db)):
+async def list_missing_contracts(
+    x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
+    x_user_id: Optional[int] = Header(None, alias="X-User-Id"),
+    x_user_rol_id: Optional[int] = Header(None, alias="X-User-Rol-Id"),
+    db: AsyncSession = Depends(get_db)
+):
     """List contracts that have not sent an invoice in the current month"""
     from datetime import datetime
+    from routers.categorias import is_super_admin, get_user_categoria_ids
+    
     today = datetime.now()
-    return await crud.get_contratos_pendientes_por_llegar(db, today.year, today.month)
+    
+    # RBAC filtering
+    allowed_categoria_ids = None
+    if not is_super_admin(x_user_email, x_user_id):
+        allowed_categoria_ids = await get_user_categoria_ids(db, rol_id=x_user_rol_id, email=x_user_email)
+        
+    return await crud.get_contratos_pendientes_por_llegar(db, today.year, today.month, allowed_categoria_ids=allowed_categoria_ids)
 
 
 # --- Manual Invoice Upload ---
