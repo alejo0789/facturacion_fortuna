@@ -749,24 +749,29 @@ async def get_report_stats(
     proveedores_query = (
         select(func.count(func.distinct(models.Factura.proveedor_id)))
         .join(models.FacturaOficina)
-        .filter(
-            or_(
-                and_(
-                    models.Factura.fecha_factura.isnot(None),
-                    models.Factura.fecha_factura >= start_date,
-                    models.Factura.fecha_factura <= end_date
-                ),
-                and_(
-                    models.Factura.fecha_factura.is_(None),
-                    cast(models.Factura.created_at, Date) >= start_date,
-                    cast(models.Factura.created_at, Date) <= end_date
-                )
-            )
-        )
+        .filter(get_date_filter())
     )
+    if oficina_id:
+        proveedores_query = proveedores_query.filter(models.FacturaOficina.oficina_id == oficina_id)
+    
     proveedores_query = apply_cat_filter(proveedores_query)
     proveedores_facturados_result = await db.execute(proveedores_query)
     proveedores_facturados = proveedores_facturados_result.scalar() or 0
+
+    # 3.1 Facturas por estado
+    async def get_count_by_status(status):
+        q = select(func.count(models.Factura.id)).filter(models.Factura.estado == status, get_date_filter())
+        if oficina_id:
+            q = q.join(models.FacturaOficina).filter(models.FacturaOficina.oficina_id == oficina_id)
+        if proveedor_id:
+            q = q.filter(models.Factura.proveedor_id == proveedor_id)
+        q = apply_cat_filter(q)
+        res = await db.execute(q)
+        return res.scalar() or 0
+
+    facturas_pagadas = await get_count_by_status('PAGADA')
+    facturas_pendientes = await get_count_by_status('PENDIENTE')
+    facturas_en_tramite = await get_count_by_status('EN TRAMITE')
     
     # 4. Contratos activos
     contratos_query = (
@@ -904,7 +909,10 @@ async def get_report_stats(
             "total_facturado": total_facturado,
             "total_facturas": total_facturas,
             "proveedores_facturados": proveedores_facturados,
-            "contratos_activos": contratos_activos
+            "contratos_activos": contratos_activos,
+            "facturas_pagadas": facturas_pagadas,
+            "facturas_pendientes": facturas_pendientes,
+            "facturas_en_tramite": facturas_en_tramite
         },
         "facturacion_mensual": facturacion_por_mes,
         "top_proveedores": top_proveedores,

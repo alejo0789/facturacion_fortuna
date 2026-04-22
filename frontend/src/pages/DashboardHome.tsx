@@ -24,6 +24,9 @@ interface Estadisticas {
         total_facturas: number;
         proveedores_facturados: number;
         contratos_activos: number;
+        facturas_pagadas: number;
+        facturas_pendientes: number;
+        facturas_en_tramite: number;
     };
     facturacion_mensual: Array<{
         mes: number;
@@ -371,21 +374,35 @@ export default function DashboardHome() {
                     title="Acumulado Año"
                     value={formatCurrency(estadisticas?.resumen.total_facturado || 0)}
                     subtitle={`${selectedYear}`}
-                    gradient="bg-gradient-to-br from-emerald-500 to-teal-600"
+                    gradient="bg-gradient-to-br from-indigo-500 to-blue-600"
                     icon={<svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>}
                 />
                 <StatCard
-                    title="Facturas"
-                    value={estadisticas?.resumen.total_facturas || 0}
-                    subtitle="Procesadas"
-                    gradient="bg-gradient-to-br from-amber-500 to-orange-600"
-                    icon={<svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>}
+                    title="Facturas Pagadas"
+                    value={estadisticas?.resumen.facturas_pagadas || 0}
+                    subtitle="Completadas"
+                    gradient="bg-gradient-to-br from-emerald-500 to-teal-600"
+                    icon={<svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
                 />
                 <StatCard
-                    title="Contratos"
+                    title="Facturas Pendientes"
+                    value={estadisticas?.resumen.facturas_pendientes || 0}
+                    subtitle="Por autorizar"
+                    gradient="bg-gradient-to-br from-amber-500 to-orange-600"
+                    icon={<svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
+                />
+                <StatCard
+                    title="En Trámite"
+                    value={estadisticas?.resumen.facturas_en_tramite || 0}
+                    subtitle="En proceso"
+                    gradient="bg-gradient-to-br from-blue-500 to-indigo-600"
+                    icon={<svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
+                />
+                <StatCard
+                    title="Contratos Activos"
                     value={estadisticas?.resumen.contratos_activos || 0}
-                    subtitle="Activos"
-                    gradient="bg-gradient-to-br from-pink-500 to-rose-600"
+                    subtitle="Vigentes"
+                    gradient="bg-gradient-to-br from-slate-600 to-slate-800"
                     icon={<svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>}
                 />
             </div>
