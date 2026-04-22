@@ -159,8 +159,7 @@ export default function DashboardHome() {
 
     // Load oficinas once on mount
     useEffect(() => {
-        fetch(`${API_URL}/reportes/filtros`)
-            .then(r => r.json())
+        apiGet<any>('/reportes/filtros')
             .then(data => {
                 if (data.oficinas) setOficinas(data.oficinas);
             })
