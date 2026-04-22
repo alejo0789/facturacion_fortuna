@@ -319,16 +319,14 @@ async def autorizar_proveedor_categoria(
         .where(models.ProveedorCategoria.proveedor_id == proveedor_id)
         .where(models.ProveedorCategoria.categoria_id == body.categoria_id)
     )
-    if existing.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="El proveedor ya está autorizado en esta categoría")
-
-    db_pc = models.ProveedorCategoria(
-        proveedor_id=proveedor_id,
-        categoria_id=body.categoria_id,
-        autorizado_por=body.autorizado_por or x_user_email or 'desconocido'
-    )
-    db.add(db_pc)
-    await db.commit()
+    if not existing.scalar_one_or_none():
+        db_pc = models.ProveedorCategoria(
+            proveedor_id=proveedor_id,
+            categoria_id=body.categoria_id,
+            autorizado_por=body.autorizado_por or x_user_email or 'desconocido'
+        )
+        db.add(db_pc)
+        await db.commit()
 
     # Return full proveedor with updated categories
     result = await db.execute(
