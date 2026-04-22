@@ -953,6 +953,7 @@ async def upload_factura(
     fecha_vencimiento: str = Form(None),
     valor: float = Form(None),
     observaciones: str = Form(None),
+    categoria_id: Optional[int] = Form(None),
     x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
     db: AsyncSession = Depends(get_db)
 ):
@@ -1064,13 +1065,13 @@ async def upload_factura(
             )
         
         if proveedor:
-            # Auto-detect category from email if possible
-            categoria_id = None
-            if x_user_email:
+            # Auto-detect category from email if not provided explicitly
+            detected_categoria_id = categoria_id
+            if not detected_categoria_id and x_user_email:
                 from routers.categorias import get_user_categoria_ids
                 cat_ids = await get_user_categoria_ids(db, email=x_user_email.strip())
                 if cat_ids:
-                    categoria_id = cat_ids[0]
+                    detected_categoria_id = cat_ids[0]
 
             # Create factura
             factura_data = schemas.FacturaCreate(
@@ -1082,7 +1083,7 @@ async def upload_factura(
                 url_factura=url_factura,
                 observaciones=observaciones,
                 estado='PENDIENTE',
-                categoria_id=categoria_id
+                categoria_id=detected_categoria_id
             )
             
             factura_created = await crud.create_factura(db, factura_data)
