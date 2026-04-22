@@ -10,7 +10,7 @@ Provides:
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Header
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, func
 from sqlalchemy.orm import selectinload
 from typing import List, Optional
 import os
@@ -58,7 +58,7 @@ async def get_user_categoria_ids(db: AsyncSession, rol_id: Optional[int] = None,
     if email:
         result = await db.execute(
             select(models.CategoriaUsuario.categoria_id)
-            .where(models.CategoriaUsuario.email == email)
+            .where(func.lower(models.CategoriaUsuario.email) == func.lower(email.strip()))
         )
         for r in result.fetchall():
             cat_ids.add(r[0])

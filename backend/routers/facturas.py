@@ -301,12 +301,25 @@ async def create_factura_con_oficinas(
         
         # If categoria_id is not provided or invalid (0), try to detect via email
         if (not categoria_id or categoria_id <= 0) and email_to_check:
-            from routers.categorias import get_user_categoria_ids
+            from routers.categorias import get_user_categoria_ids, is_super_admin
             # Try to automatically assign category based on the sender's email
             cat_ids = await get_user_categoria_ids(db, email=email_to_check.strip())
+            
             if cat_ids:
                 categoria_id = cat_ids[0]
                 datos_guardados["categoria_autodetectada_por_email"] = True
+            elif is_super_admin(identifier=email_to_check.strip()):
+                # If it's a super admin but has no specific category assigned, 
+                # assign to the first category available in the system so it's not orphan
+                from sqlalchemy import select
+                import models
+                result = await db.execute(select(models.Categoria.id).order_by(models.Categoria.id))
+                first_cat = result.scalars().first()
+                if first_cat:
+                    categoria_id = first_cat
+                    datos_guardados["categoria_asignada_por_default_admin"] = True
+            
+            if categoria_id:
                 datos_guardados["email_usado_para_cat"] = email_to_check.strip()
                 datos_guardados["categoria_id"] = categoria_id
             else:
@@ -328,6 +341,12 @@ async def create_factura_con_oficinas(
             )
             
             factura = await crud.create_factura(db, factura_data)
+            
+            # DEBUG: Add info to observations to trace in production
+            debug_info = f" [Auth: {email_to_check or 'no-email'}, Cat: {categoria_id or 'none'}]"
+            factura.observaciones = (factura.observaciones or "") + debug_info
+            await db.commit()
+            
             progress["factura_creada"] = True
             datos_guardados["factura"] = {
                 "id": factura.id,
