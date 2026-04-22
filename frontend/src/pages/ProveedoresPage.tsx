@@ -283,7 +283,7 @@ export default function ProveedoresPage() {
     // Determinar si se puede guardar
     const canSave = editingItem
         ? (formData.nit && formData.nombre)
-        : (oracleSearch.status === 'found' && oracleSearch.nombre && initialCategoryId);
+        : ((oracleSearch.status === 'found' || oracleSearch.status === 'already_exists') && oracleSearch.nombre && initialCategoryId);
 
     return (
         <div className="space-y-6">
@@ -441,7 +441,7 @@ export default function ProveedoresPage() {
                     )}
 
                     {/* Campo Nombre (solo visible cuando se edita o cuando se encontró en Oracle) */}
-                    {(editingItem || oracleSearch.status === 'found') && (
+                    {(editingItem || oracleSearch.status === 'found' || oracleSearch.status === 'already_exists') && (
                         <FormField label="Nombre del Proveedor (Legal)" required>
                             <input
                                 className={`${inputClassName} ${!editingItem ? 'bg-gray-50' : ''}`}
@@ -459,7 +459,7 @@ export default function ProveedoresPage() {
                     )}
 
                     {/* Campo Nombre Comercial (opcional) */}
-                    {(editingItem || oracleSearch.status === 'found') && (
+                    {(editingItem || oracleSearch.status === 'found' || oracleSearch.status === 'already_exists') && (
                         <FormField label="Nombre Comercial (Opcional)">
                             <input
                                 className={inputClassName}
@@ -474,7 +474,7 @@ export default function ProveedoresPage() {
                     )}
 
                     {/* Categoría Inicial para Proveedor Nuevo */}
-                    {!editingItem && oracleSearch.status === 'found' && (
+                    {!editingItem && (oracleSearch.status === 'found' || oracleSearch.status === 'already_exists') && (
                         <FormField label="Área de Autorización Inicial" required>
                             <select
                                 className={inputClassName}
