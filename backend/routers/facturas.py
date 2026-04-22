@@ -848,6 +848,7 @@ async def cambiar_estado(
 
 @router.get("/facturas/stats/resumen")
 async def resumen_facturas(
+    categoria_id: Optional[int] = Query(None),
     x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
     x_user_id: Optional[str] = Header(None, alias="X-User-Id"),
     x_user_rol_id: Optional[str] = Header(None, alias="X-User-Rol-Id"),
@@ -863,14 +864,25 @@ async def resumen_facturas(
     allowed_categoria_ids = None
     user_id_int = int(x_user_id) if x_user_id else None
     rol_id_int = int(x_user_rol_id) if x_user_rol_id else None
-    if not is_super_admin(x_user_email, user_id_int, rol_id_int):
+    is_admin = is_super_admin(x_user_email, user_id_int, rol_id_int)
+    
+    if not is_admin:
         allowed_categoria_ids = await get_user_categoria_ids(db, rol_id=rol_id_int, email=x_user_email)
+        # If category specified, ensure access
+        if categoria_id and (allowed_categoria_ids is None or int(categoria_id) not in allowed_categoria_ids):
+            return {
+                "total": 0, "pendientes": 0, "asignadas": 0, "en_tramite": 0,
+                "pagadas": 0, "pendientes_por_llegar": 0
+            }
+
+    # Final category filter (override allowed if admin, or restricted to specified)
+    final_categoria_id = int(categoria_id) if categoria_id else None
     
     # Total counts by status (all time) - used for pendientes sin oficina
-    counts_total = await crud.get_facturas_status_counts(db, allowed_categoria_ids=allowed_categoria_ids)
+    counts_total = await crud.get_facturas_status_counts(db, allowed_categoria_ids=allowed_categoria_ids, categoria_id=final_categoria_id)
     
     # Monthly counts - used for En Trámite and Pagadas counters (current month)
-    counts_mes = await crud.get_facturas_status_counts_mes(db, today.year, today.month, allowed_categoria_ids=allowed_categoria_ids)
+    counts_mes = await crud.get_facturas_status_counts_mes(db, today.year, today.month, allowed_categoria_ids=allowed_categoria_ids, categoria_id=final_categoria_id)
     
     pendientes = counts_total.get('PENDIENTE', 0)
     asignadas = counts_total.get('ASIGNADA', 0)

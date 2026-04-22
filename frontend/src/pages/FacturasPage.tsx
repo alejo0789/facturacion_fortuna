@@ -763,9 +763,13 @@ export default function FacturasPage() {
         }
     }, [filterEstado, filterFechaDesde, filterFechaHasta, filterOficinaId, filterCategoriaId, filterUsarFechaEstado]);
 
-    const fetchStats = async () => {
+    const fetchStats = async (categoriaId?: number | null) => {
         try {
-            const res = await fetch(`${API_URL}/facturas/stats/resumen`, {
+            let url = `${API_URL}/facturas/stats/resumen`;
+            if (categoriaId) {
+                url += `?categoria_id=${categoriaId}`;
+            }
+            const res = await fetch(url, {
                 headers: getAuthHeaders()
             });
             if (res.ok) {
@@ -822,10 +826,10 @@ export default function FacturasPage() {
     }, [search, filterEstado, filterFechaDesde, filterFechaHasta, filterOficinaId, filterCategoriaId]);
 
     useEffect(() => {
-        fetchStats();
+        fetchStats(filterCategoriaId);
         loadAllOficinas();
         loadCategorias();
-    }, []);
+    }, [filterCategoriaId]);
 
     // Filter oficinas based on search input - show all when empty, filter when typing
     useEffect(() => {
