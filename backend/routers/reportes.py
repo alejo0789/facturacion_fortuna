@@ -620,8 +620,17 @@ async def get_report_stats(
         # If user specifies a category, ensure they have access to it
         if categoria_id and categoria_id not in allowed_categoria_ids:
             return {
-                "total_facturado": 0, "total_facturas": 0, "proveedores_facturados": 0, "contratos_activos": 0,
-                "facturacion_mensual": [], "top_proveedores": [], "facturacion_por_tipo": [], "facturacion_por_area": []
+                "año": año or datetime.now().year,
+                "resumen": {
+                    "total_facturado": 0, 
+                    "total_facturas": 0, 
+                    "proveedores_facturados": 0, 
+                    "contratos_activos": 0
+                },
+                "facturacion_mensual": [], 
+                "top_proveedores": [], 
+                "facturacion_por_tipo": [], 
+                "facturacion_por_area": []
             }
     
     # Function to apply category filter to any query
