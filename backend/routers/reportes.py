@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Header
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -39,7 +39,8 @@ async def get_report_data(
     mes: Optional[int] = None,
     tipo: Optional[str] = None,
     estado: Optional[str] = None,
-    ciudad: Optional[str] = None
+    ciudad: Optional[str] = None,
+    allowed_categoria_ids: Optional[List[int]] = None
 ):
     """
     Get report data with all contracts and their invoice values from FacturaOficina.
@@ -105,6 +106,9 @@ async def get_report_data(
     if ciudad:
         filters.append(models.Oficina.ciudad.ilike(f"%{ciudad}%"))
     
+    if allowed_categoria_ids is not None:
+        filters.append(models.Contrato.categoria_id.in_(allowed_categoria_ids))
+    
     if filters:
         query = query.filter(and_(*filters))
     
@@ -152,6 +156,9 @@ async def get_report_data(
     
     if ciudad:
         fo_filters.append(models.Oficina.ciudad.ilike(f"%{ciudad}%"))
+
+    if allowed_categoria_ids is not None:
+        fo_filters.append(models.Factura.categoria_id.in_(allowed_categoria_ids))
     
     factura_oficina_query = factura_oficina_query.filter(and_(*fo_filters))
     
@@ -430,6 +437,9 @@ async def preview_report(
     tipo: Optional[str] = Query(None, description="Tipo de contrato (Fijo, Movil, Colaboracion, Leasing)"),
     estado: Optional[str] = Query(None, description="Estado del contrato (ACTIVO, CANCELADO)"),
     ciudad: Optional[str] = Query(None, description="Ciudad de la oficina"),
+    x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
+    x_user_id: Optional[int] = Header(None, alias="X-User-Id"),
+    x_user_rol_id: Optional[int] = Header(None, alias="X-User-Rol-Id"),
     db: AsyncSession = Depends(get_db)
 ):
     """Preview report data as JSON"""
@@ -437,6 +447,11 @@ async def preview_report(
     fecha_desde_dt = datetime.strptime(fecha_desde, '%Y-%m-%d').date() if fecha_desde else None
     fecha_hasta_dt = datetime.strptime(fecha_hasta, '%Y-%m-%d').date() if fecha_hasta else None
     
+    from routers.categorias import is_super_admin, get_user_categoria_ids
+    allowed_categoria_ids = None
+    if not is_super_admin(x_user_email, x_user_id):
+        allowed_categoria_ids = await get_user_categoria_ids(db, rol_id=x_user_rol_id, email=x_user_email)
+
     data, months = await get_report_data(
         db,
         proveedor_id=proveedor_id,
@@ -447,7 +462,8 @@ async def preview_report(
         mes=mes,
         tipo=tipo,
         estado=estado,
-        ciudad=ciudad
+        ciudad=ciudad,
+        allowed_categoria_ids=allowed_categoria_ids
     )
     
     # Format months for response
@@ -474,6 +490,9 @@ async def export_report_excel(
     tipo: Optional[str] = Query(None, description="Tipo de contrato (Fijo, Movil, Colaboracion, Leasing)"),
     estado: Optional[str] = Query(None, description="Estado del contrato (ACTIVO, CANCELADO)"),
     ciudad: Optional[str] = Query(None, description="Ciudad de la oficina"),
+    x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
+    x_user_id: Optional[int] = Header(None, alias="X-User-Id"),
+    x_user_rol_id: Optional[int] = Header(None, alias="X-User-Rol-Id"),
     db: AsyncSession = Depends(get_db)
 ):
     """Export report to Excel file"""
@@ -484,6 +503,11 @@ async def export_report_excel(
     fecha_desde_dt = datetime.strptime(fecha_desde, '%Y-%m-%d').date() if fecha_desde else None
     fecha_hasta_dt = datetime.strptime(fecha_hasta, '%Y-%m-%d').date() if fecha_hasta else None
     
+    from routers.categorias import is_super_admin, get_user_categoria_ids
+    allowed_categoria_ids = None
+    if not is_super_admin(x_user_email, x_user_id):
+        allowed_categoria_ids = await get_user_categoria_ids(db, rol_id=x_user_rol_id, email=x_user_email)
+
     data, months = await get_report_data(
         db,
         proveedor_id=proveedor_id,
@@ -494,7 +518,8 @@ async def export_report_excel(
         mes=mes,
         tipo=tipo,
         estado=estado,
-        ciudad=ciudad
+        ciudad=ciudad,
+        allowed_categoria_ids=allowed_categoria_ids
     )
     
     # Create Excel
@@ -579,10 +604,33 @@ async def get_report_stats(
     oficina_id: Optional[int] = Query(None, description="Filtrar por oficina"),
     proveedor_id: Optional[int] = Query(None, description="Filtrar por proveedor"),
     categoria_id: Optional[int] = Query(None, description="Filtrar por categoría"),
+    x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
+    x_user_id: Optional[int] = Header(None, alias="X-User-Id"),
+    x_user_rol_id: Optional[int] = Header(None, alias="X-User-Rol-Id"),
     db: AsyncSession = Depends(get_db)
 ):
     """Get dashboard statistics for reports"""
     from sqlalchemy import func
+    from routers.categorias import is_super_admin, get_user_categoria_ids
+    
+    # RBAC filtering
+    allowed_categoria_ids = None
+    if not is_super_admin(x_user_email, x_user_id):
+        allowed_categoria_ids = await get_user_categoria_ids(db, rol_id=x_user_rol_id, email=x_user_email)
+        # If user specifies a category, ensure they have access to it
+        if categoria_id and categoria_id not in allowed_categoria_ids:
+            return {
+                "total_facturado": 0, "total_facturas": 0, "proveedores_facturados": 0, "contratos_activos": 0,
+                "facturacion_mensual": [], "top_proveedores": [], "facturacion_por_tipo": [], "facturacion_por_area": []
+            }
+    
+    # Function to apply category filter to any query
+    def apply_cat_filter(q, model_class=models.Factura):
+        if categoria_id:
+            return q.filter(model_class.categoria_id == categoria_id)
+        if allowed_categoria_ids is not None:
+            return q.filter(model_class.categoria_id.in_(allowed_categoria_ids))
+        return q
     
     # Use current year if not specified
     target_year = año or datetime.now().year
@@ -640,8 +688,7 @@ async def get_report_stats(
         total_facturado_query = total_facturado_query.filter(models.Factura.proveedor_id == proveedor_id)
     
     # Apply categoria filter if specified
-    if categoria_id:
-        total_facturado_query = total_facturado_query.filter(models.Factura.categoria_id == categoria_id)
+    total_facturado_query = apply_cat_filter(total_facturado_query)
     
     total_facturado_result = await db.execute(total_facturado_query)
     total_facturado = float(total_facturado_result.scalar() or 0)
@@ -665,8 +712,7 @@ async def get_report_stats(
             )
         )
     )
-    if categoria_id:
-        total_facturas_query = total_facturas_query.filter(models.Factura.categoria_id == categoria_id)
+    total_facturas_query = apply_cat_filter(total_facturas_query)
     total_facturas_result = await db.execute(total_facturas_query)
     total_facturas = total_facturas_result.scalar() or 0
     
@@ -689,8 +735,7 @@ async def get_report_stats(
             )
         )
     )
-    if categoria_id:
-        proveedores_query = proveedores_query.filter(models.Factura.categoria_id == categoria_id)
+    proveedores_query = apply_cat_filter(proveedores_query)
     proveedores_facturados_result = await db.execute(proveedores_query)
     proveedores_facturados = proveedores_facturados_result.scalar() or 0
     
@@ -699,8 +744,7 @@ async def get_report_stats(
         select(func.count(models.Contrato.id))
         .filter(models.Contrato.estado == 'ACTIVO')
     )
-    if categoria_id:
-        contratos_query = contratos_query.filter(models.Contrato.categoria_id == categoria_id)
+    contratos_query = apply_cat_filter(contratos_query, models.Contrato)
     contratos_activos_result = await db.execute(contratos_query)
     contratos_activos = contratos_activos_result.scalar() or 0
     
@@ -743,8 +787,7 @@ async def get_report_stats(
             mes_query = mes_query.filter(models.Factura.proveedor_id == proveedor_id)
         
         # Add categoria filter if specified
-        if categoria_id:
-            mes_query = mes_query.filter(models.Factura.categoria_id == categoria_id)
+        mes_query = apply_cat_filter(mes_query)
         
         mes_result = await db.execute(mes_query)
         valor = float(mes_result.scalar() or 0)
@@ -781,8 +824,7 @@ async def get_report_stats(
     )
     
     # Add categoria filter if specified
-    if categoria_id:
-        top_proveedores_query = top_proveedores_query.filter(models.Factura.categoria_id == categoria_id)
+    top_proveedores_query = apply_cat_filter(top_proveedores_query)
     
     top_proveedores_query = top_proveedores_query.group_by(models.Proveedor.id, models.Proveedor.nombre).order_by(func.sum(models.FacturaOficina.valor).desc()).limit(5)
     
@@ -793,7 +835,7 @@ async def get_report_stats(
     ]
     
     # 7. Facturación por tipo de contrato
-    facturacion_por_tipo_result = await db.execute(
+    facturacion_por_tipo_query = (
         select(
             models.Contrato.tipo,
             func.sum(models.FacturaOficina.valor).label('total')
@@ -801,7 +843,7 @@ async def get_report_stats(
         .join(models.FacturaOficina, models.FacturaOficina.contrato_id == models.Contrato.id)
         .join(models.Factura, models.FacturaOficina.factura_id == models.Factura.id)
         .filter(
-            models.Factura.estado == 'PAGADA',  # Solo facturas pagadas
+            models.Factura.estado == 'PAGADA',
             or_(
                 and_(
                     models.Factura.fecha_factura.isnot(None),
@@ -815,7 +857,12 @@ async def get_report_stats(
                 )
             )
         )
-        .group_by(models.Contrato.tipo)
+    )
+    
+    facturacion_por_tipo_query = apply_cat_filter(facturacion_por_tipo_query)
+    
+    facturacion_por_tipo_result = await db.execute(
+        facturacion_por_tipo_query.group_by(models.Contrato.tipo)
     )
     facturacion_por_tipo = [
         {'tipo': row[0] or 'Sin tipo', 'total': float(row[1] or 0)}
