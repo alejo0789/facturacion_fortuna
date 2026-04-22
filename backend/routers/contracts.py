@@ -219,35 +219,69 @@ async def buscar_proveedor_oracle(nit: str, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Error consultando Oracle: {str(e)}")
 
 @router.post("/proveedores/", response_model=schemas.Proveedor)
-async def create_proveedor(proveedor: schemas.ProveedorCreate, db: AsyncSession = Depends(get_db)):
+async def create_proveedor(
+    proveedor: schemas.ProveedorCreate, 
+    x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
+    x_user_rol_id: Optional[str] = Header(None, alias="X-User-Rol-Id"),
+    x_user_id: Optional[str] = Header(None, alias="X-User-Id"),
+    db: AsyncSession = Depends(get_db)
+):
     """
-    Crea un proveedor. Si solo viene el NIT, consulta Oracle para obtener el nombre.
+    Crea un proveedor o recupera uno existente. 
+    Si solo viene el NIT, consulta Oracle para obtener el nombre.
+    Si el usuario tiene una categoría asignada, autoriza automáticamente al proveedor para esa categoría.
     """
     from oracle_database import get_proveedor_by_nit_oracle
+    from routers.categorias import is_super_admin, get_user_categoria_ids
+    from sqlalchemy import select as sa_select
     
     # Limpiar el NIT
     nit_clean = proveedor.nit.split('-')[0].strip() if '-' in proveedor.nit else proveedor.nit.strip()
     
     # Verificar si ya existe
     db_prov = await crud.get_proveedor_by_nit(db, nit=nit_clean)
-    if db_prov:
-        raise HTTPException(status_code=400, detail="Ya existe un proveedor con este NIT")
     
-    # Si no viene el nombre o viene vacío, buscarlo en Oracle
-    nombre = proveedor.nombre
-    if not nombre or nombre.strip() == "" or nombre == "PENDING_ORACLE_LOOKUP":
-        oracle_result = get_proveedor_by_nit_oracle(nit_clean)
-        if oracle_result:
-            nombre = oracle_result["nombre"]
-        else:
-            raise HTTPException(
-                status_code=404, 
-                detail=f"No se encontró el proveedor con NIT {nit_clean} en Oracle"
+    if not db_prov:
+        # Si no viene el nombre o viene vacío, buscarlo en Oracle
+        nombre = proveedor.nombre
+        if not nombre or nombre.strip() == "" or nombre == "PENDING_ORACLE_LOOKUP":
+            oracle_result = get_proveedor_by_nit_oracle(nit_clean)
+            if oracle_result:
+                nombre = oracle_result["nombre"]
+            else:
+                raise HTTPException(
+                    status_code=404, 
+                    detail=f"No se encontró el proveedor con NIT {nit_clean} en Oracle"
+                )
+        
+        # Crear el proveedor con el NIT limpio
+        proveedor_data = schemas.ProveedorCreate(nit=nit_clean, nombre=nombre)
+        db_prov = await crud.create_proveedor(db, proveedor_data)
+    
+    # --- Auto-Autorización por Categoría ---
+    # Si no es Super Admin, obtener sus categorías y autorizar la primera (o todas)
+    if not is_super_admin(x_user_email, int(x_user_id) if x_user_id else None):
+        rol_id_int = int(x_user_rol_id) if x_user_rol_id else None
+        allowed_ids = await get_user_categoria_ids(db, rol_id_int, x_user_email)
+        
+        for cat_id in allowed_ids:
+            # Verificar si ya está autorizado
+            existing = await db.execute(
+                sa_select(models.ProveedorCategoria)
+                .where(models.ProveedorCategoria.proveedor_id == db_prov.id)
+                .where(models.ProveedorCategoria.categoria_id == cat_id)
             )
+            if not existing.scalar_one_or_none():
+                db_pc = models.ProveedorCategoria(
+                    proveedor_id=db_prov.id,
+                    categoria_id=cat_id,
+                    autorizado_por=x_user_email or 'desconocido'
+                )
+                db.add(db_pc)
+        
+        await db.commit()
     
-    # Crear el proveedor con el NIT limpio
-    proveedor_data = schemas.ProveedorCreate(nit=nit_clean, nombre=nombre)
-    return await crud.create_proveedor(db, proveedor_data)
+    return db_prov
 
 
 @router.post("/proveedores/{proveedor_id}/autorizar-categoria", response_model=schemas.ProveedorConCategorias)
