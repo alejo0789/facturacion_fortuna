@@ -189,6 +189,7 @@ async def buscar_proveedor_oracle(nit: str, db: AsyncSession = Depends(get_db)):
             "source": "local",
             "nit": existing.nit,
             "nombre": existing.nombre,
+            "nombre_comercial": existing.nombre_comercial,
             "already_exists": True,
             "message": "Este proveedor ya existe en la base de datos local"
         }

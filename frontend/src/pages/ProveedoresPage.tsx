@@ -122,6 +122,13 @@ export default function ProveedoresPage() {
                     nombre: data.nombre,
                     nit: data.nit
                 });
+                // Poblar el formulario con los datos existentes
+                setFormData(prev => ({ 
+                    ...prev, 
+                    nombre: data.nombre, 
+                    nit: data.nit,
+                    nombre_comercial: data.nombre_comercial || '' 
+                }));
             } else if (data.found) {
                 setOracleSearch({
                     status: 'found',
@@ -448,9 +455,9 @@ export default function ProveedoresPage() {
                                 placeholder="Nombre obtenido de Manager"
                                 value={formData.nombre || ''}
                                 onChange={e => setFormData({ ...formData, nombre: e.target.value })}
-                                readOnly={!editingItem}
+                                readOnly={!editingItem || oracleSearch.status === 'already_exists'}
                             />
-                            {!editingItem && (
+                            {(!editingItem && (oracleSearch.status === 'found' || oracleSearch.status === 'already_exists')) && (
                                 <p className="text-xs text-gray-500 mt-1">
                                     Nombre obtenido automáticamente de Manager (VINCULADO)
                                 </p>
@@ -466,6 +473,7 @@ export default function ProveedoresPage() {
                                 placeholder="Ej: Claro, Movistar, ETB..."
                                 value={formData.nombre_comercial || ''}
                                 onChange={e => setFormData({ ...formData, nombre_comercial: e.target.value })}
+                                readOnly={oracleSearch.status === 'already_exists' && !!formData.nombre_comercial}
                             />
                             <p className="text-xs text-gray-500 mt-1">
                                 Nombre comercial o de marca. Se usará para búsquedas en contratos, facturas y reportes.
