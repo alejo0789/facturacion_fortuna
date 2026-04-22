@@ -609,8 +609,8 @@ async def get_report_stats(
     proveedor_id: Optional[int] = Query(None, description="Filtrar por proveedor"),
     categoria_id: Optional[int] = Query(None, description="Filtrar por categoría"),
     x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
-    x_user_id: Optional[int] = Header(None, alias="X-User-Id"),
-    x_user_rol_id: Optional[int] = Header(None, alias="X-User-Rol-Id"),
+    x_user_id: Optional[str] = Header(None, alias="X-User-Id"),
+    x_user_rol_id: Optional[str] = Header(None, alias="X-User-Rol-Id"),
     db: AsyncSession = Depends(get_db)
 ):
     """Get dashboard statistics for reports"""
@@ -773,7 +773,7 @@ async def get_report_stats(
         select(func.count(models.Contrato.id))
         .filter(models.Contrato.estado == 'ACTIVO')
     )
-    contratos_query = apply_cat_filter(contratos_query, models.Contrato)
+    contratos_query = apply_cat_filter(contratos_query, model_class=models.Contrato)
     contratos_activos_result = await db.execute(contratos_query)
     contratos_activos = contratos_activos_result.scalar() or 0
     
@@ -888,7 +888,7 @@ async def get_report_stats(
         )
     )
     
-    facturacion_por_tipo_query = apply_cat_filter(facturacion_por_tipo_query)
+    facturacion_por_tipo_query = apply_cat_filter(facturacion_por_tipo_query, model_class=models.Contrato)
     
     facturacion_por_tipo_result = await db.execute(
         facturacion_por_tipo_query.group_by(models.Contrato.tipo)
