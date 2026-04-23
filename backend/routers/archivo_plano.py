@@ -843,6 +843,9 @@ async def preview_causacion_manager(request: CausacionManagerPreviewRequest):
         factura_valor_base = 0  # Sum of valor_base (sin IVA) para calcular retefuente
         row_counter = 1
         
+        factura_total_valor = sum(float(o.valor) for o in factura.oficinas)
+        iva_global = float(factura.iva) if factura.iva is not None else None
+        
         # Process each oficina
         for oficina in factura.oficinas:
             ccosto_raw = await get_centro_costo(oficina.cod_oficina)
