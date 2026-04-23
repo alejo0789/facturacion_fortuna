@@ -98,6 +98,7 @@ async def create_factura_api(
         fecha_factura=factura.fecha_factura,
         fecha_vencimiento=factura.fecha_vencimiento,
         valor=factura.valor,
+        iva=factura.iva,
         url_factura=factura.url_factura,
         observaciones=factura.observaciones,
         estado='PENDIENTE'
@@ -238,6 +239,7 @@ async def create_factura_con_oficinas(
                 fecha_factura=request.fecha_factura,
                 fecha_vencimiento=request.fecha_vencimiento,
                 valor=request.valor,
+                iva=request.iva,
                 url_factura=request.url_factura,
                 observaciones=request.observaciones,
                 estado='PENDIENTE' if not request.oficinas else 'ASIGNADA'
@@ -355,6 +357,7 @@ async def create_factura_con_oficinas(
                 "fecha_factura": str(factura.fecha_factura) if factura.fecha_factura else None,
                 "fecha_vencimiento": str(factura.fecha_vencimiento) if factura.fecha_vencimiento else None,
                 "valor": str(factura.valor) if factura.valor else None,
+                "iva": str(factura.iva) if factura.iva is not None else None,
                 "estado": factura.estado,
                 "url_factura": factura.url_factura,
                 "observaciones": factura.observaciones,

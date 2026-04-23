@@ -36,6 +36,7 @@ class FacturaArchivoPlano(BaseModel):
     id: Optional[int] = None
     numero_factura: Optional[str] = None
     fecha_factura: Optional[date] = None  # For extracting month
+    iva: Optional[Decimal] = None  # Optional global IVA for the invoice
     oficinas: List[OficinaArchivoPlano]
 
 
@@ -327,7 +328,9 @@ async def generate_rows_for_oficina(
     tiene_iva: bool,
     numero_factura: str,  # For building DETALLE
     fecha_factura: Optional[date],  # For extracting month
-    starting_row_index: int  # Excel row number to start (2, 3, 4...)
+    starting_row_index: int,  # Excel row number to start (2, 3, 4...)
+    factura_iva: Optional[float] = None,
+    factura_total_valor: float = 0
 ) -> tuple[List[list], int, dict]:
     """
     Generate debit rows for a single office.
@@ -366,7 +369,15 @@ async def generate_rows_for_oficina(
     valor = round(float(oficina.valor), 0)  # Valor total de la oficina (ENTERO)
 
     # Calculate base value (without IVA if applicable)
-    if tiene_iva:
+    if factura_iva is not None and tiene_iva:
+        if factura_total_valor > 0:
+            ratio = valor / factura_total_valor
+            valor_iva = round(factura_iva * ratio, 0)
+            valor_base = valor - valor_iva
+        else:
+            valor_base = valor
+            valor_iva = 0
+    elif tiene_iva:
         if proveedor_nit == "901073256":
             # REGLA ESPECIAL: T = B * 1.15 (Base + 19% IVA - 4% Rete)
             # Bruto (B) = T / 1.15, IVA = B * 0.19
@@ -585,6 +596,9 @@ async def generar_archivo_plano(request: ArchivoPlanoRequest):
         last_office_info = None
         last_detalle = ""  # Store the last detalle for summary rows
         
+        factura_total_valor = sum(float(o.valor) for o in factura.oficinas)
+        iva_global = float(factura.iva) if factura.iva is not None else None
+        
         # Generate rows for each office in this factura
         for oficina in factura.oficinas:
             rows, current_row_index, office_info = await generate_rows_for_oficina(
@@ -595,7 +609,9 @@ async def generar_archivo_plano(request: ArchivoPlanoRequest):
                 tiene_iva=request.tiene_iva,
                 numero_factura=factura.numero_factura or '',
                 fecha_factura=factura.fecha_factura,
-                starting_row_index=current_row_index
+                starting_row_index=current_row_index,
+                factura_iva=iva_global,
+                factura_total_valor=factura_total_valor
             )
             all_rows.extend(rows)
             
@@ -688,6 +704,9 @@ async def preview_archivo_plano(request: ArchivoPlanoRequest):
         last_office_info = None
         last_detalle = ""
         
+        factura_total_valor = sum(float(o.valor) for o in factura.oficinas)
+        iva_global = float(factura.iva) if factura.iva is not None else None
+        
         for oficina in factura.oficinas:
             rows, current_row_index, office_info = await generate_rows_for_oficina(
                 oficina=oficina,
@@ -697,7 +716,9 @@ async def preview_archivo_plano(request: ArchivoPlanoRequest):
                 tiene_iva=request.tiene_iva,
                 numero_factura=factura.numero_factura or '',
                 fecha_factura=factura.fecha_factura,
-                starting_row_index=current_row_index
+                starting_row_index=current_row_index,
+                factura_iva=iva_global,
+                factura_total_valor=factura_total_valor
             )
             all_rows.extend(rows)
             
