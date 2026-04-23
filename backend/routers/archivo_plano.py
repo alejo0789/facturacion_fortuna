@@ -599,6 +599,8 @@ async def generar_archivo_plano(request: ArchivoPlanoRequest):
         factura_total_valor = sum(float(o.valor) for o in factura.oficinas)
         iva_global = float(factura.iva) if factura.iva is not None else None
         
+        print(f"DEBUG CAUSACION - Factura: {factura.numero_factura}, IVA recibido: {factura.iva}, IVA a usar: {iva_global}, Valor Total: {factura_total_valor}")
+        
         # Generate rows for each office in this factura
         for oficina in factura.oficinas:
             rows, current_row_index, office_info = await generate_rows_for_oficina(
@@ -706,6 +708,8 @@ async def preview_archivo_plano(request: ArchivoPlanoRequest):
         
         factura_total_valor = sum(float(o.valor) for o in factura.oficinas)
         iva_global = float(factura.iva) if factura.iva is not None else None
+        
+        print(f"DEBUG PREVIEW - Factura: {factura.numero_factura}, IVA recibido: {factura.iva}, IVA a usar: {iva_global}, Valor Total: {factura_total_valor}")
         
         for oficina in factura.oficinas:
             rows, current_row_index, office_info = await generate_rows_for_oficina(
@@ -858,7 +862,15 @@ async def preview_causacion_manager(request: CausacionManagerPreviewRequest):
             valor = round(float(oficina.valor), 0)
 
             # Calculate base value
-            if request.tiene_iva:
+            if iva_global is not None and request.tiene_iva:
+                if factura_total_valor > 0:
+                    ratio = valor / factura_total_valor
+                    valor_iva = round(iva_global * ratio, 0)
+                    valor_base = valor - valor_iva
+                else:
+                    valor_base = valor
+                    valor_iva = 0
+            elif request.tiene_iva:
                 if request.proveedor_nit == "901073256":
                     # REGLA ESPECIAL: Bruto (B) = T / 1.15, IVA = B * 0.19
                     valor_base = round(valor / 1.15, 0)
