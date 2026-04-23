@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { apiGet, apiPost, apiPut, apiDelete } from '../utils/apiClient';
-import type { Categoria, CategoriaRol, CategoriaUsuario } from '../types/auth';
+import type { Categoria, CategoriaRol, CategoriaUsuario, ModuloAccesoRol, ModuloAccesoUsuario } from '../types/auth';
 
 
 
@@ -28,6 +28,15 @@ export default function CategoriasAdminPage() {
     const [newEmail, setNewEmail] = useState('');
     const [activeTab, setActiveTab] = useState<'roles' | 'usuarios'>('roles');
 
+    // Pagos Access Modal state
+    const [showPagosModal, setShowPagosModal] = useState(false);
+    const [pagosRoles, setPagosRoles] = useState<ModuloAccesoRol[]>([]);
+    const [pagosUsuarios, setPagosUsuarios] = useState<ModuloAccesoUsuario[]>([]);
+    const [newPagosRolId, setNewPagosRolId] = useState('');
+    const [newPagosRolNombre, setNewPagosRolNombre] = useState('');
+    const [newPagosEmail, setNewPagosEmail] = useState('');
+    const [pagosActiveTab, setPagosActiveTab] = useState<'roles' | 'usuarios'>('roles');
+
     useEffect(() => {
         if (!authLoading) {
             loadCategorias();
@@ -44,6 +53,19 @@ export default function CategoriasAdminPage() {
             console.error(err);
         } finally {
             setLoading(false);
+        }
+    }
+
+    async function loadPagosAccess() {
+        try {
+            const [roles, usuarios] = await Promise.all([
+                apiGet<ModuloAccesoRol[]>('/categorias/modulos/PAGOS/roles'),
+                apiGet<ModuloAccesoUsuario[]>('/categorias/modulos/PAGOS/usuarios')
+            ]);
+            setPagosRoles(roles);
+            setPagosUsuarios(usuarios);
+        } catch (err) {
+            console.error('Error loading pagos access', err);
         }
     }
 
@@ -142,6 +164,65 @@ export default function CategoriasAdminPage() {
         setActiveTab('roles');
     }
 
+    // Pagos Access Handlers
+    function openPagosModal() {
+        loadPagosAccess();
+        setShowPagosModal(true);
+        setPagosActiveTab('roles');
+    }
+
+    async function handleAssignPagosRole() {
+        if (!newPagosRolId) return;
+        try {
+            await apiPost('/categorias/modulos/PAGOS/roles', {
+                rol_id: parseInt(newPagosRolId),
+                rol_nombre: newPagosRolNombre || `Rol ${newPagosRolId}`,
+                modulo: 'PAGOS'
+            });
+            setNewPagosRolId('');
+            setNewPagosRolNombre('');
+            loadPagosAccess();
+        } catch (err) {
+            setError('Error asignando rol a pagos');
+            console.error(err);
+        }
+    }
+
+    async function handleAssignPagosEmail() {
+        if (!newPagosEmail) return;
+        try {
+            await apiPost('/categorias/modulos/PAGOS/usuarios', {
+                email: newPagosEmail.trim(),
+                modulo: 'PAGOS'
+            });
+            setNewPagosEmail('');
+            loadPagosAccess();
+        } catch (err: any) {
+            setError(err.message || 'Error al asignar correo a pagos');
+            console.error(err);
+        }
+    }
+
+    async function handleRemovePagosRole(rolId: number) {
+        try {
+            await apiDelete(`/categorias/modulos/PAGOS/roles/${rolId}`);
+            loadPagosAccess();
+        } catch (err) {
+            setError('Error removiendo rol de pagos');
+            console.error(err);
+        }
+    }
+
+    async function handleRemovePagosEmail(email: string) {
+        try {
+            await apiDelete(`/categorias/modulos/PAGOS/usuarios/${email}`);
+            loadPagosAccess();
+        } catch (err) {
+            setError('Error removiendo correo de pagos');
+            console.error(err);
+        }
+    }
+
     if (authLoading || loading) {
         return (
             <div className="flex items-center justify-center h-64">
@@ -170,19 +251,30 @@ export default function CategoriasAdminPage() {
                         Gestiona las categorías de facturas y asigna roles
                     </p>
                 </div>
-                <button
-                    onClick={() => {
-                        setShowForm(true);
-                        setEditingId(null);
-                        setFormData({ nombre: '', descripcion: '', color: '#6366f1', activa: true });
-                    }}
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg flex items-center gap-2"
-                >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                    </svg>
-                    Nueva Categoría
-                </button>
+                <div className="flex gap-3">
+                    <button
+                        onClick={openPagosModal}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 shadow-sm transition-colors"
+                    >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                        </svg>
+                        Acceso a Pagos
+                    </button>
+                    <button
+                        onClick={() => {
+                            setShowForm(true);
+                            setEditingId(null);
+                            setFormData({ nombre: '', descripcion: '', color: '#6366f1', activa: true });
+                        }}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 shadow-sm transition-colors"
+                    >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                        </svg>
+                        Nueva Categoría
+                    </button>
+                </div>
             </div>
 
             {error && (
@@ -413,6 +505,160 @@ export default function CategoriasAdminPage() {
                             <button
                                 onClick={() => setSelectedCategoria(null)}
                                 className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200"
+                            >
+                                Cerrar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Pagos Access Modal */}
+            {showPagosModal && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                    <div className="bg-white rounded-xl p-6 w-full max-w-lg">
+                        <h2 className="text-lg font-semibold mb-2 flex items-center gap-2 text-emerald-700">
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                            </svg>
+                            Autorización: Módulo de Pagos
+                        </h2>
+                        
+                        {/* Tabs */}
+                        <div className="flex gap-4 border-b mb-4">
+                            <button
+                                className={`pb-2 px-1 font-medium text-sm transition-colors ${pagosActiveTab === 'roles' ? 'text-emerald-600 border-b-2 border-emerald-600' : 'text-slate-500 hover:text-slate-700'}`}
+                                onClick={() => setPagosActiveTab('roles')}
+                            >
+                                Por Rol
+                            </button>
+                            <button
+                                className={`pb-2 px-1 font-medium text-sm transition-colors ${pagosActiveTab === 'usuarios' ? 'text-emerald-600 border-b-2 border-emerald-600' : 'text-slate-500 hover:text-slate-700'}`}
+                                onClick={() => setPagosActiveTab('usuarios')}
+                            >
+                                Por Correo Individual
+                            </button>
+                        </div>
+
+                        {pagosActiveTab === 'roles' ? (
+                            <>
+                                <p className="text-slate-600 text-sm mb-4">
+                                    Los usuarios con estos roles podrán acceder a la pestaña de Pagos y Consolidado.
+                                </p>
+
+                                {/* Current roles */}
+                                <div className="mb-4">
+                                    <h3 className="text-sm font-medium text-slate-700 mb-2">Roles Autorizados</h3>
+                                    {pagosRoles.length > 0 ? (
+                                        <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
+                                            {pagosRoles.map((rol: ModuloAccesoRol) => (
+                                                <div key={rol.id} className="flex items-center justify-between bg-slate-50 px-3 py-2 rounded">
+                                                    <span>{rol.rol_nombre} (ID: {rol.rol_id})</span>
+                                                    <button
+                                                        onClick={() => handleRemovePagosRole(rol.rol_id)}
+                                                        className="text-red-600 hover:text-red-700"
+                                                    >
+                                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                                        </svg>
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <p className="text-slate-500 text-sm italic">No hay roles autorizados</p>
+                                    )}
+                                </div>
+
+                                {/* Add new role */}
+                                <div className="border-t pt-4">
+                                    <h3 className="text-sm font-medium text-slate-700 mb-3">Agregar Rol</h3>
+                                    <div className="space-y-3">
+                                        <div className="flex flex-col sm:flex-row gap-2">
+                                            <input
+                                                type="number"
+                                                placeholder="ID del Rol"
+                                                value={newPagosRolId}
+                                                onChange={e => setNewPagosRolId(e.target.value)}
+                                                className="flex-1 border rounded-lg px-3 py-2 text-sm focus:ring-emerald-500 focus:border-emerald-500"
+                                            />
+                                            <input
+                                                type="text"
+                                                placeholder="Nombre del Rol"
+                                                value={newPagosRolNombre}
+                                                onChange={e => setNewPagosRolNombre(e.target.value)}
+                                                className="flex-1 border rounded-lg px-3 py-2 text-sm focus:ring-emerald-500 focus:border-emerald-500"
+                                            />
+                                        </div>
+                                        <button
+                                            onClick={handleAssignPagosRole}
+                                            disabled={!newPagosRolId}
+                                            className="w-full px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+                                        >
+                                            Autorizar Rol
+                                        </button>
+                                    </div>
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                <p className="text-slate-600 text-sm mb-4">
+                                    Añade correos específicos para dar acceso directo a usuarios particulares al módulo de Pagos.
+                                </p>
+
+                                {/* Current Emails */}
+                                <div className="mb-4">
+                                    <h3 className="text-sm font-medium text-slate-700 mb-2">Correos Autorizados</h3>
+                                    {pagosUsuarios.length > 0 ? (
+                                        <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
+                                            {pagosUsuarios.map((usr: ModuloAccesoUsuario) => (
+                                                <div key={usr.id} className="flex items-center justify-between bg-slate-50 px-3 py-2 rounded">
+                                                    <span className="text-sm">{usr.email}</span>
+                                                    <button
+                                                        onClick={() => handleRemovePagosEmail(usr.email)}
+                                                        className="text-red-600 hover:text-red-700"
+                                                    >
+                                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                                        </svg>
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <p className="text-slate-500 text-sm italic">No hay correos asignados manualmente</p>
+                                    )}
+                                </div>
+
+                                {/* Add new Email */}
+                                <div className="border-t pt-4">
+                                    <h3 className="text-sm font-medium text-slate-700 mb-3">Agregar Correo</h3>
+                                    <div className="space-y-3">
+                                        <div className="flex flex-col sm:flex-row gap-2">
+                                            <input
+                                                type="email"
+                                                placeholder="Ej. juan.perez@empresa.com"
+                                                value={newPagosEmail}
+                                                onChange={e => setNewPagosEmail(e.target.value)}
+                                                className="flex-1 border rounded-lg px-3 py-2 text-sm focus:ring-emerald-500 focus:border-emerald-500"
+                                            />
+                                        </div>
+                                        <button
+                                            onClick={handleAssignPagosEmail}
+                                            disabled={!newPagosEmail}
+                                            className="w-full px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+                                        >
+                                            Autorizar Correo
+                                        </button>
+                                    </div>
+                                </div>
+                            </>
+                        )}
+
+                        <div className="flex justify-end mt-6">
+                            <button
+                                onClick={() => setShowPagosModal(false)}
+                                className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors"
                             >
                                 Cerrar
                             </button>

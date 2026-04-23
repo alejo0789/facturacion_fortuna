@@ -481,3 +481,204 @@ async def remove_usuario_from_categoria(
     await db.delete(db_usr)
     await db.commit()
     return {"message": "Usuario removido de la categoría"}
+
+# ============================================
+# Module Access Management (Super Admin Only)
+# ============================================
+
+@router.get("/modulos/{modulo}/roles", response_model=List[schemas.ModuloAccesoRol])
+async def get_modulo_roles(
+    modulo: str,
+    x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
+    x_user_id: Optional[int] = Header(None, alias="X-User-Id"),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get all roles assigned to a module (Super Admin only)"""
+    if not is_super_admin(x_user_email, x_user_id):
+        raise HTTPException(status_code=403, detail="Solo super admin puede ver accesos de módulos")
+    
+    result = await db.execute(
+        select(models.ModuloAccesoRol).where(models.ModuloAccesoRol.modulo == modulo.upper())
+    )
+    return result.scalars().all()
+
+
+@router.post("/modulos/{modulo}/roles", response_model=schemas.ModuloAccesoRol)
+async def assign_rol_to_modulo(
+    modulo: str,
+    rol: schemas.ModuloAccesoRolCreate,
+    x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
+    x_user_id: Optional[int] = Header(None, alias="X-User-Id"),
+    db: AsyncSession = Depends(get_db)
+):
+    """Assign a role to a module (Super Admin only)"""
+    if not is_super_admin(x_user_email, x_user_id):
+        raise HTTPException(status_code=403, detail="Solo super admin puede asignar roles a módulos")
+    
+    modulo_upper = modulo.upper()
+    
+    # Check if assignment already exists
+    existing = await db.execute(
+        select(models.ModuloAccesoRol)
+        .where(models.ModuloAccesoRol.modulo == modulo_upper)
+        .where(models.ModuloAccesoRol.rol_id == rol.rol_id)
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="Este rol ya está asignado al módulo")
+    
+    db_rol = models.ModuloAccesoRol(
+        modulo=modulo_upper,
+        rol_id=rol.rol_id,
+        rol_nombre=rol.rol_nombre
+    )
+    db.add(db_rol)
+    await db.commit()
+    await db.refresh(db_rol)
+    return db_rol
+
+
+@router.delete("/modulos/{modulo}/roles/{rol_id}")
+async def remove_rol_from_modulo(
+    modulo: str,
+    rol_id: int,
+    x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
+    x_user_id: Optional[int] = Header(None, alias="X-User-Id"),
+    db: AsyncSession = Depends(get_db)
+):
+    """Remove a role from a module (Super Admin only)"""
+    if not is_super_admin(x_user_email, x_user_id):
+        raise HTTPException(status_code=403, detail="Solo super admin puede quitar roles de módulos")
+    
+    modulo_upper = modulo.upper()
+    
+    result = await db.execute(
+        select(models.ModuloAccesoRol)
+        .where(models.ModuloAccesoRol.modulo == modulo_upper)
+        .where(models.ModuloAccesoRol.rol_id == rol_id)
+    )
+    db_rol = result.scalar_one_or_none()
+    if not db_rol:
+        raise HTTPException(status_code=404, detail="Asignación no encontrada")
+    
+    await db.delete(db_rol)
+    await db.commit()
+    return {"message": "Rol removido del módulo"}
+
+
+@router.get("/modulos/{modulo}/usuarios", response_model=List[schemas.ModuloAccesoUsuario])
+async def get_modulo_usuarios(
+    modulo: str,
+    x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
+    x_user_id: Optional[int] = Header(None, alias="X-User-Id"),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get all users (emails) assigned to a module (Super Admin only)"""
+    if not is_super_admin(x_user_email, x_user_id):
+        raise HTTPException(status_code=403, detail="Solo super admin puede ver accesos de módulos")
+    
+    result = await db.execute(
+        select(models.ModuloAccesoUsuario).where(models.ModuloAccesoUsuario.modulo == modulo.upper())
+    )
+    return result.scalars().all()
+
+
+@router.post("/modulos/{modulo}/usuarios", response_model=schemas.ModuloAccesoUsuario)
+async def assign_usuario_to_modulo(
+    modulo: str,
+    usuario: schemas.ModuloAccesoUsuarioCreate,
+    x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
+    x_user_id: Optional[int] = Header(None, alias="X-User-Id"),
+    db: AsyncSession = Depends(get_db)
+):
+    """Assign a user email to a module (Super Admin only)"""
+    if not is_super_admin(x_user_email, x_user_id):
+        raise HTTPException(status_code=403, detail="Solo super admin puede asignar usuarios a módulos")
+    
+    modulo_upper = modulo.upper()
+    email_clean = usuario.email.lower().strip()
+    
+    # Check if assignment already exists
+    existing = await db.execute(
+        select(models.ModuloAccesoUsuario)
+        .where(models.ModuloAccesoUsuario.modulo == modulo_upper)
+        .where(models.ModuloAccesoUsuario.email == email_clean)
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="Este usuario ya está asignado al módulo")
+    
+    db_usr = models.ModuloAccesoUsuario(
+        modulo=modulo_upper,
+        email=email_clean
+    )
+    db.add(db_usr)
+    await db.commit()
+    await db.refresh(db_usr)
+    return db_usr
+
+
+@router.delete("/modulos/{modulo}/usuarios/{email}")
+async def remove_usuario_from_modulo(
+    modulo: str,
+    email: str,
+    x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
+    x_user_id: Optional[int] = Header(None, alias="X-User-Id"),
+    db: AsyncSession = Depends(get_db)
+):
+    """Remove a user email from a module (Super Admin only)"""
+    if not is_super_admin(x_user_email, x_user_id):
+        raise HTTPException(status_code=403, detail="Solo super admin puede quitar usuarios de módulos")
+    
+    modulo_upper = modulo.upper()
+    email_clean = email.lower().strip()
+    
+    result = await db.execute(
+        select(models.ModuloAccesoUsuario)
+        .where(models.ModuloAccesoUsuario.modulo == modulo_upper)
+        .where(models.ModuloAccesoUsuario.email == email_clean)
+    )
+    db_usr = result.scalar_one_or_none()
+    if not db_usr:
+        raise HTTPException(status_code=404, detail="Asignación no encontrada")
+    
+    await db.delete(db_usr)
+    await db.commit()
+    return {"message": "Usuario removido del módulo"}
+
+
+@router.get("/modulos/{modulo}/check-acceso")
+async def check_modulo_acceso(
+    modulo: str,
+    x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
+    x_user_id: Optional[int] = Header(None, alias="X-User-Id"),
+    x_user_rol_id: Optional[int] = Header(None, alias="X-User-Rol-Id"),
+    db: AsyncSession = Depends(get_db)
+):
+    """Check if current user has access to a specific module"""
+    if is_super_admin(x_user_email, x_user_id):
+        return {"has_access": True, "is_super_admin": True}
+        
+    modulo_upper = modulo.upper()
+    
+    # Check roles
+    if x_user_rol_id:
+        result = await db.execute(
+            select(models.ModuloAccesoRol)
+            .where(models.ModuloAccesoRol.modulo == modulo_upper)
+            .where(models.ModuloAccesoRol.rol_id == x_user_rol_id)
+        )
+        if result.scalar_one_or_none():
+            return {"has_access": True, "reason": "role"}
+            
+    # Check emails
+    if x_user_email:
+        email_clean = x_user_email.lower().strip()
+        result = await db.execute(
+            select(models.ModuloAccesoUsuario)
+            .where(models.ModuloAccesoUsuario.modulo == modulo_upper)
+            .where(models.ModuloAccesoUsuario.email == email_clean)
+        )
+        if result.scalar_one_or_none():
+            return {"has_access": True, "reason": "email"}
+            
+    return {"has_access": False}
+

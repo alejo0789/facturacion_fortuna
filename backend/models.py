@@ -68,6 +68,36 @@ class CategoriaUsuario(Base):
     categoria = relationship("Categoria", back_populates="usuarios")
 
 
+class ModuloAccesoRol(Base):
+    """
+    Roles authorized to access specific modules (e.g., 'PAGOS').
+    """
+    __tablename__ = "modulo_acceso_roles"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    modulo = Column(String(50), nullable=False)  # e.g., 'PAGOS'
+    rol_id = Column(Integer, nullable=False)
+    rol_nombre = Column(String(100), nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
+    
+    __table_args__ = (UniqueConstraint('modulo', 'rol_id', name='uq_modulo_rol'),)
+
+
+class ModuloAccesoUsuario(Base):
+    """
+    Specific users (emails) authorized to access specific modules (e.g., 'PAGOS').
+    """
+    __tablename__ = "modulo_acceso_usuarios"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    modulo = Column(String(50), nullable=False)  # e.g., 'PAGOS'
+    email = Column(String(255), nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
+    
+    __table_args__ = (UniqueConstraint('modulo', 'email', name='uq_modulo_usuario'),)
+
+
+
 class ProveedorCategoria(Base):
     """
     Authorization table: which categories/areas have approved a provider.

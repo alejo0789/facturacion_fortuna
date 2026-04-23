@@ -39,6 +39,23 @@ export interface CategoriaRol {
     created_at?: string;
 }
 
+// Module specific role assignment
+export interface ModuloAccesoRol {
+    id: number;
+    modulo: string;
+    rol_id: number;
+    rol_nombre: string;
+    created_at?: string;
+}
+
+// Module specific user assignment
+export interface ModuloAccesoUsuario {
+    id: number;
+    modulo: string;
+    email: string;
+    created_at?: string;
+}
+
 export interface ParentSystemUser {
     id: number;
     name?: string;

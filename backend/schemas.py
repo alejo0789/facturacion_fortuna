@@ -3,6 +3,35 @@ from typing import Optional, List
 from datetime import date, datetime
 from decimal import Decimal
 
+# --- ModuloAcceso Schemas ---
+class ModuloAccesoRolBase(BaseModel):
+    modulo: str
+    rol_id: int
+    rol_nombre: str
+
+class ModuloAccesoRolCreate(ModuloAccesoRolBase):
+    pass
+
+class ModuloAccesoRol(ModuloAccesoRolBase):
+    id: int
+    created_at: Optional[datetime] = None
+    
+    class Config:
+        from_attributes = True
+
+class ModuloAccesoUsuarioBase(BaseModel):
+    modulo: str
+    email: str
+
+class ModuloAccesoUsuarioCreate(ModuloAccesoUsuarioBase):
+    pass
+
+class ModuloAccesoUsuario(ModuloAccesoUsuarioBase):
+    id: int
+    created_at: Optional[datetime] = None
+    
+    class Config:
+        from_attributes = True
 
 # --- Categoria Schemas (Role-based access) ---
 class CategoriaRolBase(BaseModel):
