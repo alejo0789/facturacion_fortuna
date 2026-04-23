@@ -552,6 +552,7 @@ export default function FacturasPage() {
                 id: number;
                 numero_factura: string;
                 fecha_factura: string | null;
+                iva: number | null;
                 oficinas: Array<{ cod_oficina: string; valor: number; nombre_oficina: string }>;
             }> = [];
 
@@ -574,6 +575,7 @@ export default function FacturasPage() {
                         id: factura.id,
                         numero_factura: factura.numero_factura || '',
                         fecha_factura: factura.fecha_factura || null,
+                        iva: factura.iva || null,
                         oficinas: oficinas
                     });
                 }
@@ -633,6 +635,7 @@ export default function FacturasPage() {
             const facturasForRequest: Array<{
                 numero_factura: string;
                 fecha_factura: string | null;
+                iva: number | null;
                 oficinas: Array<{ cod_oficina: string; valor: number; nombre_oficina: string; num_contrato?: string | null }>;
             }> = [];
 
@@ -654,6 +657,7 @@ export default function FacturasPage() {
                     facturasForRequest.push({
                         numero_factura: factura.numero_factura || '',
                         fecha_factura: factura.fecha_factura || null,
+                        iva: factura.iva || null,
                         oficinas: oficinas
                     });
                 }

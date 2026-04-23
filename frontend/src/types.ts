@@ -71,6 +71,7 @@ export interface Factura {
     fecha_factura?: string;
     fecha_vencimiento?: string;
     valor?: number;  // Total value
+    iva?: number;    // Total IVA
     estado?: string;  // PENDIENTE, ASIGNADA, PAGADA
     url_factura?: string;
     observaciones?: string;
