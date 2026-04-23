@@ -394,7 +394,29 @@ async def generate_rows_for_oficina(
     # Check if this NIT+contrato uses a single account instead of 70/30 split
     cuenta_unica = get_cuenta_unica(proveedor_nit, oficina.num_contrato)
 
-    if cuenta_unica:
+    if oficina.num_contrato == "17703924":
+        # Special case: split into 3 equal parts to account 51353503
+        valor_parte = round(valor_base / 3, 0)
+        remainder = valor_base - (valor_parte * 2)
+        
+        for i in range(3):
+            val = remainder if i == 2 else valor_parte
+            rows.append(create_flat_file_row(
+                row_index=current_row,
+                numedoc=numedoc,
+                fecha=fecha,
+                cuenta=format_value("51353503"),
+                vinculado=vinculado,
+                ccosto=ccosto,
+                destino=destino,
+                valdebi=val,
+                detalle=detalle
+            ))
+            current_row += 1
+            
+        valor_70 = valor_base  # For accumulator compatibility
+        valor_30 = 0
+    elif cuenta_unica:
         # Special case: 100% of valor_base to a single account
         rows.append(create_flat_file_row(
             row_index=current_row,
@@ -888,7 +910,25 @@ async def preview_causacion_manager(request: CausacionManagerPreviewRequest):
             # Check special single-account rule
             cuenta_unica = get_cuenta_unica(request.proveedor_nit, oficina.num_contrato)
 
-            if cuenta_unica:
+            if oficina.num_contrato == "17703924":
+                # Special case: split into 3 equal parts to account 51353503
+                valor_parte = round(valor_base / 3, 0)
+                remainder = valor_base - (valor_parte * 2)
+                
+                for i in range(3):
+                    val = remainder if i == 2 else valor_parte
+                    rows_preview.append(CausacionRowPreview(
+                        row_num=row_counter,
+                        cuenta="51353503",
+                        tipo_movimiento="DEBITO",
+                        ccosto=ccosto,
+                        destino=destino,
+                        valor=val,
+                        detalle=detalle
+                    ))
+                    row_counter += 1
+                factura_debitos += valor_base
+            elif cuenta_unica:
                 # Special case: 100% to single account
                 rows_preview.append(CausacionRowPreview(
                     row_num=row_counter,
