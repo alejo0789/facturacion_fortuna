@@ -219,6 +219,7 @@ async def process_documents(query: ProcessQuery, background_tasks: BackgroundTas
     Envía los archivos seleccionados al flujo de procesamiento manual.
     Se ejecuta en segundo plano de forma secuencial para no saturar n8n.
     """
+    print(f"DEBUG: Petición recibida en /asistente/process con {len(query.files)} archivos")
     if not query.files:
         raise HTTPException(status_code=400, detail="No se seleccionaron archivos")
 

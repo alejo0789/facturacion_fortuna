@@ -50,7 +50,10 @@ export default function AsistenteBuscadorPage() {
 
     const pollStatus = async (requestId: string) => {
         try {
-            const res = await fetch(`${API_URL}/asistente/search/${requestId}`);
+            const apiKey = import.meta.env.VITE_API_KEY || '';
+            const res = await fetch(`${API_URL}/asistente/search/${requestId}`, {
+                headers: { 'X-API-Key': apiKey }
+            });
             if (!res.ok) {
                 // If 404, maybe not ready yet or error
                 if (res.status !== 404) throw new Error('Error consultando estado');
@@ -98,9 +101,13 @@ export default function AsistenteBuscadorPage() {
         }
 
         try {
+            const apiKey = import.meta.env.VITE_API_KEY || '';
             const res = await fetch(`${API_URL}/asistente/search`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'X-API-Key': apiKey
+                },
                 body: JSON.stringify({
                     email: email || undefined,
                     start_date: startDate,
@@ -152,12 +159,16 @@ export default function AsistenteBuscadorPage() {
         setError(null);
 
         try {
+            const apiKey = import.meta.env.VITE_API_KEY || '';
             // Filter results to get full objects of selected items
             const filesToProcess = results.filter(r => selected.has(r.sourceId + r.filename));
 
             const res = await fetch(`${API_URL}/asistente/process`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'X-API-Key': apiKey
+                },
                 body: JSON.stringify({ files: filesToProcess }),
             });
 
