@@ -123,24 +123,27 @@ TEMPORAL_FILES_PATH = r"\\192.168.2.20\Facturas\temp_buscador"
 # ID del webhook de subida manual (tomado de facturas.py)
 WEBHOOK_URL_MANUAL = "https://saman.lafortuna.com.co/n8n/webhook/d15fc127-671d-4b24-8221-bac74a6f4648"
 
-async def process_single_file_task(file_info: dict):
+async def process_single_file_task(file_info: dict, client: httpx.AsyncClient):
     """
-    Tarea en segundo plano para procesar un solo archivo:
+    Tarea para procesar un solo archivo:
     1. Copiar de temp_buscador a temp (procesamiento manual)
-    2. Llamar al webhook de n8n
+    2. Llamar al webhook de n8n usando el cliente proporcionado
     """
+    filename = file_info.get("filename")
     try:
-        filename = file_info.get("filename")
         storage_path = file_info.get("storage_path")
-        
-        # Si storage_path es una ruta completa, extraemos solo el nombre
-        if "\\" in storage_path:
-            storage_path = storage_path.split("\\")[-1]
+        if not storage_path:
+            print(f"Error: No hay storage_path para {filename}")
+            return
             
-        source_path = os.path.join(TEMPORAL_FILES_PATH, storage_path)
+        # Si storage_path es una ruta completa, extraemos solo el nombre del archivo
+        # Manejamos tanto backslashes como forward slashes
+        clean_storage_path = storage_path.replace("\\", "/").split("/")[-1]
+            
+        source_path = os.path.join(TEMPORAL_FILES_PATH, clean_storage_path)
         
         if not os.path.exists(source_path):
-            print(f"Error: Archivo no encontrado {source_path}")
+            print(f"Error: Archivo no encontrado en origen {source_path}")
             return
 
         # Generar nombre único para destino (igual que en facturas.py)
@@ -151,46 +154,67 @@ async def process_single_file_task(file_info: dict):
         dest_path = os.path.join(INVOICE_UPLOAD_PATH, safe_filename)
         url_factura = f"file://192.168.2.20/Facturas/temp/{safe_filename}"
         
-        # Copiar archivo
-        shutil.copy2(source_path, dest_path)
+        # Copiar archivo (usamos to_thread para no bloquear el event loop)
+        await asyncio.to_thread(shutil.copy2, source_path, dest_path)
         
         # Llamar al webhook
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            webhook_data = {
-                "event": "invoice_uploaded_via_search",
-                "file_path": dest_path,
-                "file_url": url_factura,
-                "filename": safe_filename,
-                "original_filename": filename,
-                "uploaded_at": datetime.now().isoformat()
-            }
-            # No esperamos respuesta (fire and forget en background) para no bloquear
-            # Ojo: Si el n8n falla, no nos enteramos aquí.
-            await client.post(WEBHOOK_URL_MANUAL, json=webhook_data)
+        webhook_data = {
+            "event": "invoice_uploaded_via_search",
+            "file_path": dest_path,
+            "file_url": url_factura,
+            "filename": safe_filename,
+            "original_filename": filename,
+            "uploaded_at": datetime.now().isoformat()
+        }
+        
+        # No esperamos respuesta de n8n (o esperamos pero no hacemos nada con ella)
+        # para que el procesamiento sea lo más fluido posible, pero secuencial.
+        response = await client.post(WEBHOOK_URL_MANUAL, json=webhook_data)
+        print(f"Archivo {filename} enviado a n8n. Status: {response.status_code}")
             
     except Exception as e:
         print(f"Error procesando archivo {filename}: {e}")
+
+async def process_files_sequentially_task(files: List[dict]):
+    """
+    Procesa una lista de archivos uno por uno para evitar saturar el webhook.
+    """
+    print(f"Iniciando procesamiento secuencial de {len(files)} archivos...")
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        for i, file_info in enumerate(files):
+            filename = file_info.get("filename", f"file_{i}")
+            print(f"Procesando {i+1}/{len(files)}: {filename}")
+            await process_single_file_task(file_info, client)
+            # Pequeño respiro entre archivos para n8n
+            await asyncio.sleep(1.0)
+    print("Procesamiento secuencial completado.")
 
 @router.post("/asistente/process")
 async def process_documents(query: ProcessQuery, background_tasks: BackgroundTasks):
     """
     Envía los archivos seleccionados al flujo de procesamiento manual.
-    Se ejecuta en segundo plano para no bloquear al usuario.
+    Se ejecuta en segundo plano de forma secuencial para no saturar n8n.
     """
     if not query.files:
         raise HTTPException(status_code=400, detail="No se seleccionaron archivos")
 
+    # Filtrar solo los que tienen storage_path
+    valid_files = [f for f in query.files if f.get("storage_path")]
+    
+    if not valid_files:
+        raise HTTPException(status_code=400, detail="Ninguno de los archivos seleccionados es válido")
+
     # Asegurar que directorio destino existe
     if not os.path.exists(INVOICE_UPLOAD_PATH):
-        os.makedirs(INVOICE_UPLOAD_PATH, exist_ok=True)
+        try:
+            os.makedirs(INVOICE_UPLOAD_PATH, exist_ok=True)
+        except Exception as e:
+            print(f"Error creando directorio {INVOICE_UPLOAD_PATH}: {e}")
 
-    count = 0
-    for file_info in query.files:
-        if file_info.get("storage_path"):
-            background_tasks.add_task(process_single_file_task, file_info)
-            count += 1
+    # Agregamos UNA SOLA tarea de fondo que procesará todo secuencialmente
+    background_tasks.add_task(process_files_sequentially_task, valid_files)
             
-    return {"message": f"Se han enviado {count} archivos a procesar en segundo plano."}
+    return {"message": f"Se han enviado {len(valid_files)} archivos a procesar secuencialmente en segundo plano."}
 
 from fastapi.responses import FileResponse
 from urllib.parse import unquote
