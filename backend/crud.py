@@ -1,6 +1,6 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, aliased
 from sqlalchemy import or_, update, func, delete as sqlalchemy_delete
 from typing import List, Optional
 from datetime import datetime
@@ -287,6 +287,7 @@ async def get_facturas(db: AsyncSession, skip: int = 0, limit: int = 100,
     usar_fecha_estado=True: date range filters by COALESCE(status_updated_at, created_at)
     usar_fecha_estado=False (default): date range filters by created_at (reception date)
     """
+    ContratoOficina = aliased(models.Contrato)
     query = (
         select(models.Factura)
         .options(
@@ -299,6 +300,9 @@ async def get_facturas(db: AsyncSession, skip: int = 0, limit: int = 100,
         )
         .outerjoin(models.Proveedor)
         .outerjoin(models.Oficina)
+        .outerjoin(models.Contrato, models.Factura.contrato_id == models.Contrato.id)
+        .outerjoin(models.FacturaOficina, models.Factura.id == models.FacturaOficina.factura_id)
+        .outerjoin(ContratoOficina, models.FacturaOficina.contrato_id == ContratoOficina.id)
     )
     
     if search:
@@ -309,7 +313,9 @@ async def get_facturas(db: AsyncSession, skip: int = 0, limit: int = 100,
                 models.Proveedor.nit.ilike(f"%{search}%"),
                 models.Oficina.nombre.ilike(f"%{search}%"),
                 models.Factura.numero_factura.ilike(f"%{search}%"),
-                models.Factura.cufe.ilike(f"%{search}%")
+                models.Factura.cufe.ilike(f"%{search}%"),
+                models.Contrato.num_contrato.ilike(f"%{search}%"),
+                ContratoOficina.num_contrato.ilike(f"%{search}%")
             )
         )
     
@@ -349,7 +355,7 @@ async def get_facturas(db: AsyncSession, skip: int = 0, limit: int = 100,
             )
         ).distinct()
     
-    query = query.order_by(models.Factura.id.desc())
+    query = query.order_by(models.Factura.id.desc()).distinct()
     result = await db.execute(query.offset(skip).limit(limit))
     return result.scalars().all()
 

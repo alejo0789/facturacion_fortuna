@@ -1373,7 +1373,7 @@ export default function FacturasPage() {
                 <div className="relative flex-1">
                     <input
                         type="text"
-                        placeholder="Buscar por proveedor, NIT, factura, CUFE..."
+                        placeholder="Buscar por proveedor, NIT, factura, CUFE, contrato..."
                         className="w-full px-4 py-3 pl-11 bg-white border border-gray-200 rounded-xl shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
