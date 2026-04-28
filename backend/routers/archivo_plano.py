@@ -196,33 +196,33 @@ def build_detalle(numero_factura: str, nombre_oficina: str, mes_factura: str, pr
 
 # --- Casos especiales: cuenta única (sin división 70/30) ---
 # Estructura de cada regla:
+#   "nit": NIT del proveedor
 #   "contratos": set de números de contrato específicos, o None para aplicar a TODOS los contratos
 #   "cuenta": cuenta contable donde va el 100% del valor base
-CUENTA_UNICA_REGLAS = {
-    # NIT 830122566: solo en contratos 10434167091 y 181161832 → cuenta 51209505
-    "830122566": {"contratos": {"10434167091", "181161832"}, "cuenta": "51209505"},
+CUENTA_UNICA_REGLAS = [
+    # NIT 830122566 (Movistar): contratos 10434167091 y 181161832 → cuenta 51209505
+    {"nit": "830122566", "contratos": {"10434167091", "181161832"}, "cuenta": "51209505"},
+    # NIT 830122566 (Movistar): contrato 1043416709 → cuenta 51353505
+    {"nit": "830122566", "contratos": {"1043416709"}, "cuenta": "51353505"},
+    # NIT 800153993 (Claro): contrato 8223607573 → cuenta 51353505
+    {"nit": "800153993", "contratos": {"8223607573"}, "cuenta": "51353505"},
     # NIT 819006966 (Medicommerce): todos los contratos → cuenta 51353503
-    "819006966": {"contratos": None, "cuenta": "51353503"},
-}
+    {"nit": "819006966", "contratos": None, "cuenta": "51353503"},
+]
 
 def get_cuenta_unica(proveedor_nit: str, num_contrato: Optional[str]) -> Optional[str]:
     """
     Returns the single account to use (100% of valor_base) if this NIT+contrato
     combination requires it, or None if the normal 70/30 split applies.
-
-    Rules:
-    - If regla["contratos"] is None  -> applies to ALL contracts of that NIT.
-    - If regla["contratos"] is a set -> applies only when num_contrato is in that set.
     """
-    regla = CUENTA_UNICA_REGLAS.get(proveedor_nit)
-    if not regla:
-        return None
-    contratos_especificos = regla["contratos"]
-    if contratos_especificos is None:
-        # Applies to all contracts (and even when there is no contract)
-        return regla["cuenta"]
-    if num_contrato and num_contrato.strip() in contratos_especificos:
-        return regla["cuenta"]
+    for regla in CUENTA_UNICA_REGLAS:
+        if regla["nit"] == proveedor_nit:
+            contratos_especificos = regla["contratos"]
+            if contratos_especificos is None:
+                # Applies to all contracts
+                return regla["cuenta"]
+            if num_contrato and num_contrato.strip() in contratos_especificos:
+                return regla["cuenta"]
     return None
 
 
