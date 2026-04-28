@@ -23,7 +23,8 @@ import io
 import uuid
 import zipfile
 import tempfile
-import schemas, crud
+import schemas, crud, models
+from sqlalchemy import select, func
 from database import get_db
 
 router = APIRouter()
@@ -492,7 +493,6 @@ async def list_facturas(
         # select proveedor_id, numero_factura, count(*) from facturas 
         # where proveedor_id in (...) and numero_factura in (...)
         # group by proveedor_id, numero_factura having count(*) > 1
-        from sqlalchemy import func
         dup_query = (
             select(models.Factura.proveedor_id, models.Factura.numero_factura, func.count(models.Factura.id))
             .filter(models.Factura.proveedor_id.in_(prov_ids))
@@ -528,7 +528,6 @@ async def get_factura(factura_id: int, db: AsyncSession = Depends(get_db)):
     
     # Check if duplicate exists
     if factura.numero_factura:
-        from sqlalchemy import func
         dup_query = (
             select(func.count(models.Factura.id))
             .filter(models.Factura.proveedor_id == factura.proveedor_id)
