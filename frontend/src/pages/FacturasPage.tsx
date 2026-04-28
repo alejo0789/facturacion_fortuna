@@ -1665,7 +1665,14 @@ export default function FacturasPage() {
                                     <div className="grid grid-cols-2 gap-2 text-sm">
                                         <div>
                                             <span className="block text-gray-400 text-xs uppercase">Factura #</span>
-                                            <span className="font-mono text-gray-700">{f.numero_factura || '-'}</span>
+                                            <div className="flex items-center gap-2">
+                                                <span className="font-mono text-gray-700">{f.numero_factura || '-'}</span>
+                                                {f.es_duplicada && (
+                                                    <span className="animate-pulse bg-red-100 text-red-700 text-[10px] px-1.5 py-0.5 rounded-full border border-red-200 font-bold" title="Ya existe otra factura con este mismo número para este proveedor">
+                                                        REPETIDA
+                                                    </span>
+                                                )}
+                                            </div>
                                         </div>
                                         <div>
                                             <span className="block text-gray-400 text-xs uppercase">Valor</span>
