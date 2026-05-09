@@ -29,7 +29,9 @@ import models, schemas, crud
 from database import get_db
 from core.dependencies import get_current_empresa, get_current_user
 from services.causacion import crear_asiento_causacion_factura
-from services.pago import crear_asiento_pago_factura
+from services.pago import crear_asiento_pago_factura, CUENTA_PROVEEDORES_DEFAULT
+from sqlalchemy import select, func as sqlfunc
+from models_contabilidad import AsientoContable, LineaAsiento
 
 logger = logging.getLogger(__name__)
 
@@ -903,6 +905,44 @@ async def cambiar_estado(
     return factura_actualizada
 
 
+async def _calcular_neto_pago_desde_causacion(
+    *,
+    empresa_id: int,
+    factura_id: int,
+    proveedor_nit: str,
+    db: AsyncSession,
+    cuenta_proveedor_codigo: str = CUENTA_PROVEEDORES_DEFAULT,
+) -> Optional[Decimal]:
+    """
+    Devuelve el saldo CR neto que la(s) causación(es) de la factura dejaron
+    en la cuenta de proveedores para el NIT dado, o None si no existe ninguna.
+
+    Esta es la fuente de verdad del "neto a pagar": cierra exactamente la
+    CxP que abrió la causación, sin importar qué retenciones se aplicaron.
+
+    Suma sólo asientos no-anulados (BORRADOR + APROBADO) para que también
+    funcione si el contador no aprobó todavía la causación.
+    """
+    stmt = (
+        select(
+            sqlfunc.coalesce(sqlfunc.sum(LineaAsiento.credito - LineaAsiento.debito), 0)
+        )
+        .select_from(LineaAsiento)
+        .join(AsientoContable, AsientoContable.id == LineaAsiento.asiento_id)
+        .where(
+            AsientoContable.empresa_id == empresa_id,
+            AsientoContable.factura_id == factura_id,
+            AsientoContable.tipo == "CAUSACION",
+            AsientoContable.estado != "ANULADO",
+            LineaAsiento.cuenta_codigo == cuenta_proveedor_codigo,
+            LineaAsiento.nit_tercero == proveedor_nit,
+        )
+    )
+    saldo = (await db.execute(stmt)).scalar_one()
+    saldo = Decimal(saldo or 0)
+    return saldo if saldo > 0 else None
+
+
 async def _generar_asiento_pago_safe(
     *,
     empresa_id: int,
@@ -929,6 +969,22 @@ async def _generar_asiento_pago_safe(
     if not factura.valor or Decimal(factura.valor) <= 0:
         return {"creado": False, "razon": "Factura sin valor positivo"}
 
+    # Calcular el NETO a pagar leyendo la causación previa.
+    # Razón: la causación crea CR Proveedores (220505) por el bruto MENOS las
+    # retenciones. Si el pago usa `factura.valor` (bruto) deja un débito
+    # residual en 220505 igual al total de retenciones. La fuente de verdad
+    # del "neto a pagar al proveedor" es la línea CR del asiento CAUSACION.
+    valor_neto = await _calcular_neto_pago_desde_causacion(
+        empresa_id=empresa_id,
+        factura_id=factura.id,
+        proveedor_nit=proveedor_nit,
+        db=db,
+    )
+    if valor_neto is None:
+        # Fallback (no hay causación previa): usa el bruto. No es ideal pero
+        # mantiene el flujo operativo si alguien marcó PAGADA antes de causar.
+        valor_neto = Decimal(factura.valor)
+
     fecha = date.today()
     descripcion = (
         f"Pago factura {factura.numero_factura or factura.id} - NIT {proveedor_nit}"
@@ -939,7 +995,7 @@ async def _generar_asiento_pago_safe(
             empresa_id=empresa_id,
             factura_id=factura.id,
             fecha_pago=fecha,
-            valor_pagado=Decimal(factura.valor),
+            valor_pagado=valor_neto,
             proveedor_nit=proveedor_nit,
             descripcion=descripcion,
             user_id=user_id,
