@@ -26,8 +26,12 @@ async def get_proveedores(db: AsyncSession, skip: int = 0, limit: int = 100, sea
     result = await db.execute(query.offset(skip).limit(limit))
     return result.scalars().all()
 
-async def create_proveedor(db: AsyncSession, proveedor: schemas.ProveedorCreate):
-    db_proveedor = models.Proveedor(**proveedor.model_dump())
+async def create_proveedor(db: AsyncSession, proveedor: schemas.ProveedorCreate, empresa_id: Optional[int] = None):
+    """Crea un proveedor. Si se pasa empresa_id, lo aterriza sobre el tenant."""
+    payload = proveedor.model_dump()
+    if empresa_id is not None:
+        payload["empresa_id"] = empresa_id
+    db_proveedor = models.Proveedor(**payload)
     db.add(db_proveedor)
     await db.commit()
     await db.refresh(db_proveedor)
@@ -66,8 +70,12 @@ async def get_oficinas(db: AsyncSession, skip: int = 0, limit: int = 100, search
     result = await db.execute(query.offset(skip).limit(limit))
     return result.scalars().all()
 
-async def create_oficina(db: AsyncSession, oficina: schemas.OficinaCreate):
-    db_oficina = models.Oficina(**oficina.model_dump())
+async def create_oficina(db: AsyncSession, oficina: schemas.OficinaCreate, empresa_id: Optional[int] = None):
+    """Crea una oficina. Si se pasa empresa_id, lo aterriza sobre el tenant."""
+    payload = oficina.model_dump()
+    if empresa_id is not None:
+        payload["empresa_id"] = empresa_id
+    db_oficina = models.Oficina(**payload)
     db.add(db_oficina)
     await db.commit()
     await db.refresh(db_oficina)
@@ -108,8 +116,12 @@ async def get_contratos(db: AsyncSession, skip: int = 0, limit: int = 100, searc
     result = await db.execute(query.offset(skip).limit(limit))
     return result.scalars().all()
 
-async def create_contrato(db: AsyncSession, contrato: schemas.ContratoCreate):
-    db_contrato = models.Contrato(**contrato.model_dump())
+async def create_contrato(db: AsyncSession, contrato: schemas.ContratoCreate, empresa_id: Optional[int] = None):
+    """Crea un contrato. Si se pasa empresa_id, lo aterriza sobre el tenant."""
+    payload = contrato.model_dump()
+    if empresa_id is not None:
+        payload["empresa_id"] = empresa_id
+    db_contrato = models.Contrato(**payload)
     db.add(db_contrato)
     await db.commit()
     await db.refresh(db_contrato)
@@ -395,9 +407,12 @@ async def get_facturas_status_counts_mes(db: AsyncSession, year: int, month: int
         'PAGADA': counts.get('PAGADA', 0)
     }
 
-async def create_factura(db: AsyncSession, factura: schemas.FacturaCreate):
-    """Create a new factura"""
-    db_factura = models.Factura(**factura.model_dump())
+async def create_factura(db: AsyncSession, factura: schemas.FacturaCreate, empresa_id: Optional[int] = None):
+    """Create a new factura. Si se pasa empresa_id, lo aterriza sobre el tenant."""
+    payload = factura.model_dump()
+    if empresa_id is not None:
+        payload["empresa_id"] = empresa_id
+    db_factura = models.Factura(**payload)
     db.add(db_factura)
     await db.commit()
     await db.refresh(db_factura)

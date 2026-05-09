@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
 import schemas, crud
 from database import get_db
+from core.dependencies import get_current_empresa
 import os
 import re
 from pathlib import Path
@@ -42,8 +43,12 @@ async def read_contrato(contrato_id: int, db: AsyncSession = Depends(get_db)):
     return db_contrato
 
 @router.post("/contratos/", response_model=schemas.Contrato)
-async def create_contrato(contrato: schemas.ContratoCreate, db: AsyncSession = Depends(get_db)):
-    return await crud.create_contrato(db, contrato)
+async def create_contrato(
+    contrato: schemas.ContratoCreate,
+    empresa=Depends(get_current_empresa),
+    db: AsyncSession = Depends(get_db),
+):
+    return await crud.create_contrato(db, contrato, empresa_id=empresa.id)
 
 # --- File Upload/Download ---
 @router.post("/contratos/{contrato_id}/upload-pdf")
@@ -180,7 +185,11 @@ async def buscar_proveedor_oracle(nit: str, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Error consultando Oracle: {str(e)}")
 
 @router.post("/proveedores/", response_model=schemas.Proveedor)
-async def create_proveedor(proveedor: schemas.ProveedorCreate, db: AsyncSession = Depends(get_db)):
+async def create_proveedor(
+    proveedor: schemas.ProveedorCreate,
+    empresa=Depends(get_current_empresa),
+    db: AsyncSession = Depends(get_db),
+):
     """
     Crea un proveedor. Si solo viene el NIT, consulta Oracle para obtener el nombre.
     """
@@ -208,7 +217,7 @@ async def create_proveedor(proveedor: schemas.ProveedorCreate, db: AsyncSession 
     
     # Crear el proveedor con el NIT limpio
     proveedor_data = schemas.ProveedorCreate(nit=nit_clean, nombre=nombre)
-    return await crud.create_proveedor(db, proveedor_data)
+    return await crud.create_proveedor(db, proveedor_data, empresa_id=empresa.id)
 
 @router.get("/oficinas/", response_model=List[schemas.Oficina])
 async def read_oficinas(skip: int = 0, limit: int = 100, search: Optional[str] = None, db: AsyncSession = Depends(get_db)):
@@ -218,8 +227,12 @@ async def read_oficinas(skip: int = 0, limit: int = 100, search: Optional[str] =
     return await crud.get_oficinas(db, skip=skip, limit=limit, search=search)
 
 @router.post("/oficinas/", response_model=schemas.Oficina)
-async def create_oficina(oficina: schemas.OficinaCreate, db: AsyncSession = Depends(get_db)):
-    return await crud.create_oficina(db, oficina)
+async def create_oficina(
+    oficina: schemas.OficinaCreate,
+    empresa=Depends(get_current_empresa),
+    db: AsyncSession = Depends(get_db),
+):
+    return await crud.create_oficina(db, oficina, empresa_id=empresa.id)
 
 # --- UPDATE Endpoints ---
 @router.put("/proveedores/{proveedor_id}", response_model=schemas.Proveedor)

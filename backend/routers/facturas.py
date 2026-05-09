@@ -181,7 +181,7 @@ async def create_factura_api(
         estado='PENDIENTE'
     )
 
-    factura_creada = await crud.create_factura(db, factura_data)
+    factura_creada = await crud.create_factura(db, factura_data, empresa_id=empresa.id)
 
     # Causación contable automática (best-effort, no bloquea la factura)
     if factura.generar_asiento:
@@ -278,11 +278,12 @@ async def create_factura_con_oficinas(
                 # Create new proveedor
                 try:
                     proveedor = await crud.create_proveedor(
-                        db, 
+                        db,
                         schemas.ProveedorCreate(
                             nit=request.proveedor_nit,
                             nombre=request.proveedor_nombre
-                        )
+                        ),
+                        empresa_id=empresa.id,
                     )
                     proveedor_id = proveedor.id
                     progress["proveedor_creado"] = True
@@ -337,7 +338,7 @@ async def create_factura_con_oficinas(
                 estado='PENDIENTE' if not request.oficinas else 'ASIGNADA'
             )
             
-            factura = await crud.create_factura(db, factura_data)
+            factura = await crud.create_factura(db, factura_data, empresa_id=empresa.id)
             progress["factura_creada"] = True
             datos_guardados["factura"] = {
                 "id": factura.id,
