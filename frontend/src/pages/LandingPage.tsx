@@ -12,7 +12,7 @@ export default function LandingPage() {
                         </svg>
                     </div>
                     <div>
-                        <div className="font-bold text-slate-800">Fortuna SaaS</div>
+                        <div className="font-bold text-slate-800">Facturación SaaS</div>
                         <div className="text-[11px] text-slate-500">Facturación + Contabilidad</div>
                     </div>
                 </div>
@@ -92,7 +92,7 @@ export default function LandingPage() {
             </section>
 
             <footer className="border-t border-slate-200 bg-white/50 py-6 text-center text-xs text-slate-500">
-                Fortuna SaaS · Facturación + Contabilidad multi-tenant
+                Facturación SaaS · Plataforma de facturación y contabilidad multi-tenant
             </footer>
         </div>
     );

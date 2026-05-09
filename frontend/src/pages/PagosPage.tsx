@@ -1882,7 +1882,7 @@ export default function PagosPage() {
                         {/* Acciones */}
                         <div style={{ padding: '16px 28px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #e9edf2', background: '#fcfdfe' }}>
                             <div style={{ fontSize: 11.5, color: '#9ca3af' }}>
-                                Generado el {nbComprobante.fecha} · Sistema La Fortuna
+                                Generado el {nbComprobante.fecha} · Facturación SaaS
                             </div>
                             <div style={{ display: 'flex', gap: 10 }}>
                                 <button

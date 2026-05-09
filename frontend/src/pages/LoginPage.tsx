@@ -38,7 +38,7 @@ export default function LoginPage() {
                         </svg>
                     </div>
                     <div>
-                        <h1 className="text-xl font-bold text-slate-800">Fortuna SaaS</h1>
+                        <h1 className="text-xl font-bold text-slate-800">Facturación SaaS</h1>
                         <p className="text-xs text-slate-500">Facturación + Contabilidad</p>
                     </div>
                 </div>
