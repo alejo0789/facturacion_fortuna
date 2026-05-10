@@ -1,12 +1,30 @@
 /**
  * API Client tipado.
  *
- * El fetchInterceptor global ya inyecta Authorization/X-Empresa-Id/X-API-Key,
- * así que aquí sólo nos encargamos de construir URLs, manejar JSON/FormData
- * y lanzar errores legibles al consumidor.
+ * Inyecta Authorization + X-Empresa-Id LEYENDO directamente authStorage,
+ * sin depender del fetchInterceptor global. Esto evita el bug en que las
+ * páginas que usaban este cliente quedaban sin auth si el interceptor no
+ * había cargado o lo sobrescribía otra librería.
  */
+import { authStorage } from '../auth/AuthContext';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+/**
+ * Normaliza VITE_API_URL para que SIEMPRE termine en `/api`.
+ * Acepta cualquiera de estas formas:
+ *   - VITE_API_URL=http://localhost:8000          → http://localhost:8000/api
+ *   - VITE_API_URL=http://localhost:8000/         → http://localhost:8000/api
+ *   - VITE_API_URL=http://localhost:8000/api      → http://localhost:8000/api
+ *   - VITE_API_URL=http://localhost:8000/api/     → http://localhost:8000/api
+ * Esto evita el bug histórico en que el .env tenía la base sin /api y todos
+ * los endpoints respondían 404 porque el backend monta los routers en /api/...
+ */
+function normalizeApiUrl(raw: string): string {
+    const trimmed = raw.replace(/\/+$/, '');
+    return trimmed.endsWith('/api') ? trimmed : `${trimmed}/api`;
+}
+
+const API_URL = normalizeApiUrl(import.meta.env.VITE_API_URL || 'http://localhost:8000');
+const LEGACY_API_KEY = import.meta.env.VITE_API_KEY || '';
 
 export interface FetchOptions extends RequestInit {
     params?: Record<string, string | number>;
@@ -48,7 +66,14 @@ async function parseError(response: Response): Promise<ApiError> {
 export async function apiFetch(endpoint: string, options: FetchOptions = {}): Promise<Response> {
     const { params, ...fetchOptions } = options;
 
-    let url = `${API_URL}${endpoint}`;
+    // Idempotente: si el endpoint ya viene con `/api/` (estilo viejo), no lo
+    // duplicamos. API_URL ya termina en `/api` después de normalizeApiUrl().
+    const cleanEndpoint = endpoint.startsWith('/api/')
+        ? endpoint.slice(4)               // '/api/foo' → '/foo'
+        : endpoint.startsWith('api/')
+            ? endpoint.slice(3)            // 'api/foo' → '/foo' would need a leading slash; handled below
+            : endpoint;
+    let url = `${API_URL}${cleanEndpoint.startsWith('/') ? cleanEndpoint : '/' + cleanEndpoint}`;
     if (params) {
         const searchParams = new URLSearchParams();
         Object.entries(params).forEach(([key, value]) => {
@@ -58,8 +83,22 @@ export async function apiFetch(endpoint: string, options: FetchOptions = {}): Pr
     }
 
     const headers = new Headers(fetchOptions.headers);
-    // El interceptor se encarga de Authorization/X-Empresa-Id.
-    // Sólo ponemos Content-Type cuando no es FormData.
+
+    // Authorization: Bearer JWT (si hay sesión)
+    const token = authStorage.getAccessToken();
+    if (token && !headers.has('Authorization')) {
+        headers.set('Authorization', `Bearer ${token}`);
+    }
+    // X-Empresa-Id: tenant activo
+    const empresaId = authStorage.getEmpresaActivaId();
+    if (empresaId && !headers.has('X-Empresa-Id')) {
+        headers.set('X-Empresa-Id', String(empresaId));
+    }
+    // X-API-Key legacy (sólo si no hay JWT)
+    if (!token && LEGACY_API_KEY && !headers.has('X-API-Key')) {
+        headers.set('X-API-Key', LEGACY_API_KEY);
+    }
+    // Content-Type cuando hay body JSON (no para FormData)
     if (fetchOptions.body && !(fetchOptions.body instanceof FormData) && !headers.has('Content-Type')) {
         headers.set('Content-Type', 'application/json');
     }
