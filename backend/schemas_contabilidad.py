@@ -111,8 +111,12 @@ class AsientoContableCreate(BaseModel):
     @classmethod
     def validar_tipo(cls, v: str) -> str:
         v = v.upper()
-        if v not in ("CAUSACION", "PAGO", "AJUSTE", "APERTURA", "CIERRE", "MANUAL"):
-            raise ValueError("tipo inválido")
+        valid = (
+            "CAUSACION", "PAGO", "AJUSTE", "APERTURA", "CIERRE", "MANUAL",
+            "VENTA", "NOTA_CREDITO_VENTA", "NOTA_CREDITO_COMPRA",
+        )
+        if v not in valid:
+            raise ValueError(f"tipo inválido (válidos: {', '.join(valid)})")
         return v
 
     @field_validator("lineas")

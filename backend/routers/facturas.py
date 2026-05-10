@@ -49,6 +49,8 @@ async def _generar_asiento_causacion_safe(
     db: AsyncSession,
     aplica_reteiva: bool = False,
     aplica_reteica: bool = False,
+    concepto_dian: Optional[str] = None,
+    centro_costo: Optional[str] = None,
 ) -> dict:
     """
     Envuelve `crear_asiento_causacion_factura` de forma defensiva.
@@ -80,6 +82,8 @@ async def _generar_asiento_causacion_safe(
             aplica_retefuente=aplica_retefuente,
             aplica_reteiva=aplica_reteiva,
             aplica_reteica=aplica_reteica,
+            concepto_dian=concepto_dian,
+            centro_costo=centro_costo,
             descripcion=descripcion,
             user_id=user_id,
             db=db,
@@ -197,6 +201,7 @@ async def create_factura_api(
             aplica_retefuente=bool(factura.aplica_retefuente),
             aplica_reteiva=bool(getattr(factura, 'aplica_reteiva', False)),
             aplica_reteica=bool(getattr(factura, 'aplica_reteica', False)),
+            concepto_dian=getattr(factura, 'concepto_dian', None),
             user_id=getattr(current_user, "id", None),
             db=db,
         )
@@ -448,6 +453,12 @@ async def create_factura_con_oficinas(
         # Causación contable automática (best-effort)
         asiento_info = None
         if request.generar_asiento and request.proveedor_nit:
+            # Si la factura está asignada a una sola oficina, usarla como
+            # centro de costo del asiento (para reportes por sede).
+            cc = None
+            if request.oficinas and len(request.oficinas) == 1:
+                cc = request.oficinas[0].cod_oficina
+
             asiento_info = await _generar_asiento_causacion_safe(
                 empresa_id=empresa.id,
                 factura=factura,
@@ -456,6 +467,8 @@ async def create_factura_con_oficinas(
                 aplica_retefuente=bool(request.aplica_retefuente),
                 aplica_reteiva=bool(getattr(request, 'aplica_reteiva', False)),
                 aplica_reteica=bool(getattr(request, 'aplica_reteica', False)),
+                concepto_dian=getattr(request, 'concepto_dian', None),
+                centro_costo=cc,
                 user_id=getattr(current_user, "id", None),
                 db=db,
             )

@@ -443,6 +443,244 @@ async def anular_asiento(
 
 
 # ==========================================================
+# Causación de VENTA + Notas crédito (compra/venta)
+# ==========================================================
+from pydantic import BaseModel as _BaseModel
+
+class _VentaIn(_BaseModel):
+    fecha: date
+    cliente_nit: str
+    valor_total: Decimal
+    tiene_iva: bool = True
+    descripcion: str
+    concepto_dian: Optional[str] = None
+    centro_costo: Optional[str] = None
+    factura_id: Optional[int] = None
+    cuenta_cliente: Optional[str] = None
+    cuenta_ingreso: Optional[str] = None
+    cuenta_iva: Optional[str] = None
+
+
+class _NotaCreditoIn(_BaseModel):
+    fecha: date
+    nit_tercero: str
+    valor_total: Decimal
+    tiene_iva: bool = True
+    descripcion: str
+    concepto_dian: Optional[str] = None
+    centro_costo: Optional[str] = None
+    factura_id: Optional[int] = None
+
+
+@router.get("/exportar/manager-erp")
+async def exportar_manager_erp(
+    anio: int = Query(...),
+    mes: int = Query(..., ge=1, le=13),
+    tipos: Optional[str] = Query(None, description="Tipos separados por coma (ej: 'CAUSACION,PAGO,VENTA')"),
+    incluir_borradores: bool = False,
+    empresa=Depends(get_current_empresa),
+    _=Depends(require_role("ADMIN", "CONTADOR", "CONTABILIDAD")),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Exporta los asientos del periodo en formato CSV compatible con ManagerERP
+    (delimitador ;, columnas DOC_TIPO; DOC_NUMERO; FECHA; CUENTA_PUC; NIT;
+    CENTRO_COSTO; DESCRIPCION; DEBITO; CREDITO; BASE; CONCEPTO_DIAN).
+
+    Útil para que el contador suba el archivo plano al ERP usado por la firma.
+    """
+    from services.manager_erp import exportar_lote_asientos_csv
+    from fastapi.responses import Response
+
+    stmt = (
+        select(AsientoContable)
+        .options(selectinload(AsientoContable.lineas))
+        .join(PeriodoContable, PeriodoContable.id == AsientoContable.periodo_id)
+        .where(
+            AsientoContable.empresa_id == empresa.id,
+            PeriodoContable.anio == anio,
+            PeriodoContable.mes == mes,
+        )
+        .order_by(AsientoContable.numero)
+    )
+    if not incluir_borradores:
+        stmt = stmt.where(AsientoContable.estado == "APROBADO")
+    else:
+        stmt = stmt.where(AsientoContable.estado != "ANULADO")
+    if tipos:
+        tipo_list = [t.strip().upper() for t in tipos.split(",") if t.strip()]
+        stmt = stmt.where(AsientoContable.tipo.in_(tipo_list))
+
+    asientos = (await db.execute(stmt)).scalars().all()
+    csv_bytes = exportar_lote_asientos_csv(asientos)
+    fname = f"manager_erp_{anio}_{mes:02d}.csv"
+    return Response(
+        content=csv_bytes,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
+
+
+@router.post("/cierre-anual", response_model=AsientoContableResponse)
+async def cierre_anual(
+    anio: int = Query(..., ge=2000, le=2100),
+    empresa=Depends(get_current_empresa),
+    current_user=Depends(require_role("ADMIN", "CONTADOR")),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Cancela las cuentas de resultado (4-5-6) del año y traslada utilidad/
+    pérdida a 360505/361505. Crea asiento tipo CIERRE en BORRADOR.
+    """
+    from services.cierre import crear_asiento_cierre_anual
+    user_id = current_user.id if hasattr(current_user, "id") else None
+    try:
+        asiento = await crear_asiento_cierre_anual(
+            empresa_id=empresa.id, anio=anio, user_id=user_id, db=db,
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    await db.commit()
+    asiento_full = (await db.execute(
+        select(AsientoContable)
+        .where(AsientoContable.id == asiento.id)
+        .options(selectinload(AsientoContable.lineas))
+    )).scalar_one()
+    return await _enrich_asiento(asiento_full)
+
+
+@router.post("/apertura-anual", response_model=AsientoContableResponse)
+async def apertura_anual(
+    anio: int = Query(..., ge=2000, le=2100, description="Año a abrir"),
+    empresa=Depends(get_current_empresa),
+    current_user=Depends(require_role("ADMIN", "CONTADOR")),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Reabre los saldos de A/P/Patrimonio al 31-Dic del año anterior.
+    Crea asiento tipo APERTURA en BORRADOR con fecha 1-Ene-anio.
+    """
+    from services.cierre import crear_asiento_apertura_anual
+    user_id = current_user.id if hasattr(current_user, "id") else None
+    try:
+        asiento = await crear_asiento_apertura_anual(
+            empresa_id=empresa.id, anio_nuevo=anio, user_id=user_id, db=db,
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    await db.commit()
+    asiento_full = (await db.execute(
+        select(AsientoContable)
+        .where(AsientoContable.id == asiento.id)
+        .options(selectinload(AsientoContable.lineas))
+    )).scalar_one()
+    return await _enrich_asiento(asiento_full)
+
+
+@router.post("/ventas/causar", response_model=AsientoContableResponse)
+async def causar_venta(
+    data: _VentaIn,
+    empresa=Depends(get_current_empresa),
+    current_user=Depends(require_role("ADMIN", "CONTADOR", "CONTABILIDAD")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Crea asiento VENTA: DR Clientes / CR Ingreso + IVA generado."""
+    from services.venta import (
+        crear_asiento_causacion_venta,
+        CUENTA_CLIENTES_DEFAULT,
+        CUENTA_IVA_GENERADO,
+    )
+    user_id = current_user.id if hasattr(current_user, "id") else None
+    asiento = await crear_asiento_causacion_venta(
+        empresa_id=empresa.id,
+        fecha_factura=data.fecha,
+        cliente_nit=data.cliente_nit,
+        valor_total=data.valor_total,
+        tiene_iva=data.tiene_iva,
+        descripcion=data.descripcion,
+        user_id=user_id,
+        db=db,
+        cuenta_cliente=data.cuenta_cliente or CUENTA_CLIENTES_DEFAULT,
+        cuenta_ingreso=data.cuenta_ingreso,
+        cuenta_iva=data.cuenta_iva or CUENTA_IVA_GENERADO,
+        concepto_dian=data.concepto_dian,
+        centro_costo=data.centro_costo,
+        factura_id=data.factura_id,
+    )
+    await db.commit()
+    asiento_full = (await db.execute(
+        select(AsientoContable)
+        .where(AsientoContable.id == asiento.id)
+        .options(selectinload(AsientoContable.lineas))
+    )).scalar_one()
+    return await _enrich_asiento(asiento_full)
+
+
+@router.post("/notas-credito/venta", response_model=AsientoContableResponse)
+async def nota_credito_venta(
+    data: _NotaCreditoIn,
+    empresa=Depends(get_current_empresa),
+    current_user=Depends(require_role("ADMIN", "CONTADOR", "CONTABILIDAD")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Reversa una venta. DR Ingreso/IVA / CR Clientes."""
+    from services.venta import crear_asiento_nota_credito_venta
+    user_id = current_user.id if hasattr(current_user, "id") else None
+    asiento = await crear_asiento_nota_credito_venta(
+        empresa_id=empresa.id,
+        fecha=data.fecha,
+        cliente_nit=data.nit_tercero,
+        valor_total=data.valor_total,
+        tiene_iva=data.tiene_iva,
+        descripcion=data.descripcion,
+        user_id=user_id,
+        db=db,
+        concepto_dian=data.concepto_dian,
+        centro_costo=data.centro_costo,
+        factura_id=data.factura_id,
+    )
+    await db.commit()
+    asiento_full = (await db.execute(
+        select(AsientoContable)
+        .where(AsientoContable.id == asiento.id)
+        .options(selectinload(AsientoContable.lineas))
+    )).scalar_one()
+    return await _enrich_asiento(asiento_full)
+
+
+@router.post("/notas-credito/compra", response_model=AsientoContableResponse)
+async def nota_credito_compra(
+    data: _NotaCreditoIn,
+    empresa=Depends(get_current_empresa),
+    current_user=Depends(require_role("ADMIN", "CONTADOR", "CONTABILIDAD")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Devolución a proveedor. DR Proveedor / CR Gasto + IVA descontable."""
+    from services.venta import crear_asiento_nota_credito_compra
+    user_id = current_user.id if hasattr(current_user, "id") else None
+    asiento = await crear_asiento_nota_credito_compra(
+        empresa_id=empresa.id,
+        fecha=data.fecha,
+        proveedor_nit=data.nit_tercero,
+        valor_total=data.valor_total,
+        tiene_iva=data.tiene_iva,
+        descripcion=data.descripcion,
+        user_id=user_id,
+        db=db,
+        concepto_dian=data.concepto_dian,
+        centro_costo=data.centro_costo,
+        factura_id=data.factura_id,
+    )
+    await db.commit()
+    asiento_full = (await db.execute(
+        select(AsientoContable)
+        .where(AsientoContable.id == asiento.id)
+        .options(selectinload(AsientoContable.lineas))
+    )).scalar_one()
+    return await _enrich_asiento(asiento_full)
+
+
+# ==========================================================
 # Libro Mayor
 # ==========================================================
 @router.get("/libro-mayor/{cuenta_codigo}", response_model=LibroMayorResponse)
@@ -451,6 +689,8 @@ async def libro_mayor(
     fecha_desde: Optional[date] = Query(None),
     fecha_hasta: Optional[date] = Query(None),
     incluir_borradores: bool = False,
+    centro_costo: Optional[str] = Query(None, description="Filtrar por centro de costo (cod_oficina)"),
+    nit_tercero: Optional[str] = Query(None, description="Filtrar por NIT del tercero"),
     empresa=Depends(get_current_empresa),
     db: AsyncSession = Depends(get_db),
 ):
@@ -479,6 +719,11 @@ async def libro_mayor(
         stmt = stmt.where(AsientoContable.estado == "APROBADO")
     else:
         stmt = stmt.where(AsientoContable.estado != "ANULADO")
+
+    if centro_costo:
+        stmt = stmt.where(LineaAsiento.centro_costo == centro_costo)
+    if nit_tercero:
+        stmt = stmt.where(LineaAsiento.nit_tercero == nit_tercero)
 
     if fecha_desde:
         stmt = stmt.where(AsientoContable.fecha >= fecha_desde)
@@ -533,6 +778,7 @@ async def balance_comprobacion(
     anio: int = Query(...),
     mes: int = Query(..., ge=1, le=13),
     incluir_borradores: bool = False,
+    centro_costo: Optional[str] = Query(None, description="Filtrar por centro de costo (cod_oficina)"),
     empresa=Depends(get_current_empresa),
     db: AsyncSession = Depends(get_db),
 ):
@@ -541,6 +787,9 @@ async def balance_comprobacion(
     Agrupamos por cuenta_codigo en la BD y hacemos el rollup por clase en
     Python — evita el problema de PostgreSQL con expresiones `substr()`
     parametrizadas de forma diferente en SELECT y GROUP BY.
+
+    Si se pasa `centro_costo`, sólo se contabilizan líneas con ese centro de
+    costo (oficina). Útil para balances por sede.
     """
     stmt = (
         select(
@@ -564,6 +813,9 @@ async def balance_comprobacion(
         stmt = stmt.where(AsientoContable.estado == "APROBADO")
     else:
         stmt = stmt.where(AsientoContable.estado != "ANULADO")
+
+    if centro_costo:
+        stmt = stmt.where(LineaAsiento.centro_costo == centro_costo)
 
     result = await db.execute(stmt)
     rows = result.all()

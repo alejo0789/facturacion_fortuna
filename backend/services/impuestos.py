@@ -58,13 +58,28 @@ async def get_retefuente_rate(
     empresa_id: int,
     proveedor_nit: Optional[str],
     db: AsyncSession,
+    concepto: Optional[str] = None,
+    base_aplicable: Optional[Decimal] = None,
 ) -> Decimal:
     """
-    Tarifa retefuente.
-    Primero revisa override por proveedor (RetencionProveedor),
-    luego la tarifa default de la empresa, luego fallback al 4%.
+    Tarifa retefuente para Régimen Ordinario colombiano.
+
+    Orden de resolución:
+      1. Override por proveedor (RetencionProveedor activa) — la prioridad más alta.
+      2. Tarifa por concepto DIAN (si se pasa `concepto`) en TarifaImpuesto.concepto.
+         Si la tarifa tiene base_minima (en pesos) y la base aplicable es menor,
+         retorna 0 (no se practica retención por debajo de la base mínima UVT).
+      3. Tarifa default de la empresa.
+      4. Fallback al 4% genérico.
+
+    Conceptos DIAN colombianos típicos (Resolución DIAN):
+      - Compras (5003)         → 2.5%, base 27 UVT
+      - Servicios (5002)       → 4-6%, base 4 UVT
+      - Honorarios (5001)      → 10-11%, sin base mínima
+      - Arrendamientos (5004)  → 3.5%, base 27 UVT
+      - Transporte de carga    → 1%, base 4 UVT
     """
-    # Override por proveedor
+    # 1. Override por proveedor (siempre prevalece)
     if proveedor_nit:
         result = await db.execute(
             select(RetencionProveedor).where(
@@ -77,6 +92,37 @@ async def get_retefuente_rate(
         if override:
             return override.tarifa_especial_pct
 
+    # 2. Tarifa por concepto DIAN (matchea por prefijo para tolerar
+    #    "5001" o "5001 Honorarios" indistintamente)
+    if concepto:
+        codigo = concepto.strip().split()[0]
+        result = await db.execute(
+            select(ConfiguracionImpuesto).where(
+                ConfiguracionImpuesto.empresa_id == empresa_id,
+                ConfiguracionImpuesto.tipo == "RETEFUENTE",
+                ConfiguracionImpuesto.activo == True,  # noqa: E712
+            )
+        )
+        config = result.scalar_one_or_none()
+        if config:
+            result = await db.execute(
+                select(TarifaImpuesto).where(
+                    TarifaImpuesto.configuracion_id == config.id,
+                    TarifaImpuesto.concepto.like(f"{codigo}%"),
+                )
+            )
+            tarifa = result.scalar_one_or_none()
+            if tarifa:
+                # Si la base aplicable es menor a la base mínima UVT, no retener
+                if (
+                    base_aplicable is not None
+                    and tarifa.base_minima
+                    and base_aplicable < tarifa.base_minima
+                ):
+                    return Decimal("0")
+                return tarifa.tarifa_pct
+
+    # 3. Tarifa default + 4. Fallback
     return await get_tarifa_default(empresa_id, "RETEFUENTE", db, DEFAULT_RETEFUENTE_PCT)
 
 
@@ -107,6 +153,7 @@ async def calcular_impuestos(
     aplica_reteica: bool = False,
     reteiva_rate_override: Optional[Decimal] = None,
     reteica_rate_override: Optional[Decimal] = None,
+    concepto_dian: Optional[str] = None,
 ) -> dict:
     """
     Calcula IVA, retefuente, ReteIVA, ReteICA y valor neto a pagar desde un
@@ -134,7 +181,13 @@ async def calcular_impuestos(
         retefuente_pct = (
             retefuente_rate_override
             if retefuente_rate_override is not None
-            else await get_retefuente_rate(empresa_id, proveedor_nit, db)
+            else await get_retefuente_rate(
+                empresa_id,
+                proveedor_nit,
+                db,
+                concepto=concepto_dian,
+                base_aplicable=valor_base,
+            )
         )
         valor_retefuente = (valor_base * retefuente_pct / Decimal("100")).quantize(Decimal("0.01"))
     else:

@@ -204,6 +204,10 @@ app.include_router(impuestos.router, prefix="/api", tags=["impuestos"])
 app.include_router(bancario.router, prefix="/api", tags=["bancario"])
 app.include_router(dian.router, prefix="/api", tags=["dian"])
 
+# Reportes formales (Balance General, P&L, Retenciones — PDF/CSV)
+from routers import reportes_contables as _reportes_contables  # noqa: E402
+app.include_router(_reportes_contables.router, prefix="/api", tags=["reportes-contables"])
+
 
 @app.get("/")
 def read_root():

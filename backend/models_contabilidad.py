@@ -160,7 +160,11 @@ class LineaAsiento(Base):
     # Tercero (NIT) — requerido para ciertas cuentas (retenciones, CxC, CxP)
     nit_tercero = Column(String(50), nullable=True, index=True)
 
-    centro_costo = Column(String(50), nullable=True)
+    centro_costo = Column(String(50), nullable=True, index=True)
+
+    # Concepto DIAN (5001 honorarios, 5002 servicios, 5003 compras, 5004
+    # arrendamientos, etc.) — sirve para reportes Medios Magnéticos.
+    concepto_dian = Column(String(10), nullable=True, index=True)
 
     debito = Column(Numeric(15, 2), default=0, nullable=False)
     credito = Column(Numeric(15, 2), default=0, nullable=False)

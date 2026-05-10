@@ -131,6 +131,7 @@ class FacturaCreateAPI(BaseModel):
     aplica_retefuente: Optional[bool] = True    # ¿Aplica retención en la fuente?
     aplica_reteiva: Optional[bool] = False      # ¿Aplica retención de IVA? (Gran Contribuyente)
     aplica_reteica: Optional[bool] = False      # ¿Aplica retención de ICA? (según municipio)
+    concepto_dian: Optional[str] = None         # Concepto DIAN (5001/5002/5003/5004…)
     generar_asiento: Optional[bool] = True      # Crear asiento CAUSACION automáticamente
 
 
@@ -166,6 +167,7 @@ class FacturaCreateConOficinas(BaseModel):
     aplica_retefuente: Optional[bool] = True
     aplica_reteiva: Optional[bool] = False      # Régimen Ordinario / Gran Contribuyente
     aplica_reteica: Optional[bool] = False      # Aplica según municipio
+    concepto_dian: Optional[str] = None         # Concepto DIAN (5001/5002/5003…)
     generar_asiento: Optional[bool] = True
     # Campos ignorados (pueden venir pero no se usan)
     contrato_id: Optional[int] = None

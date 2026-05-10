@@ -31,6 +31,28 @@ CUENTA_RETEIVA_PAGAR = "236701"       # IVA retenido (ReteIVA por pagar)
 CUENTA_RETEICA_PAGAR = "236805"       # ICA retenido (ReteICA por pagar)
 CUENTA_PROVEEDORES = "220505"         # Nacionales
 
+# Mapeo concepto DIAN → cuenta de gasto sugerida (Decreto 2650).
+# Si el caller no pasa cuenta_gasto explícita y sí pasa concepto_dian,
+# usamos esta tabla para que el asiento aterrice en la cuenta correcta.
+CUENTA_GASTO_POR_CONCEPTO = {
+    "5001": "511005",  # Honorarios          → 5110 Honorarios
+    "5002": "513505",  # Servicios           → 5135 Servicios
+    "5003": "143505",  # Compras (inventario)→ 1435 Mercancías no fabricadas (compra)
+    "5004": "512015",  # Arrendamientos      → 5120 Arrendamientos
+    "5005": "513540",  # Transporte          → 5135 Servicios — Transporte
+    "5006": "513550",  # Comisiones          → 5135 Servicios — Comisiones
+    "5007": "421005",  # Rendimientos fin.   → 4210 Financieros (es ingreso financiero)
+}
+
+
+def cuenta_gasto_para_concepto(concepto_dian: Optional[str], default: str = CUENTA_GASTO_DEFAULT) -> str:
+    """Devuelve la cuenta PUC de gasto adecuada al concepto DIAN, o el default."""
+    if not concepto_dian:
+        return default
+    # El concepto puede venir como "5001" o "5001 Honorarios" — extraer el código
+    codigo = concepto_dian.strip().split()[0]
+    return CUENTA_GASTO_POR_CONCEPTO.get(codigo, default)
+
 
 async def _get_or_create_periodo(
     empresa_id: int,
@@ -96,6 +118,8 @@ async def crear_asiento_causacion_factura(
     aplica_reteica: bool = False,
     cuenta_reteiva: str = CUENTA_RETEIVA_PAGAR,
     cuenta_reteica: str = CUENTA_RETEICA_PAGAR,
+    concepto_dian: Optional[str] = None,
+    centro_costo: Optional[str] = None,
 ) -> AsientoContable:
     """
     Crea un asiento CAUSACION para la factura.
@@ -114,6 +138,10 @@ async def crear_asiento_causacion_factura(
     se revierte TODO el asiento como unidad atómica, sin dejar cabecera huérfana
     ni afectar cambios previos del caller en la misma sesión.
     """
+    # Si no se pasó cuenta_gasto explícita, mapear desde concepto DIAN
+    if cuenta_gasto == CUENTA_GASTO_DEFAULT and concepto_dian:
+        cuenta_gasto = cuenta_gasto_para_concepto(concepto_dian, default=CUENTA_GASTO_DEFAULT)
+
     async with db.begin_nested():
         # 1. Periodo contable
         periodo = await _get_or_create_periodo(empresa_id, fecha_factura.year, fecha_factura.month, db)
@@ -123,7 +151,7 @@ async def crear_asiento_causacion_factura(
                 f"No se pueden registrar asientos."
             )
 
-        # 2. Cálculo de impuestos (incluye ReteIVA y ReteICA del Régimen Ordinario)
+        # 2. Cálculo de impuestos (incluye ReteIVA, ReteICA y tarifa por concepto DIAN)
         impuestos = await calcular_impuestos(
             empresa_id=empresa_id,
             valor_total=valor_total,
@@ -133,6 +161,7 @@ async def crear_asiento_causacion_factura(
             db=db,
             aplica_reteiva=aplica_reteiva,
             aplica_reteica=aplica_reteica,
+            concepto_dian=concepto_dian,
         )
 
         # 3. Siguiente número
@@ -153,74 +182,58 @@ async def crear_asiento_causacion_factura(
         db.add(asiento)
         await db.flush()
 
+        # Helper para no repetir centro_costo + concepto en cada línea
+        def _linea(cuenta, debito, credito, detalle, base_imp=None):
+            return LineaAsiento(
+                asiento_id=asiento.id,
+                cuenta_codigo=cuenta,
+                nit_tercero=proveedor_nit,
+                centro_costo=centro_costo,
+                concepto_dian=concepto_dian,
+                debito=debito,
+                credito=credito,
+                base_impuesto=base_imp,
+                detalle=detalle,
+            )
+
         # 5. Líneas
         # DÉBITO: Gasto (valor base sin IVA)
-        db.add(LineaAsiento(
-            asiento_id=asiento.id,
-            cuenta_codigo=cuenta_gasto,
-            nit_tercero=proveedor_nit,
-            debito=impuestos["valor_base"],
-            credito=Decimal("0"),
-            detalle=descripcion,
-        ))
+        db.add(_linea(cuenta_gasto, impuestos["valor_base"], Decimal("0"), descripcion))
 
         # DÉBITO: IVA descontable
         if tiene_iva and impuestos["valor_iva"] > 0:
-            db.add(LineaAsiento(
-                asiento_id=asiento.id,
-                cuenta_codigo=cuenta_iva,
-                nit_tercero=proveedor_nit,
-                debito=impuestos["valor_iva"],
-                credito=Decimal("0"),
-                base_impuesto=impuestos["valor_base"],
-                detalle=f"IVA {impuestos['iva_rate']}% — {descripcion}",
+            db.add(_linea(
+                cuenta_iva, impuestos["valor_iva"], Decimal("0"),
+                f"IVA {impuestos['iva_rate']}% — {descripcion}",
+                base_imp=impuestos["valor_base"],
             ))
 
         # CRÉDITO: Retefuente por pagar
         if aplica_retefuente and impuestos["valor_retefuente"] > 0:
-            db.add(LineaAsiento(
-                asiento_id=asiento.id,
-                cuenta_codigo=cuenta_retefuente,
-                nit_tercero=proveedor_nit,
-                debito=Decimal("0"),
-                credito=impuestos["valor_retefuente"],
-                base_impuesto=impuestos["valor_base"],
-                detalle=f"Retefuente {impuestos['retefuente_pct']}% — {descripcion}",
+            db.add(_linea(
+                cuenta_retefuente, Decimal("0"), impuestos["valor_retefuente"],
+                f"Retefuente {impuestos['retefuente_pct']}% — {descripcion}",
+                base_imp=impuestos["valor_base"],
             ))
 
         # CRÉDITO: ReteIVA por pagar (sobre el IVA generado)
         if aplica_reteiva and impuestos["valor_reteiva"] > 0:
-            db.add(LineaAsiento(
-                asiento_id=asiento.id,
-                cuenta_codigo=cuenta_reteiva,
-                nit_tercero=proveedor_nit,
-                debito=Decimal("0"),
-                credito=impuestos["valor_reteiva"],
-                base_impuesto=impuestos["valor_iva"],
-                detalle=f"ReteIVA {impuestos['reteiva_pct']}% sobre IVA — {descripcion}",
+            db.add(_linea(
+                cuenta_reteiva, Decimal("0"), impuestos["valor_reteiva"],
+                f"ReteIVA {impuestos['reteiva_pct']}% sobre IVA — {descripcion}",
+                base_imp=impuestos["valor_iva"],
             ))
 
         # CRÉDITO: ReteICA por pagar (tarifa municipal sobre la base)
         if aplica_reteica and impuestos["valor_reteica"] > 0:
-            db.add(LineaAsiento(
-                asiento_id=asiento.id,
-                cuenta_codigo=cuenta_reteica,
-                nit_tercero=proveedor_nit,
-                debito=Decimal("0"),
-                credito=impuestos["valor_reteica"],
-                base_impuesto=impuestos["valor_base"],
-                detalle=f"ReteICA {impuestos['reteica_pct']}% — {descripcion}",
+            db.add(_linea(
+                cuenta_reteica, Decimal("0"), impuestos["valor_reteica"],
+                f"ReteICA {impuestos['reteica_pct']}% — {descripcion}",
+                base_imp=impuestos["valor_base"],
             ))
 
         # CRÉDITO: Proveedores por pagar (valor neto)
-        db.add(LineaAsiento(
-            asiento_id=asiento.id,
-            cuenta_codigo=cuenta_proveedor,
-            nit_tercero=proveedor_nit,
-            debito=Decimal("0"),
-            credito=impuestos["valor_neto"],
-            detalle=descripcion,
-        ))
+        db.add(_linea(cuenta_proveedor, Decimal("0"), impuestos["valor_neto"], descripcion))
 
         await db.flush()
     return asiento
