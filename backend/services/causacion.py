@@ -27,6 +27,8 @@ from services.impuestos import calcular_impuestos
 CUENTA_GASTO_DEFAULT = "511005"       # Honorarios
 CUENTA_IVA_DESCONTABLE = "240810"     # IVA descontable
 CUENTA_RETEFUENTE_PAGAR = "236540"    # Retefuente por pagar
+CUENTA_RETEIVA_PAGAR = "236701"       # IVA retenido (ReteIVA por pagar)
+CUENTA_RETEICA_PAGAR = "236805"       # ICA retenido (ReteICA por pagar)
 CUENTA_PROVEEDORES = "220505"         # Nacionales
 
 
@@ -90,6 +92,10 @@ async def crear_asiento_causacion_factura(
     cuenta_iva: str = CUENTA_IVA_DESCONTABLE,
     cuenta_retefuente: str = CUENTA_RETEFUENTE_PAGAR,
     cuenta_proveedor: str = CUENTA_PROVEEDORES,
+    aplica_reteiva: bool = False,
+    aplica_reteica: bool = False,
+    cuenta_reteiva: str = CUENTA_RETEIVA_PAGAR,
+    cuenta_reteica: str = CUENTA_RETEICA_PAGAR,
 ) -> AsientoContable:
     """
     Crea un asiento CAUSACION para la factura.
@@ -117,7 +123,7 @@ async def crear_asiento_causacion_factura(
                 f"No se pueden registrar asientos."
             )
 
-        # 2. Cálculo de impuestos
+        # 2. Cálculo de impuestos (incluye ReteIVA y ReteICA del Régimen Ordinario)
         impuestos = await calcular_impuestos(
             empresa_id=empresa_id,
             valor_total=valor_total,
@@ -125,6 +131,8 @@ async def crear_asiento_causacion_factura(
             aplica_retefuente=aplica_retefuente,
             proveedor_nit=proveedor_nit,
             db=db,
+            aplica_reteiva=aplica_reteiva,
+            aplica_reteica=aplica_reteica,
         )
 
         # 3. Siguiente número
@@ -178,6 +186,30 @@ async def crear_asiento_causacion_factura(
                 credito=impuestos["valor_retefuente"],
                 base_impuesto=impuestos["valor_base"],
                 detalle=f"Retefuente {impuestos['retefuente_pct']}% — {descripcion}",
+            ))
+
+        # CRÉDITO: ReteIVA por pagar (sobre el IVA generado)
+        if aplica_reteiva and impuestos["valor_reteiva"] > 0:
+            db.add(LineaAsiento(
+                asiento_id=asiento.id,
+                cuenta_codigo=cuenta_reteiva,
+                nit_tercero=proveedor_nit,
+                debito=Decimal("0"),
+                credito=impuestos["valor_reteiva"],
+                base_impuesto=impuestos["valor_iva"],
+                detalle=f"ReteIVA {impuestos['reteiva_pct']}% sobre IVA — {descripcion}",
+            ))
+
+        # CRÉDITO: ReteICA por pagar (tarifa municipal sobre la base)
+        if aplica_reteica and impuestos["valor_reteica"] > 0:
+            db.add(LineaAsiento(
+                asiento_id=asiento.id,
+                cuenta_codigo=cuenta_reteica,
+                nit_tercero=proveedor_nit,
+                debito=Decimal("0"),
+                credito=impuestos["valor_reteica"],
+                base_impuesto=impuestos["valor_base"],
+                detalle=f"ReteICA {impuestos['reteica_pct']}% — {descripcion}",
             ))
 
         # CRÉDITO: Proveedores por pagar (valor neto)

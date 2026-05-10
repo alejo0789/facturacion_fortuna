@@ -129,6 +129,8 @@ class FacturaCreateAPI(BaseModel):
     # --- Causación contable automática ---
     tiene_iva: Optional[bool] = False           # ¿La factura incluye IVA?
     aplica_retefuente: Optional[bool] = True    # ¿Aplica retención en la fuente?
+    aplica_reteiva: Optional[bool] = False      # ¿Aplica retención de IVA? (Gran Contribuyente)
+    aplica_reteica: Optional[bool] = False      # ¿Aplica retención de ICA? (según municipio)
     generar_asiento: Optional[bool] = True      # Crear asiento CAUSACION automáticamente
 
 
@@ -162,6 +164,8 @@ class FacturaCreateConOficinas(BaseModel):
     # --- Causación contable automática ---
     tiene_iva: Optional[bool] = False
     aplica_retefuente: Optional[bool] = True
+    aplica_reteiva: Optional[bool] = False      # Régimen Ordinario / Gran Contribuyente
+    aplica_reteica: Optional[bool] = False      # Aplica según municipio
     generar_asiento: Optional[bool] = True
     # Campos ignorados (pueden venir pero no se usan)
     contrato_id: Optional[int] = None
