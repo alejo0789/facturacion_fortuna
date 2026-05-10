@@ -3,7 +3,18 @@ import type { Contrato } from '../types';
 import ContractModal from '../components/ContractModal';
 import { formatCOP } from '../utils/format';
 
+import { apiFetch } from '../utils/apiClient';
+
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+
+/**
+ * Drop-in replacement de window.fetch para este archivo.
+ * Convierte `${API_URL}/x` -> apiFetch('/x') que inyecta auth desde authStorage.
+ */
+const authFetch = (url: string, options?: RequestInit): Promise<Response> => {
+    const endpoint = url.startsWith(API_URL) ? url.slice(API_URL.length) : url;
+    return apiFetch(endpoint, options as never);
+};
 
 export default function Dashboard() {
     const [contratos, setContratos] = useState<Contrato[]>([]);
@@ -29,7 +40,7 @@ export default function Dashboard() {
                 params.append('search', searchQuery.trim());
             }
 
-            const res = await fetch(`${API_URL}/contratos/?${params}`);
+            const res = await authFetch(`${API_URL}/contratos/?${params}`);
             if (res.ok) {
                 const data = await res.json();
                 setContratos(data);
@@ -66,7 +77,7 @@ export default function Dashboard() {
     // Toggle contract status
     const toggleStatus = async (contract: Contrato) => {
         const newStatus = contract.estado === 'ACTIVO' ? 'CANCELADO' : 'ACTIVO';
-        await fetch(`${API_URL}/contratos/${contract.id}`, {
+        await authFetch(`${API_URL}/contratos/${contract.id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ ...contract, estado: newStatus, proveedor: undefined, oficina: undefined })
@@ -92,7 +103,7 @@ export default function Dashboard() {
         if (!confirm(`¿Está seguro de eliminar el contrato ${contract.num_contrato || contract.id}?\n\nEsta acción no se puede deshacer.`)) return;
 
         try {
-            const res = await fetch(`${API_URL}/contratos/${contract.id}`, { method: 'DELETE' });
+            const res = await authFetch(`${API_URL}/contratos/${contract.id}`, { method: 'DELETE' });
             if (res.ok) {
                 fetchContratos(search, page);
             } else {

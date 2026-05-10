@@ -3,7 +3,18 @@ import { useNavigate } from 'react-router-dom';
 import type { Contrato, Oficina } from '../types';
 import { formatCOP } from '../utils/format';
 
+import { apiFetch } from '../utils/apiClient';
+
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+
+/**
+ * Drop-in replacement de window.fetch para este archivo.
+ * Convierte `${API_URL}/x` -> apiFetch('/x') que inyecta auth desde authStorage.
+ */
+const authFetch = (url: string, options?: RequestInit): Promise<Response> => {
+    const endpoint = url.startsWith(API_URL) ? url.slice(API_URL.length) : url;
+    return apiFetch(endpoint, options as never);
+};
 
 export default function PendientesPorLlegarPage() {
     const [contratos, setContratos] = useState<Contrato[]>([]);
@@ -22,7 +33,7 @@ export default function PendientesPorLlegarPage() {
     const fetchPendientes = async () => {
         setLoading(true);
         try {
-            const res = await fetch(`${API_URL}/facturas/stats/contratos-pendientes`);
+            const res = await authFetch(`${API_URL}/facturas/stats/contratos-pendientes`);
             if (res.ok) {
                 setContratos(await res.json());
             }
@@ -35,7 +46,7 @@ export default function PendientesPorLlegarPage() {
 
     const loadOficinas = async () => {
         try {
-            const res = await fetch(`${API_URL}/oficinas/?limit=1000`);
+            const res = await authFetch(`${API_URL}/oficinas/?limit=1000`);
             if (res.ok) {
                 setAllOficinas(await res.json());
             }

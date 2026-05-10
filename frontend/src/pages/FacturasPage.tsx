@@ -4,8 +4,20 @@ import type { Factura, Oficina, Proveedor, OficinaConContrato } from '../types';
 import Modal, { FormField, inputClassName } from '../components/Modal';
 import UploadFacturaModal from '../components/UploadFacturaModal';
 import { formatCOP } from '../utils/format';
+import { apiFetch } from '../utils/apiClient';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+
+/**
+ * Drop-in replacement de window.fetch para este archivo.
+ * Convierte URL absoluta `${API_URL}/x` en endpoint relativo `/x` y usa apiFetch
+ * (que inyecta Authorization + X-Empresa-Id desde authStorage). Resuelve el bug
+ * de que las requests iban sin headers cuando el interceptor global no se cargaba.
+ */
+const authFetch = (url: string, options?: RequestInit): Promise<Response> => {
+    const endpoint = url.startsWith(API_URL) ? url.slice(API_URL.length) : url;
+    return apiFetch(endpoint, options as never);
+};
 
 // Type for oficina with valor assignment form
 interface OficinaAsignacion {
@@ -204,7 +216,7 @@ export default function FacturasPage() {
                 oficina_id: oficinaId.toString(),
                 limit: '50'
             });
-            const res = await fetch(`${API_URL}/facturas/?${params}`);
+            const res = await authFetch(`${API_URL}/facturas/?${params}`);
             if (res.ok) {
                 setHistorialFacturas(await res.json());
             }
@@ -228,7 +240,7 @@ export default function FacturasPage() {
 
         setSavingFeedback(true);
         try {
-            const res = await fetch(`${API_URL}/feedback/`, {
+            const res = await authFetch(`${API_URL}/feedback/`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -297,7 +309,7 @@ export default function FacturasPage() {
 
         setGeneratingConsolidado(true);
         try {
-            const res = await fetch(`${API_URL}/consolidado/generar`, {
+            const res = await authFetch(`${API_URL}/consolidado/generar`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ factura_ids: Array.from(selectedFacturas.keys()) })
@@ -424,7 +436,7 @@ export default function FacturasPage() {
         setLoadingConsecutivo(true);
         setConsecutivoManager({ consecutivo: null, nombre_documento: null, cargado: false });
         try {
-            const res = await fetch(`${API_URL}/consecutivo-documento/DC07`);
+            const res = await authFetch(`${API_URL}/consecutivo-documento/DC07`);
             if (res.ok) {
                 const data = await res.json();
                 if (data.success && data.data) {
@@ -514,7 +526,7 @@ export default function FacturasPage() {
         // Load consecutivo
         setLoadingConsecutivo(true);
         try {
-            const res = await fetch(`${API_URL}/consecutivo-documento/DC07`);
+            const res = await authFetch(`${API_URL}/consecutivo-documento/DC07`);
             if (res.ok) {
                 const data = await res.json();
                 if (data.success && data.data) {
@@ -588,7 +600,7 @@ export default function FacturasPage() {
                 facturas: facturasForRequest
             };
 
-            const res = await fetch(`${API_URL}/causacion-manager/preview`, {
+            const res = await authFetch(`${API_URL}/causacion-manager/preview`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(requestBody)
@@ -668,7 +680,7 @@ export default function FacturasPage() {
                 facturas: facturasForRequest
             };
 
-            const res = await fetch(`${API_URL}/archivo-plano/generar`, {
+            const res = await authFetch(`${API_URL}/archivo-plano/generar`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(requestBody)
@@ -734,7 +746,7 @@ export default function FacturasPage() {
                 params.append('usar_fecha_estado', 'true');
             }
 
-            const res = await fetch(`${API_URL}/facturas/?${params}`);
+            const res = await authFetch(`${API_URL}/facturas/?${params}`);
             if (res.ok) {
                 const data = await res.json();
                 setFacturas(data);
@@ -750,7 +762,7 @@ export default function FacturasPage() {
 
     const fetchStats = async () => {
         try {
-            const res = await fetch(`${API_URL}/facturas/stats/resumen`);
+            const res = await authFetch(`${API_URL}/facturas/stats/resumen`);
             if (res.ok) {
                 setStats(await res.json());
             }
@@ -762,7 +774,7 @@ export default function FacturasPage() {
     // Load all oficinas for filter dropdown
     const loadAllOficinas = async () => {
         try {
-            const res = await fetch(`${API_URL}/oficinas/?limit=500`);
+            const res = await authFetch(`${API_URL}/oficinas/?limit=500`);
             if (res.ok) {
                 setAllOficinas(await res.json());
             }
@@ -852,7 +864,7 @@ export default function FacturasPage() {
     const loadOficinasConContrato = async (proveedorId: number) => {
         setLoadingOficinasConContrato(true);
         try {
-            const res = await fetch(`${API_URL}/contratos/proveedor/${proveedorId}/oficinas`);
+            const res = await authFetch(`${API_URL}/contratos/proveedor/${proveedorId}/oficinas`);
             if (res.ok) {
                 const data: OficinaConContrato[] = await res.json();
                 setOficinasConContrato(data);
@@ -934,7 +946,7 @@ export default function FacturasPage() {
                 }))
             };
 
-            const res = await fetch(`${API_URL}/facturas/${selectedFactura.id}/oficinas-multiples`, {
+            const res = await authFetch(`${API_URL}/facturas/${selectedFactura.id}/oficinas-multiples`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body)
@@ -962,7 +974,7 @@ export default function FacturasPage() {
         });
 
         try {
-            const res = await fetch(`${API_URL}/facturas/${factura.id}/estado?nuevo_estado=${nuevoEstado}`, {
+            const res = await authFetch(`${API_URL}/facturas/${factura.id}/estado?nuevo_estado=${nuevoEstado}`, {
                 method: 'PUT'
             });
 
@@ -1021,7 +1033,7 @@ export default function FacturasPage() {
     const loadEditOficinasConContrato = async (proveedorId: number) => {
         setLoadingEditOficinasConContrato(true);
         try {
-            const res = await fetch(`${API_URL}/contratos/proveedor/${proveedorId}/oficinas`);
+            const res = await authFetch(`${API_URL}/contratos/proveedor/${proveedorId}/oficinas`);
             if (res.ok) {
                 const data: OficinaConContrato[] = await res.json();
                 setEditOficinasConContrato(data);
@@ -1074,7 +1086,7 @@ export default function FacturasPage() {
         if (query.length < 2) return;
         setLoadingProveedores(true);
         try {
-            const res = await fetch(`${API_URL}/proveedores/?limit=100`);
+            const res = await authFetch(`${API_URL}/proveedores/?limit=100`);
             if (res.ok) {
                 const data: Proveedor[] = await res.json();
                 const filtered = data.filter(p =>
@@ -1096,7 +1108,7 @@ export default function FacturasPage() {
         setLoadingEditOficinas(true);
         try {
             const params = new URLSearchParams({ search: query, limit: '50' });
-            const res = await fetch(`${API_URL}/oficinas/?${params}`);
+            const res = await authFetch(`${API_URL}/oficinas/?${params}`);
             if (res.ok) {
                 setEditOficinas(await res.json());
             }
@@ -1132,7 +1144,7 @@ export default function FacturasPage() {
 
         setSaving(true);
         try {
-            const res = await fetch(`${API_URL}/facturas/${editingFactura.id}`, {
+            const res = await authFetch(`${API_URL}/facturas/${editingFactura.id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -1153,7 +1165,7 @@ export default function FacturasPage() {
             if (res.ok) {
                 // If oficina was set, call asignar-oficina to auto-detect contrato
                 if (editForm.oficina_id) {
-                    await fetch(`${API_URL}/facturas/${editingFactura.id}/asignar-oficina`, {
+                    await authFetch(`${API_URL}/facturas/${editingFactura.id}/asignar-oficina`, {
                         method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
@@ -1184,7 +1196,7 @@ export default function FacturasPage() {
         }
 
         try {
-            const res = await fetch(`${API_URL}/facturas/${factura.id}`, {
+            const res = await authFetch(`${API_URL}/facturas/${factura.id}`, {
                 method: 'DELETE'
             });
 
@@ -3381,7 +3393,7 @@ export default function FacturasPage() {
                                                         facturas: causacionPreviewData.facturas
                                                     };
 
-                                                    const res = await fetch(`${API_URL}/causacion-manager/insertar`, {
+                                                    const res = await authFetch(`${API_URL}/causacion-manager/insertar`, {
                                                         method: 'POST',
                                                         headers: { 'Content-Type': 'application/json' },
                                                         body: JSON.stringify(requestBody)

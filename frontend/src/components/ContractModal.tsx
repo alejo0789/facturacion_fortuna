@@ -2,7 +2,14 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Contrato, Proveedor, Oficina } from '../types';
 import Modal, { FormField, inputClassName } from './Modal';
 
+import { apiFetch } from '../utils/apiClient';
+
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+
+const authFetch = (url: string, options?: RequestInit): Promise<Response> => {
+    const endpoint = url.startsWith(API_URL) ? url.slice(API_URL.length) : url;
+    return apiFetch(endpoint, options as never);
+};
 
 interface ContractModalProps {
     isOpen: boolean;
@@ -62,7 +69,7 @@ function ServerSearchableSelect<T extends { id: number }>({
                 params.append('search', query.trim());
             }
             // MODIFICACIÓN: Se añade el slash final antes de los parámetros
-            const res = await fetch(`${API_URL}/${endpoint}/?${params}`);
+            const res = await authFetch(`${API_URL}/${endpoint}/?${params}`);
             if (res.ok) {
                 const data = await res.json();
                 setItems(data);
@@ -261,7 +268,7 @@ export default function ContractModal({ isOpen, onClose, onSave, contract }: Con
         formDataFile.append('file', selectedFile);
 
         try {
-            const res = await fetch(`${API_URL}/contratos/${contratoId}/upload-pdf`, {
+            const res = await authFetch(`${API_URL}/contratos/${contratoId}/upload-pdf`, {
                 method: 'POST',
                 body: formDataFile
             });
@@ -323,7 +330,7 @@ export default function ContractModal({ isOpen, onClose, onSave, contract }: Con
         if (!contract?.id || !confirm('¿Está seguro de eliminar el archivo adjunto?')) return;
 
         try {
-            const res = await fetch(`${API_URL}/contratos/${contract.id}/pdf`, {
+            const res = await authFetch(`${API_URL}/contratos/${contract.id}/pdf`, {
                 method: 'DELETE'
             });
 

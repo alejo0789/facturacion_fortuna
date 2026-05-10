@@ -16,7 +16,18 @@ import {
 import { apiGet } from '../utils/apiClient';
 import type { Balance } from '../types/contabilidad';
 
+import { apiFetch } from '../utils/apiClient';
+
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+
+/**
+ * Drop-in replacement de window.fetch para este archivo.
+ * Convierte `${API_URL}/x` -> apiFetch('/x') que inyecta auth desde authStorage.
+ */
+const authFetch = (url: string, options?: RequestInit): Promise<Response> => {
+    const endpoint = url.startsWith(API_URL) ? url.slice(API_URL.length) : url;
+    return apiFetch(endpoint, options as never);
+};
 
 interface Estadisticas {
     año: number;
@@ -193,7 +204,7 @@ export default function DashboardHome() {
 
     // Load oficinas once on mount
     useEffect(() => {
-        fetch(`${API_URL}/reportes/filtros`)
+        authFetch(`${API_URL}/reportes/filtros`)
             .then(r => r.json())
             .then(data => {
                 if (data.oficinas) setOficinas(data.oficinas);
@@ -269,7 +280,7 @@ export default function DashboardHome() {
                     setEstadisticas(await statsRes.json());
                 }
 
-                const invoicesRes = await fetch(`${API_URL}/facturas/?limit=5&skip=0`);
+                const invoicesRes = await authFetch(`${API_URL}/facturas/?limit=5&skip=0`);
                 if (invoicesRes.ok) {
                     const invoices = await invoicesRes.json();
                     setRecentInvoices(invoices.map((inv: {

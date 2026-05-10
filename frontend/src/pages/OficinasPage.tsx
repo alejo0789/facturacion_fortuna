@@ -2,8 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import type { Oficina } from '../types';
 import DataTable from '../components/DataTable';
 import Modal, { FormField, inputClassName } from '../components/Modal';
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+import { apiGet, apiPost, apiPut, apiDelete, ApiError } from '../utils/apiClient';
 
 export default function OficinasPage() {
     const [oficinas, setOficinas] = useState<Oficina[]>([]);
@@ -21,21 +20,15 @@ export default function OficinasPage() {
         setLoading(true);
         try {
             const skip = (pageNum - 1) * ITEMS_PER_PAGE;
-            const params = new URLSearchParams({
-                skip: skip.toString(),
-                limit: ITEMS_PER_PAGE.toString(),
-            });
+            const params: Record<string, string | number> = {
+                skip,
+                limit: ITEMS_PER_PAGE,
+            };
+            if (searchQuery.trim()) params.search = searchQuery.trim();
 
-            if (searchQuery.trim()) {
-                params.append('search', searchQuery.trim());
-            }
-
-            const res = await fetch(`${API_URL}/oficinas/?${params}`);
-            if (res.ok) {
-                const data = await res.json();
-                setOficinas(data);
-                setHasMore(data.length === ITEMS_PER_PAGE);
-            }
+            const data = await apiGet<Oficina[]>('/oficinas/', params);
+            setOficinas(data);
+            setHasMore(data.length === ITEMS_PER_PAGE);
         } catch (error) {
             console.error("Failed to fetch offices", error);
         } finally {
@@ -65,21 +58,19 @@ export default function OficinasPage() {
     }, [page]); // Only depend on page
 
     const handleSave = async () => {
-        const method = editingItem ? 'PUT' : 'POST';
-        const url = editingItem
-            ? `${API_URL}/oficinas/${editingItem.id}`
-            : `${API_URL}/oficinas/`;
-
-        await fetch(url, {
-            method,
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(formData)
-        });
-
-        setIsModalOpen(false);
-        setEditingItem(null);
-        setFormData({});
-        fetchOficinas(search, page);
+        try {
+            if (editingItem) {
+                await apiPut(`/oficinas/${editingItem.id}`, formData);
+            } else {
+                await apiPost('/oficinas/', formData);
+            }
+            setIsModalOpen(false);
+            setEditingItem(null);
+            setFormData({});
+            fetchOficinas(search, page);
+        } catch (err) {
+            alert(err instanceof ApiError ? err.message : 'Error al guardar');
+        }
     };
 
     const handleEdit = (item: Oficina) => {
@@ -90,8 +81,12 @@ export default function OficinasPage() {
 
     const handleDelete = async (item: Oficina) => {
         if (!confirm('¿Está seguro de eliminar esta oficina?')) return;
-        await fetch(`${API_URL}/oficinas/${item.id}`, { method: 'DELETE' });
-        fetchOficinas(search, page);
+        try {
+            await apiDelete(`/oficinas/${item.id}`);
+            fetchOficinas(search, page);
+        } catch (err) {
+            alert(err instanceof ApiError ? err.message : 'Error al eliminar');
+        }
     };
 
     const openNewModal = () => {

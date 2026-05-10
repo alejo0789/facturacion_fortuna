@@ -2,7 +2,14 @@ import { useState, useRef, useEffect } from 'react';
 import type { Proveedor } from '../types';
 import Modal, { FormField, inputClassName } from './Modal';
 
+import { apiFetch } from '../utils/apiClient';
+
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+
+const authFetch = (url: string, options?: RequestInit): Promise<Response> => {
+    const endpoint = url.startsWith(API_URL) ? url.slice(API_URL.length) : url;
+    return apiFetch(endpoint, options as never);
+};
 
 interface UploadFacturaModalProps {
     isOpen: boolean;
@@ -82,7 +89,7 @@ export default function UploadFacturaModal({ isOpen, onClose, onSuccess }: Uploa
             }
 
             try {
-                const res = await fetch(`${API_URL}/proveedores/?limit=100`);
+                const res = await authFetch(`${API_URL}/proveedores/?limit=100`);
                 if (res.ok) {
                     const data: Proveedor[] = await res.json();
                     const searchTerm = formData.proveedor_nit.toLowerCase();
@@ -241,7 +248,7 @@ export default function UploadFacturaModal({ isOpen, onClose, onSuccess }: Uploa
                 observaciones: formData.observaciones || undefined
             };
 
-            const res = await fetch(`${API_URL}/facturas/`, {
+            const res = await authFetch(`${API_URL}/facturas/`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body)

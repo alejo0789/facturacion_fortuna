@@ -1,7 +1,18 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { formatCOP } from '../utils/format';
 
+import { apiFetch } from '../utils/apiClient';
+
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+
+/**
+ * Drop-in replacement de window.fetch para este archivo.
+ * Convierte `${API_URL}/x` -> apiFetch('/x') que inyecta auth desde authStorage.
+ */
+const authFetch = (url: string, options?: RequestInit): Promise<Response> => {
+    const endpoint = url.startsWith(API_URL) ? url.slice(API_URL.length) : url;
+    return apiFetch(endpoint, options as never);
+};
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -136,7 +147,7 @@ export default function PagosPage() {
             if (fechaDesde) params.append('fecha_desde', fechaDesde);
             if (fechaHasta) params.append('fecha_hasta', fechaHasta);
 
-            const res = await fetch(`${API_URL}/pagos/facturas-en-tramite?${params}`);
+            const res = await authFetch(`${API_URL}/pagos/facturas-en-tramite?${params}`);
             if (res.ok) {
                 setFacturas(await res.json());
             }
@@ -177,7 +188,7 @@ export default function PagosPage() {
         if (nbParams.cuentas.length === 0) {
             setNbLoadingParams(true);
             try {
-                const res = await fetch(`${API_URL}/pagos/parametros-nota-bancaria`);
+                const res = await authFetch(`${API_URL}/pagos/parametros-nota-bancaria`);
                 if (res.ok) setNbParams(await res.json());
             } catch (e) { console.error(e); }
             finally { setNbLoadingParams(false); }
@@ -211,7 +222,7 @@ export default function PagosPage() {
                 documento_contable: f.documento_contable!,
                 valor_pagar: f.valor
             }));
-            const res = await fetch(`${API_URL}/pagos/crear-nota-bancaria`, {
+            const res = await authFetch(`${API_URL}/pagos/crear-nota-bancaria`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -277,7 +288,7 @@ export default function PagosPage() {
         setSemanaModal(false);
         setGenerando(true);
         try {
-            const res = await fetch(`${API_URL}/pagos/consolidado-programacion`, {
+            const res = await authFetch(`${API_URL}/pagos/consolidado-programacion`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -323,7 +334,7 @@ export default function PagosPage() {
     const fetchManagerCausation = async (facturaId: number, docContable: string) => {
         setLoadingManager(prev => ({ ...prev, [facturaId]: true }));
         try {
-            const res = await fetch(`${API_URL}/pagos/causacion-manager/${encodeURIComponent(docContable)}`);
+            const res = await authFetch(`${API_URL}/pagos/causacion-manager/${encodeURIComponent(docContable)}`);
             const data = await res.json();
             setManagerData(prev => ({ ...prev, [facturaId]: data }));
         } catch (e) {
@@ -338,7 +349,7 @@ export default function PagosPage() {
         if (!confirm(`¿Estás seguro de que quieres aprobar la factura en Manager (${docContable})?`)) return;
         setLoadingApproval(prev => ({ ...prev, [facturaId]: true }));
         try {
-            const res = await fetch(`${API_URL}/pagos/causacion-manager/${encodeURIComponent(docContable)}/aprobar`, {
+            const res = await authFetch(`${API_URL}/pagos/causacion-manager/${encodeURIComponent(docContable)}/aprobar`, {
                 method: 'PUT'
             });
             const result = await res.json();
@@ -397,7 +408,7 @@ export default function PagosPage() {
         if (nbParams.cuentas.length === 0) {
             setNbLoadingParams(true);
             try {
-                const res = await fetch(`${API_URL}/pagos/parametros-nota-bancaria`);
+                const res = await authFetch(`${API_URL}/pagos/parametros-nota-bancaria`);
                 if (res.ok) {
                     const data = await res.json();
                     setNbParams(data);
@@ -422,7 +433,7 @@ export default function PagosPage() {
 
         setNbCreating(true);
         try {
-            const res = await fetch(`${API_URL}/pagos/crear-nota-bancaria`, {
+            const res = await authFetch(`${API_URL}/pagos/crear-nota-bancaria`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({

@@ -1,7 +1,18 @@
 
 import { useState, useRef, useEffect } from 'react';
 
+import { apiFetch } from '../utils/apiClient';
+
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+
+/**
+ * Drop-in replacement de window.fetch para este archivo.
+ * Convierte `${API_URL}/x` -> apiFetch('/x') que inyecta auth desde authStorage.
+ */
+const authFetch = (url: string, options?: RequestInit): Promise<Response> => {
+    const endpoint = url.startsWith(API_URL) ? url.slice(API_URL.length) : url;
+    return apiFetch(endpoint, options as never);
+};
 
 interface SearchResult {
     filename: string;
@@ -40,7 +51,7 @@ export default function AsistenteBuscadorPage() {
             const reqId = currentRequestIdRef.current;
             if (reqId) {
                 // Use fetch with keepalive to ensure request is sent even if page closes
-                fetch(`${API_URL}/asistente/cleanup/${reqId}`, {
+                authFetch(`${API_URL}/asistente/cleanup/${reqId}`, {
                     method: 'DELETE',
                     keepalive: true
                 }).catch(err => console.error("Error cleaning up temp files:", err));
@@ -50,7 +61,7 @@ export default function AsistenteBuscadorPage() {
 
     const pollStatus = async (requestId: string) => {
         try {
-            const res = await fetch(`${API_URL}/asistente/search/${requestId}`);
+            const res = await authFetch(`${API_URL}/asistente/search/${requestId}`);
             if (!res.ok) {
                 // If 404, maybe not ready yet or error
                 if (res.status !== 404) throw new Error('Error consultando estado');
@@ -93,12 +104,12 @@ export default function AsistenteBuscadorPage() {
         // Clean up previous search if exists before starting new one
         if (currentRequestIdRef.current) {
             const prevReqId = currentRequestIdRef.current;
-            fetch(`${API_URL}/asistente/cleanup/${prevReqId}`, { method: 'DELETE' })
+            authFetch(`${API_URL}/asistente/cleanup/${prevReqId}`, { method: 'DELETE' })
                 .catch(console.error);
         }
 
         try {
-            const res = await fetch(`${API_URL}/asistente/search`, {
+            const res = await authFetch(`${API_URL}/asistente/search`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -155,7 +166,7 @@ export default function AsistenteBuscadorPage() {
             // Filter results to get full objects of selected items
             const filesToProcess = results.filter(r => selected.has(r.sourceId + r.filename));
 
-            const res = await fetch(`${API_URL}/asistente/process`, {
+            const res = await authFetch(`${API_URL}/asistente/process`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ files: filesToProcess }),

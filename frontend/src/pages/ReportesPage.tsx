@@ -1,6 +1,17 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 
+import { apiFetch } from '../utils/apiClient';
+
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+
+/**
+ * Drop-in replacement de window.fetch para este archivo.
+ * Convierte `${API_URL}/x` -> apiFetch('/x') que inyecta auth desde authStorage.
+ */
+const authFetch = (url: string, options?: RequestInit): Promise<Response> => {
+    const endpoint = url.startsWith(API_URL) ? url.slice(API_URL.length) : url;
+    return apiFetch(endpoint, options as never);
+};
 
 interface Proveedor {
     id: number;
@@ -463,7 +474,7 @@ export default function ReportesPage() {
 
     // Load filters and stats on mount
     useEffect(() => {
-        fetch(`${API_URL}/reportes/filtros`)
+        authFetch(`${API_URL}/reportes/filtros`)
             .then(r => r.json())
             .then(data => {
                 setFiltros(data);
@@ -473,7 +484,7 @@ export default function ReportesPage() {
             })
             .catch(err => console.error('Error loading filters:', err));
 
-        fetch(`${API_URL}/reportes/estadisticas`)
+        authFetch(`${API_URL}/reportes/estadisticas`)
             .then(r => r.json())
             .then(data => setStats(data))
             .catch(err => console.error('Error loading stats:', err))
@@ -523,7 +534,7 @@ export default function ReportesPage() {
         setLoading(true);
         try {
             const params = buildQueryParams();
-            const res = await fetch(`${API_URL}/reportes/preview?${params}`);
+            const res = await authFetch(`${API_URL}/reportes/preview?${params}`);
             const data = await res.json();
             setPreview(data);
         } catch (error) {
@@ -537,7 +548,7 @@ export default function ReportesPage() {
         setExporting(true);
         try {
             const params = buildQueryParams();
-            const res = await fetch(`${API_URL}/reportes/export?${params}`);
+            const res = await authFetch(`${API_URL}/reportes/export?${params}`);
 
             if (res.ok) {
                 const blob = await res.blob();

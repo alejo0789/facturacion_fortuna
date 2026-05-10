@@ -2,8 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import type { Proveedor } from '../types';
 import DataTable from '../components/DataTable';
 import Modal, { FormField, inputClassName } from '../components/Modal';
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+import { apiGet, apiPost, apiPut, apiDelete, apiFetch, ApiError } from '../utils/apiClient';
 
 // Estado para la búsqueda en Oracle
 interface OracleSearchState {
@@ -33,8 +32,10 @@ export default function ProveedoresPage() {
     const fetchData = async () => {
         setLoading(true);
         try {
-            const res = await fetch(`${API_URL}/proveedores/`);
-            if (res.ok) setProveedores(await res.json());
+            const data = await apiGet<Proveedor[]>('/proveedores/');
+            setProveedores(data);
+        } catch (err) {
+            console.error('Error cargando proveedores:', err);
         } finally {
             setLoading(false);
         }
@@ -73,7 +74,7 @@ export default function ProveedoresPage() {
         });
 
         try {
-            const res = await fetch(`${API_URL}/proveedores/buscar-oracle/${nit.trim()}`);
+            const res = await apiFetch(`/proveedores/buscar-oracle/${nit.trim()}`);
             const data = await res.json();
 
             if (!res.ok) {
@@ -125,32 +126,23 @@ export default function ProveedoresPage() {
 
         setSaving(true);
         try {
-            const method = editingItem ? 'PUT' : 'POST';
-            const url = editingItem
-                ? `${API_URL}/proveedores/${editingItem.id}`
-                : `${API_URL}/proveedores/`;
-
-            const res = await fetch(url, {
-                method,
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    nit: formData.nit,
-                    nombre: formData.nombre || 'PENDING_ORACLE_LOOKUP',
-                    nombre_comercial: formData.nombre_comercial || null
-                })
-            });
-
-            if (!res.ok) {
-                const error = await res.json();
-                alert(error.detail || 'Error al guardar');
-                return;
+            const payload = {
+                nit: formData.nit,
+                nombre: formData.nombre || 'PENDING_ORACLE_LOOKUP',
+                nombre_comercial: formData.nombre_comercial || null,
+            };
+            if (editingItem) {
+                await apiPut(`/proveedores/${editingItem.id}`, payload);
+            } else {
+                await apiPost('/proveedores/', payload);
             }
-
             setIsModalOpen(false);
             setEditingItem(null);
             setFormData({});
             setOracleSearch({ status: 'idle', message: '', nombre: null, nit: null });
             fetchData();
+        } catch (err) {
+            alert(err instanceof ApiError ? err.message : 'Error al guardar');
         } finally {
             setSaving(false);
         }
@@ -165,8 +157,12 @@ export default function ProveedoresPage() {
 
     const handleDelete = async (item: Proveedor) => {
         if (!confirm('¿Está seguro de eliminar este proveedor?')) return;
-        await fetch(`${API_URL}/proveedores/${item.id}`, { method: 'DELETE' });
-        fetchData();
+        try {
+            await apiDelete(`/proveedores/${item.id}`);
+            fetchData();
+        } catch (err) {
+            alert(err instanceof ApiError ? err.message : 'Error al eliminar');
+        }
     };
 
     const openNewModal = () => {
