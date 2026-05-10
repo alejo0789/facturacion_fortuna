@@ -25,15 +25,17 @@ def sanitize_folder_name(name: str) -> str:
 # --- Search ---
 @router.get("/contratos/", response_model=List[schemas.Contrato])
 async def search_contratos(
-    skip: int = 0, 
-    limit: int = 100, 
-    search: Optional[str] = None, 
-    db: AsyncSession = Depends(get_db)
+    skip: int = 0,
+    limit: int = 100,
+    search: Optional[str] = None,
+    empresa=Depends(get_current_empresa),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Search contracts by Provider Name, Office Name, or Contract Number.
+    Filtra por empresa activa (tenant) para aislamiento multi-tenant.
     """
-    return await crud.get_contratos(db, skip=skip, limit=limit, search=search)
+    return await crud.get_contratos(db, skip=skip, limit=limit, search=search, empresa_id=empresa.id)
 
 @router.get("/contratos/{contrato_id}", response_model=schemas.Contrato)
 async def read_contrato(contrato_id: int, db: AsyncSession = Depends(get_db)):
@@ -132,8 +134,15 @@ async def delete_contract_pdf(contrato_id: int, db: AsyncSession = Depends(get_d
 
 # --- Helpers for Providers/Offices ---
 @router.get("/proveedores/", response_model=List[schemas.Proveedor])
-async def read_proveedores(skip: int = 0, limit: int = 100, search: Optional[str] = None, db: AsyncSession = Depends(get_db)):
-    return await crud.get_proveedores(db, skip=skip, limit=limit, search=search)
+async def read_proveedores(
+    skip: int = 0,
+    limit: int = 100,
+    search: Optional[str] = None,
+    empresa=Depends(get_current_empresa),
+    db: AsyncSession = Depends(get_db),
+):
+    """Lista proveedores filtrados por empresa activa (multi-tenant)."""
+    return await crud.get_proveedores(db, skip=skip, limit=limit, search=search, empresa_id=empresa.id)
 
 @router.get("/proveedores/buscar-oracle/{nit}")
 async def buscar_proveedor_oracle(nit: str, db: AsyncSession = Depends(get_db)):
@@ -198,8 +207,8 @@ async def create_proveedor(
     # Limpiar el NIT
     nit_clean = proveedor.nit.split('-')[0].strip() if '-' in proveedor.nit else proveedor.nit.strip()
     
-    # Verificar si ya existe
-    db_prov = await crud.get_proveedor_by_nit(db, nit=nit_clean)
+    # Verificar si ya existe en este tenant
+    db_prov = await crud.get_proveedor_by_nit(db, nit=nit_clean, empresa_id=empresa.id)
     if db_prov:
         raise HTTPException(status_code=400, detail="Ya existe un proveedor con este NIT")
     
@@ -220,11 +229,15 @@ async def create_proveedor(
     return await crud.create_proveedor(db, proveedor_data, empresa_id=empresa.id)
 
 @router.get("/oficinas/", response_model=List[schemas.Oficina])
-async def read_oficinas(skip: int = 0, limit: int = 100, search: Optional[str] = None, db: AsyncSession = Depends(get_db)):
-    """
-    Search offices by code, name, city, zone, or address.
-    """
-    return await crud.get_oficinas(db, skip=skip, limit=limit, search=search)
+async def read_oficinas(
+    skip: int = 0,
+    limit: int = 100,
+    search: Optional[str] = None,
+    empresa=Depends(get_current_empresa),
+    db: AsyncSession = Depends(get_db),
+):
+    """Lista oficinas filtradas por empresa activa (multi-tenant)."""
+    return await crud.get_oficinas(db, skip=skip, limit=limit, search=search, empresa_id=empresa.id)
 
 @router.post("/oficinas/", response_model=schemas.Oficina)
 async def create_oficina(

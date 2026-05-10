@@ -11,9 +11,26 @@ async def get_proveedor(db: AsyncSession, proveedor_id: int):
     result = await db.execute(select(models.Proveedor).filter(models.Proveedor.id == proveedor_id))
     return result.scalars().first()
 
-async def get_proveedores(db: AsyncSession, skip: int = 0, limit: int = 100, search: Optional[str] = None):
+async def get_proveedores(
+    db: AsyncSession,
+    skip: int = 0,
+    limit: int = 100,
+    search: Optional[str] = None,
+    empresa_id: Optional[int] = None,
+):
+    """Si se pasa empresa_id, sólo devuelve proveedores de ese tenant
+    (incluyendo los con empresa_id NULL para compatibilidad con datos legacy
+    importados antes de Sprint multi-tenant)."""
     query = select(models.Proveedor)
-    
+
+    if empresa_id is not None:
+        query = query.filter(
+            or_(
+                models.Proveedor.empresa_id == empresa_id,
+                models.Proveedor.empresa_id.is_(None),
+            )
+        )
+
     if search:
         query = query.filter(
             or_(
@@ -22,7 +39,7 @@ async def get_proveedores(db: AsyncSession, skip: int = 0, limit: int = 100, sea
                 models.Proveedor.nombre_comercial.ilike(f"%{search}%")
             )
         )
-    
+
     result = await db.execute(query.offset(skip).limit(limit))
     return result.scalars().all()
 
@@ -37,8 +54,17 @@ async def create_proveedor(db: AsyncSession, proveedor: schemas.ProveedorCreate,
     await db.refresh(db_proveedor)
     return db_proveedor
 
-async def get_proveedor_by_nit(db: AsyncSession, nit: str):
-    result = await db.execute(select(models.Proveedor).filter(models.Proveedor.nit == nit))
+async def get_proveedor_by_nit(db: AsyncSession, nit: str, empresa_id: Optional[int] = None):
+    """Si se pasa empresa_id, busca solo en ese tenant (+ legacy con empresa_id NULL)."""
+    query = select(models.Proveedor).filter(models.Proveedor.nit == nit)
+    if empresa_id is not None:
+        query = query.filter(
+            or_(
+                models.Proveedor.empresa_id == empresa_id,
+                models.Proveedor.empresa_id.is_(None),
+            )
+        )
+    result = await db.execute(query)
     return result.scalars().first()
 
 # --- Oficina CRUD ---
@@ -53,9 +79,24 @@ async def get_oficina_by_codigo(db: AsyncSession, cod_oficina: str):
     )
     return result.scalars().first()
 
-async def get_oficinas(db: AsyncSession, skip: int = 0, limit: int = 100, search: Optional[str] = None):
+async def get_oficinas(
+    db: AsyncSession,
+    skip: int = 0,
+    limit: int = 100,
+    search: Optional[str] = None,
+    empresa_id: Optional[int] = None,
+):
+    """Multi-tenant: filtra por empresa_id (+ legacy con NULL)."""
     query = select(models.Oficina)
-    
+
+    if empresa_id is not None:
+        query = query.filter(
+            or_(
+                models.Oficina.empresa_id == empresa_id,
+                models.Oficina.empresa_id.is_(None),
+            )
+        )
+
     if search:
         query = query.filter(
             or_(
@@ -66,7 +107,7 @@ async def get_oficinas(db: AsyncSession, skip: int = 0, limit: int = 100, search
                 models.Oficina.direccion.ilike(f"%{search}%")
             )
         )
-    
+
     result = await db.execute(query.offset(skip).limit(limit))
     return result.scalars().all()
 
@@ -90,13 +131,28 @@ async def get_contrato(db: AsyncSession, contrato_id: int):
     )
     return result.scalars().first()
 
-async def get_contratos(db: AsyncSession, skip: int = 0, limit: int = 100, search: Optional[str] = None):
+async def get_contratos(
+    db: AsyncSession,
+    skip: int = 0,
+    limit: int = 100,
+    search: Optional[str] = None,
+    empresa_id: Optional[int] = None,
+):
+    """Multi-tenant: filtra por empresa_id (+ legacy con NULL)."""
     query = (
         select(models.Contrato)
         .options(selectinload(models.Contrato.proveedor), selectinload(models.Contrato.oficina))
         .outerjoin(models.Proveedor)
         .outerjoin(models.Oficina)
     )
+
+    if empresa_id is not None:
+        query = query.filter(
+            or_(
+                models.Contrato.empresa_id == empresa_id,
+                models.Contrato.empresa_id.is_(None),
+            )
+        )
     
     if search:
         query = query.filter(
@@ -290,14 +346,16 @@ async def get_factura(db: AsyncSession, factura_id: int):
     )
     return result.scalars().first()
 
-async def get_facturas(db: AsyncSession, skip: int = 0, limit: int = 100, 
+async def get_facturas(db: AsyncSession, skip: int = 0, limit: int = 100,
                        search: Optional[str] = None, estado: Optional[str] = None,
                        proveedor_id: Optional[int] = None, solo_pendientes: bool = False,
                        fecha_desde: Optional[str] = None, fecha_hasta: Optional[str] = None,
-                       oficina_id: Optional[int] = None, usar_fecha_estado: bool = False):
+                       oficina_id: Optional[int] = None, usar_fecha_estado: bool = False,
+                       empresa_id: Optional[int] = None):
     """Get facturas with optional filters including date range and oficina.
     usar_fecha_estado=True: date range filters by COALESCE(status_updated_at, created_at)
     usar_fecha_estado=False (default): date range filters by created_at (reception date)
+    Multi-tenant: si se pasa empresa_id, filtra por ese tenant (+ legacy NULL).
     """
     query = (
         select(models.Factura)
@@ -312,6 +370,14 @@ async def get_facturas(db: AsyncSession, skip: int = 0, limit: int = 100,
         .outerjoin(models.Proveedor)
         .outerjoin(models.Oficina)
     )
+
+    if empresa_id is not None:
+        query = query.filter(
+            or_(
+                models.Factura.empresa_id == empresa_id,
+                models.Factura.empresa_id.is_(None),
+            )
+        )
     
     if search:
         query = query.filter(

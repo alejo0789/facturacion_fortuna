@@ -47,6 +47,8 @@ async def _generar_asiento_causacion_safe(
     aplica_retefuente: bool,
     user_id: Optional[int],
     db: AsyncSession,
+    aplica_reteiva: bool = False,
+    aplica_reteica: bool = False,
 ) -> dict:
     """
     Envuelve `crear_asiento_causacion_factura` de forma defensiva.
@@ -76,6 +78,8 @@ async def _generar_asiento_causacion_safe(
             valor_total=Decimal(factura.valor),
             tiene_iva=tiene_iva,
             aplica_retefuente=aplica_retefuente,
+            aplica_reteiva=aplica_reteiva,
+            aplica_reteica=aplica_reteica,
             descripcion=descripcion,
             user_id=user_id,
             db=db,
@@ -191,6 +195,8 @@ async def create_factura_api(
             proveedor_nit=proveedor.nit,
             tiene_iva=bool(factura.tiene_iva),
             aplica_retefuente=bool(factura.aplica_retefuente),
+            aplica_reteiva=bool(getattr(factura, 'aplica_reteiva', False)),
+            aplica_reteica=bool(getattr(factura, 'aplica_reteica', False)),
             user_id=getattr(current_user, "id", None),
             db=db,
         )
@@ -448,6 +454,8 @@ async def create_factura_con_oficinas(
                 proveedor_nit=request.proveedor_nit,
                 tiene_iva=bool(request.tiene_iva),
                 aplica_retefuente=bool(request.aplica_retefuente),
+                aplica_reteiva=bool(getattr(request, 'aplica_reteiva', False)),
+                aplica_reteica=bool(getattr(request, 'aplica_reteica', False)),
                 user_id=getattr(current_user, "id", None),
                 db=db,
             )
@@ -573,18 +581,20 @@ async def list_facturas(
     fecha_hasta: Optional[str] = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
     usar_fecha_estado: bool = Query(False, description="Si True, filtra por fecha de cambio de estado en vez de fecha de recepción"),
     solo_pendientes: bool = Query(False, description="Solo mostrar facturas sin contrato asignado"),
+    empresa=Depends(get_current_empresa),
     db: AsyncSession = Depends(get_db)
 ):
     """
-    List facturas with optional filters.
+    List facturas with optional filters. Filtra por empresa activa (multi-tenant).
     """
     facturas_models = await crud.get_facturas(
-        db, skip=skip, limit=limit, search=search, 
-        estado=estado, proveedor_id=proveedor_id, 
+        db, skip=skip, limit=limit, search=search,
+        estado=estado, proveedor_id=proveedor_id,
         solo_pendientes=solo_pendientes,
         fecha_desde=fecha_desde, fecha_hasta=fecha_hasta,
         oficina_id=oficina_id,
-        usar_fecha_estado=usar_fecha_estado
+        usar_fecha_estado=usar_fecha_estado,
+        empresa_id=empresa.id,
     )
     
     # Enrich with file info
