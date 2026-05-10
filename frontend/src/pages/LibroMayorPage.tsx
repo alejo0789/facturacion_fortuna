@@ -14,10 +14,13 @@ export default function LibroMayorPage() {
     const hoyStr = hoy.toISOString().substring(0, 10);
 
     const [cuentas, setCuentas] = useState<CuentaPUC[]>([]);
+    const [oficinas, setOficinas] = useState<Array<{ cod_oficina: string; nombre: string }>>([]);
     const [cuentaCodigo, setCuentaCodigo] = useState('');
     const [fechaDesde, setFechaDesde] = useState(inicioAnio);
     const [fechaHasta, setFechaHasta] = useState(hoyStr);
     const [incluirBorradores, setIncluirBorradores] = useState(false);
+    const [centroCosto, setCentroCosto] = useState('');
+    const [nitTercero, setNitTercero] = useState('');
 
     const [mayor, setMayor] = useState<LibroMayor | null>(null);
     const [loading, setLoading] = useState(false);
@@ -28,6 +31,12 @@ export default function LibroMayorPage() {
             try {
                 const data = await apiGet<CuentaPUC[]>('/contabilidad/puc', { solo_movimiento: 'true' });
                 setCuentas(data);
+            } catch {
+                /* silencio */
+            }
+            try {
+                const ofs = await apiGet<Array<{ cod_oficina: string; nombre: string }>>('/oficinas/', { limit: 500 });
+                setOficinas(ofs.filter((o) => o.cod_oficina));
             } catch {
                 /* silencio */
             }
@@ -48,6 +57,8 @@ export default function LibroMayorPage() {
                 fecha_hasta: fechaHasta,
                 incluir_borradores: incluirBorradores ? 'true' : 'false',
             };
+            if (centroCosto.trim()) params.centro_costo = centroCosto.trim();
+            if (nitTercero.trim()) params.nit_tercero = nitTercero.trim();
             const data = await apiGet<LibroMayor>(
                 `/contabilidad/libro-mayor/${encodeURIComponent(cuentaCodigo.trim())}`,
                 params,
@@ -112,8 +123,37 @@ export default function LibroMayorPage() {
                         {loading ? 'Consultando...' : 'Consultar'}
                     </button>
                 </div>
-                <div className="md:col-span-5">
-                    <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                <div className="md:col-span-5 grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div>
+                        <label className="block text-xs font-medium text-gray-500 mb-1">
+                            Centro de costo (opcional)
+                        </label>
+                        <select
+                            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                            value={centroCosto}
+                            onChange={(e) => setCentroCosto(e.target.value)}
+                        >
+                            <option value="">Todas las sedes</option>
+                            {oficinas.map((o) => (
+                                <option key={o.cod_oficina} value={o.cod_oficina}>
+                                    {o.cod_oficina} — {o.nombre}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-xs font-medium text-gray-500 mb-1">
+                            NIT tercero (opcional)
+                        </label>
+                        <input
+                            type="text"
+                            placeholder="Ej: 900111111"
+                            value={nitTercero}
+                            onChange={(e) => setNitTercero(e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm font-mono"
+                        />
+                    </div>
+                    <label className="inline-flex items-end gap-2 text-sm text-gray-700 pb-2">
                         <input
                             type="checkbox"
                             checked={incluirBorradores}

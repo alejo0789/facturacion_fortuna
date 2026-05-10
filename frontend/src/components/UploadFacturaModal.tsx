@@ -50,7 +50,13 @@ export default function UploadFacturaModal({ isOpen, onClose, onSuccess }: Uploa
         fecha_factura: '',
         fecha_vencimiento: '',
         valor: '',
-        observaciones: ''
+        observaciones: '',
+        // Causación contable
+        tiene_iva: true,
+        aplica_retefuente: true,
+        aplica_reteiva: false,
+        aplica_reteica: false,
+        concepto_dian: '5002', // default Servicios
     });
 
     // Provider search
@@ -73,7 +79,12 @@ export default function UploadFacturaModal({ isOpen, onClose, onSuccess }: Uploa
                 fecha_factura: '',
                 fecha_vencimiento: '',
                 valor: '',
-                observaciones: ''
+                observaciones: '',
+                tiene_iva: true,
+                aplica_retefuente: true,
+                aplica_reteiva: false,
+                aplica_reteica: false,
+                concepto_dian: '5002',
             });
             setSelectedProveedor(null);
             setProveedores([]);
@@ -245,7 +256,14 @@ export default function UploadFacturaModal({ isOpen, onClose, onSuccess }: Uploa
                 fecha_factura: fechaFactura,
                 fecha_vencimiento: fechaVencimiento,
                 valor: formData.valor ? parseFloat(formData.valor) : undefined,
-                observaciones: formData.observaciones || undefined
+                observaciones: formData.observaciones || undefined,
+                // Causación contable + retenciones Régimen Ordinario
+                tiene_iva: formData.tiene_iva,
+                aplica_retefuente: formData.aplica_retefuente,
+                aplica_reteiva: formData.aplica_reteiva,
+                aplica_reteica: formData.aplica_reteica,
+                concepto_dian: formData.concepto_dian || undefined,
+                generar_asiento: true,
             };
 
             const res = await authFetch(`${API_URL}/facturas/`, {
@@ -633,6 +651,64 @@ export default function UploadFacturaModal({ isOpen, onClose, onSuccess }: Uploa
                                 rows={2}
                             />
                         </FormField>
+
+                        {/* Causación contable + retenciones */}
+                        <div className="border-t border-gray-200 pt-4 mt-2">
+                            <h4 className="text-sm font-semibold text-gray-700 mb-3">
+                                Causación contable
+                            </h4>
+                            <div className="grid grid-cols-2 gap-4">
+                                <FormField label="Concepto DIAN">
+                                    <select
+                                        className={inputClassName}
+                                        value={formData.concepto_dian}
+                                        onChange={e => setFormData({ ...formData, concepto_dian: e.target.value })}
+                                    >
+                                        <option value="5001">5001 — Honorarios (11%)</option>
+                                        <option value="5002">5002 — Servicios (4–6%)</option>
+                                        <option value="5003">5003 — Compras (2.5%)</option>
+                                        <option value="5004">5004 — Arrendamientos (3.5%)</option>
+                                        <option value="5005">5005 — Transporte carga (1%)</option>
+                                        <option value="5006">5006 — Comisiones (11%)</option>
+                                        <option value="5007">5007 — Rendimientos fin (7%)</option>
+                                    </select>
+                                </FormField>
+                                <div className="flex flex-col justify-end gap-2 pb-2">
+                                    <label className="flex items-center gap-2 text-sm">
+                                        <input
+                                            type="checkbox"
+                                            checked={formData.tiene_iva}
+                                            onChange={e => setFormData({ ...formData, tiene_iva: e.target.checked })}
+                                        />
+                                        Tiene IVA (19%)
+                                    </label>
+                                    <label className="flex items-center gap-2 text-sm">
+                                        <input
+                                            type="checkbox"
+                                            checked={formData.aplica_retefuente}
+                                            onChange={e => setFormData({ ...formData, aplica_retefuente: e.target.checked })}
+                                        />
+                                        Aplica retefuente
+                                    </label>
+                                    <label className="flex items-center gap-2 text-sm">
+                                        <input
+                                            type="checkbox"
+                                            checked={formData.aplica_reteiva}
+                                            onChange={e => setFormData({ ...formData, aplica_reteiva: e.target.checked })}
+                                        />
+                                        ReteIVA (15% sobre IVA — Gran Contribuyente)
+                                    </label>
+                                    <label className="flex items-center gap-2 text-sm">
+                                        <input
+                                            type="checkbox"
+                                            checked={formData.aplica_reteica}
+                                            onChange={e => setFormData({ ...formData, aplica_reteica: e.target.checked })}
+                                        />
+                                        ReteICA (depende del municipio)
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 )}
             </div>
