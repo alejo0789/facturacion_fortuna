@@ -67,6 +67,7 @@ export interface Factura {
     contrato?: Contrato;  // Legacy
 
     numero_factura?: string;
+    es_duplicada?: boolean;
     cufe?: string;
     fecha_factura?: string;
     fecha_vencimiento?: string;
