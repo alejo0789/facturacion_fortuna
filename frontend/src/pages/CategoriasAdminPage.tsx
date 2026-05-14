@@ -246,7 +246,7 @@ export default function CategoriasAdminPage() {
         <div className="max-w-6xl mx-auto">
             <div className="flex justify-between items-center mb-6">
                 <div>
-                    <h1 className="text-2xl font-bold text-slate-800">Administración de Categorías</h1>
+                    <h1 className="text-2xl font-bold text-slate-800">Administración</h1>
                     <p className="text-slate-600">
                         Gestiona las categorías de facturas y asigna roles
                     </p>
