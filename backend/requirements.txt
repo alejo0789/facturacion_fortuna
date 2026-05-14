@@ -11,3 +11,5 @@ Pillow
 oracledb
 httpx
 reportlab
+pymupdf
+openai

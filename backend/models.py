@@ -118,6 +118,31 @@ class ProveedorCategoria(Base):
     proveedor = relationship("Proveedor", back_populates="categorias_autorizadas")
     categoria = relationship("Categoria", back_populates="proveedores_autorizados")
 
+class SoporteBancario(Base):
+    """
+    Soportes de pagos bancarios asociados a proveedores, extraídos desde PDFs.
+    """
+    __tablename__ = "soportes_bancarios"
+
+    id = Column(Integer, primary_key=True, index=True)
+    proveedor_id = Column(Integer, ForeignKey("proveedores.id", ondelete="CASCADE"), nullable=True)
+    
+    # Extractos de OpenAI
+    banco_origen = Column(String(255), nullable=True)
+    cuenta_origen = Column(String(255), nullable=True)
+    beneficiario = Column(String(255), nullable=True)
+    nit_cedula = Column(String(100), nullable=True)
+    fecha_pago = Column(Date, nullable=True)
+    valor = Column(Numeric(14, 2), nullable=True)
+    
+    # Archivo en la red
+    ruta_archivo = Column(String(1000), nullable=True)
+    
+    created_at = Column(DateTime, server_default=func.now())
+    
+    # Relationships
+    proveedor = relationship("Proveedor", back_populates="soportes")
+
 
 # ============================================
 # Core Business Models
@@ -134,6 +159,7 @@ class Proveedor(Base):
     # Relationships
     contratos = relationship("Contrato", back_populates="proveedor")
     categorias_autorizadas = relationship("ProveedorCategoria", back_populates="proveedor", cascade="all, delete-orphan")
+    soportes = relationship("SoporteBancario", back_populates="proveedor", cascade="all, delete-orphan")
 
 class Oficina(Base):
     __tablename__ = "oficinas"
