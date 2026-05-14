@@ -269,7 +269,8 @@ async def get_factura(db: AsyncSession, factura_id: int):
         .options(
             selectinload(models.Factura.proveedor),
             selectinload(models.Factura.oficina),
-            selectinload(models.Factura.contrato),
+            selectinload(models.Factura.contrato).selectinload(models.Contrato.proveedor),
+            selectinload(models.Factura.contrato).selectinload(models.Contrato.oficina),
             selectinload(models.Factura.oficinas_asignadas).selectinload(models.FacturaOficina.oficina),
             selectinload(models.Factura.oficinas_asignadas).selectinload(models.FacturaOficina.contrato).selectinload(models.Contrato.proveedor),
             selectinload(models.Factura.oficinas_asignadas).selectinload(models.FacturaOficina.contrato).selectinload(models.Contrato.oficina)
@@ -293,7 +294,8 @@ async def get_facturas(db: AsyncSession, skip: int = 0, limit: int = 100,
         .options(
             selectinload(models.Factura.proveedor),
             selectinload(models.Factura.oficina),
-            selectinload(models.Factura.contrato),
+            selectinload(models.Factura.contrato).selectinload(models.Contrato.proveedor),
+            selectinload(models.Factura.contrato).selectinload(models.Contrato.oficina),
             selectinload(models.Factura.oficinas_asignadas).selectinload(models.FacturaOficina.oficina),
             selectinload(models.Factura.oficinas_asignadas).selectinload(models.FacturaOficina.contrato).selectinload(models.Contrato.proveedor),
             selectinload(models.Factura.oficinas_asignadas).selectinload(models.FacturaOficina.contrato).selectinload(models.Contrato.oficina)
