@@ -55,7 +55,9 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
                 }
 
                 if (!ALL_ALLOWED_EMAILS.includes(userEmail)) {
-                    console.error(`Acceso denegado: El correo ${userEmail} no está en la lista de permitidos`);
+                    console.error(`Acceso denegado: El correo ${userEmail} no está en la lista de permitidos.`);
+                    console.error(`Correos permitidos en este navegador actualmente:`, ALL_ALLOWED_EMAILS);
+                    console.error(`Si editaste el .env, asegúrate de limpiar la caché de tu navegador (Ctrl+F5).`);
                     throw new Error("User email not authorized for this application");
                 }
 
