@@ -334,7 +334,7 @@ async def create_factura_con_oficinas(
                 fecha_factura=request.fecha_factura,
                 fecha_vencimiento=request.fecha_vencimiento,
                 valor=request.valor,
-                url_factura=request.url_factura,
+                url_factura=request.url_factura.strip() if request.url_factura else None,
                 observaciones=request.observaciones,
                 estado='PENDIENTE' if not request.oficinas else 'ASIGNADA',
                 categoria_id=categoria_id
