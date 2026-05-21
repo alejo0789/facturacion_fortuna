@@ -328,9 +328,11 @@ async def get_factura(db: AsyncSession, factura_id: int):
             selectinload(models.Factura.oficina),
             selectinload(models.Factura.contrato).selectinload(models.Contrato.proveedor),
             selectinload(models.Factura.contrato).selectinload(models.Contrato.oficina),
+            selectinload(models.Factura.contrato).selectinload(models.Contrato.categoria),
             selectinload(models.Factura.oficinas_asignadas).selectinload(models.FacturaOficina.oficina),
             selectinload(models.Factura.oficinas_asignadas).selectinload(models.FacturaOficina.contrato).selectinload(models.Contrato.proveedor),
-            selectinload(models.Factura.oficinas_asignadas).selectinload(models.FacturaOficina.contrato).selectinload(models.Contrato.oficina)
+            selectinload(models.Factura.oficinas_asignadas).selectinload(models.FacturaOficina.contrato).selectinload(models.Contrato.oficina),
+            selectinload(models.Factura.oficinas_asignadas).selectinload(models.FacturaOficina.contrato).selectinload(models.Contrato.categoria)
         )
         .filter(models.Factura.id == factura_id)
     )
@@ -354,9 +356,11 @@ async def get_facturas(db: AsyncSession, skip: int = 0, limit: int = 100,
             selectinload(models.Factura.oficina),
             selectinload(models.Factura.contrato).selectinload(models.Contrato.proveedor),
             selectinload(models.Factura.contrato).selectinload(models.Contrato.oficina),
+            selectinload(models.Factura.contrato).selectinload(models.Contrato.categoria),
             selectinload(models.Factura.oficinas_asignadas).selectinload(models.FacturaOficina.oficina),
             selectinload(models.Factura.oficinas_asignadas).selectinload(models.FacturaOficina.contrato).selectinload(models.Contrato.proveedor),
-            selectinload(models.Factura.oficinas_asignadas).selectinload(models.FacturaOficina.contrato).selectinload(models.Contrato.oficina)
+            selectinload(models.Factura.oficinas_asignadas).selectinload(models.FacturaOficina.contrato).selectinload(models.Contrato.oficina),
+            selectinload(models.Factura.oficinas_asignadas).selectinload(models.FacturaOficina.contrato).selectinload(models.Contrato.categoria)
         )
         .outerjoin(models.Proveedor)
         .outerjoin(models.Oficina)
