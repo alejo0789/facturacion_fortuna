@@ -187,6 +187,7 @@ async def get_facturas_en_tramite(
                 
     aprobados_set = set()
     pagados_set = set()
+
     
     if docs_to_check:
         try:
@@ -198,7 +199,6 @@ async def get_facturas_en_tramite(
             cursor = conn.cursor()
             
             oracle_details = {}  # {key: MCNDETALLE from account 23355002}
-            
             from collections import defaultdict
             grouped = defaultdict(list)
             for t, n in docs_to_check:

@@ -255,6 +255,7 @@ class Factura(Base):
     fecha_factura = Column(Date)
     fecha_vencimiento = Column(Date)
     valor = Column(Numeric(12, 2))  # Total value of the factura
+    iva = Column(Numeric(12, 2), nullable=True)  # IVA reported by n8n
     
     # Status for workflow: PENDIENTE -> ASIGNADA -> PAGADA
     estado = Column(String(50), default='PENDIENTE')

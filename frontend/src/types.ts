@@ -80,10 +80,12 @@ export interface Factura {
     contrato?: Contrato;  // Legacy
 
     numero_factura?: string;
+    es_duplicada?: boolean;
     cufe?: string;
     fecha_factura?: string;
     fecha_vencimiento?: string;
     valor?: number;  // Total value
+    iva?: number;    // Total IVA
     estado?: string;  // PENDIENTE, ASIGNADA, PAGADA
     url_factura?: string;
     observaciones?: string;

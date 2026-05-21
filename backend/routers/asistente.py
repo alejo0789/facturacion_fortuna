@@ -123,74 +123,125 @@ TEMPORAL_FILES_PATH = r"\\192.168.2.20\Facturas\temp_buscador"
 # ID del webhook de subida manual (tomado de facturas.py)
 WEBHOOK_URL_MANUAL = "https://saman.lafortuna.com.co/n8n/webhook/d15fc127-671d-4b24-8221-bac74a6f4648"
 
-async def process_single_file_task(file_info: dict):
-    """
-    Tarea en segundo plano para procesar un solo archivo:
-    1. Copiar de temp_buscador a temp (procesamiento manual)
-    2. Llamar al webhook de n8n
-    """
-    try:
-        filename = file_info.get("filename")
-        storage_path = file_info.get("storage_path")
-        
-        # Si storage_path es una ruta completa, extraemos solo el nombre
-        if "\\" in storage_path:
-            storage_path = storage_path.split("\\")[-1]
-            
-        source_path = os.path.join(TEMPORAL_FILES_PATH, storage_path)
-        
-        if not os.path.exists(source_path):
-            print(f"Error: Archivo no encontrado {source_path}")
-            return
 
-        # Generar nombre único para destino (igual que en facturas.py)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        unique_id = str(uuid.uuid4())[:8]
-        safe_filename = f"{timestamp}_{unique_id}_{filename}"
-        
-        dest_path = os.path.join(INVOICE_UPLOAD_PATH, safe_filename)
-        url_factura = f"file://192.168.2.20/Facturas/temp/{safe_filename}"
-        
-        # Copiar archivo
-        shutil.copy2(source_path, dest_path)
-        
+async def process_single_file_task(file_info: dict, client: httpx.AsyncClient):
+    """
+    Tarea para procesar un solo archivo:
+    Llamar al webhook de n8n usando el cliente proporcionado.
+    El archivo YA debe estar en la carpeta de destino.
+    """
+    filename = file_info.get("filename")
+    safe_filename = file_info.get("safe_filename")
+    dest_path = file_info.get("dest_path")
+    url_factura = file_info.get("url_factura")
+    
+    try:
         # Llamar al webhook
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            webhook_data = {
-                "event": "invoice_uploaded_via_search",
-                "file_path": dest_path,
-                "file_url": url_factura,
-                "filename": safe_filename,
-                "original_filename": filename,
-                "uploaded_at": datetime.now().isoformat()
-            }
-            # No esperamos respuesta (fire and forget en background) para no bloquear
-            # Ojo: Si el n8n falla, no nos enteramos aquí.
-            await client.post(WEBHOOK_URL_MANUAL, json=webhook_data)
+        webhook_data = {
+            "event": "invoice_uploaded_via_search",
+            "file_path": dest_path,
+            "file_url": url_factura,
+            "filename": safe_filename,
+            "original_filename": filename,
+            "uploaded_at": datetime.now().isoformat()
+        }
+        
+        print(f"Enviando a n8n: {filename}...")
+        response = await client.post(WEBHOOK_URL_MANUAL, json=webhook_data)
+        
+        if response.status_code >= 400:
+            print(f"Error de n8n para {filename}: Status {response.status_code} - {response.text[:200]}")
+        else:
+            print(f"Archivo {filename} enviado correctamente. Status: {response.status_code}")
             
     except Exception as e:
-        print(f"Error procesando archivo {filename}: {e}")
+        print(f"Excepción al enviar {filename} a n8n: {e}")
+
+async def process_files_sequentially_task(files: List[dict]):
+    """
+    Procesa una lista de archivos:
+    1. Los copia TODOS primero a la carpeta segura.
+    2. Los envía uno por uno a n8n.
+    """
+    print(f"Iniciando fase 1: Copiando {len(files)} archivos a zona segura...")
+    ready_files = []
+    
+    for file_info in files:
+        filename = file_info.get("filename")
+        try:
+            storage_path = file_info.get("storage_path")
+            if not storage_path: continue
+                
+            clean_storage_path = storage_path.replace("\\", "/").split("/")[-1]
+            source_path = os.path.join(TEMPORAL_FILES_PATH, clean_storage_path)
+            
+            if not os.path.exists(source_path):
+                print(f"Error: No se encontró {filename} en {source_path}")
+                continue
+
+            # Generar nombre único
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            unique_id = str(uuid.uuid4())[:8]
+            safe_filename = f"{timestamp}_{unique_id}_{filename}"
+            
+            dest_path = os.path.join(INVOICE_UPLOAD_PATH, safe_filename)
+            url_factura = f"file://192.168.2.20/Facturas/temp/{safe_filename}"
+            
+            # Copiar inmediatamente
+            await asyncio.to_thread(shutil.copy2, source_path, dest_path)
+            
+            # Guardar datos para la fase 2
+            ready_files.append({
+                **file_info,
+                "safe_filename": safe_filename,
+                "dest_path": dest_path,
+                "url_factura": url_factura
+            })
+        except Exception as e:
+            print(f"Error al poner a salvo {filename}: {e}")
+
+    print(f"Fase 1 completada. {len(ready_files)} archivos listos para n8n.")
+    
+    if not ready_files:
+        return
+
+    print("Iniciando fase 2: Notificando a n8n secuencialmente...")
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        for i, file_info in enumerate(ready_files):
+            await process_single_file_task(file_info, client)
+            # Retraso para no saturar n8n
+            await asyncio.sleep(1.5)
+            
+    print("Todo el lote ha sido procesado.")
 
 @router.post("/asistente/process")
 async def process_documents(query: ProcessQuery, background_tasks: BackgroundTasks):
     """
     Envía los archivos seleccionados al flujo de procesamiento manual.
-    Se ejecuta en segundo plano para no bloquear al usuario.
+
+    Se ejecuta en segundo plano de forma secuencial para no saturar n8n.
     """
+    print(f"DEBUG: Petición recibida en /asistente/process con {len(query.files)} archivos")
     if not query.files:
         raise HTTPException(status_code=400, detail="No se seleccionaron archivos")
 
+    # Filtrar solo los que tienen storage_path
+    valid_files = [f for f in query.files if f.get("storage_path")]
+    
+    if not valid_files:
+        raise HTTPException(status_code=400, detail="Ninguno de los archivos seleccionados es válido")
+
     # Asegurar que directorio destino existe
     if not os.path.exists(INVOICE_UPLOAD_PATH):
-        os.makedirs(INVOICE_UPLOAD_PATH, exist_ok=True)
+        try:
+            os.makedirs(INVOICE_UPLOAD_PATH, exist_ok=True)
+        except Exception as e:
+            print(f"Error creando directorio {INVOICE_UPLOAD_PATH}: {e}")
 
-    count = 0
-    for file_info in query.files:
-        if file_info.get("storage_path"):
-            background_tasks.add_task(process_single_file_task, file_info)
-            count += 1
+    # Agregamos UNA SOLA tarea de fondo que procesará todo secuencialmente
+    background_tasks.add_task(process_files_sequentially_task, valid_files)
             
-    return {"message": f"Se han enviado {count} archivos a procesar en segundo plano."}
+    return {"message": f"Se han enviado {len(valid_files)} archivos a procesar secuencialmente en segundo plano."}
 
 from fastapi.responses import FileResponse
 from urllib.parse import unquote
@@ -215,26 +266,18 @@ async def preview_temp_file(filename: str):
 @router.delete("/asistente/cleanup/{request_id}")
 async def cleanup_temp_files(request_id: str):
     """
-    Elimina TODOS los archivos temporales en la carpeta temp_buscador.
-    Se ignora el request_id para el borrado de archivos, pero se usa para limpiar caché.
+
+    Elimina los datos de caché para el request_id.
+    La eliminación física de archivos se ha desactivado temporalmente para evitar 
+    conflictos con el procesamiento en segundo plano.
+
     """
     # 1. Limpiar caché
     if request_id in search_cache:
         del search_cache[request_id]
     
-    # 2. Eliminar TODOS los archivos físicos en la carpeta temporal
-    deleted_count = 0
-    try:
-        if os.path.exists(TEMPORAL_FILES_PATH):
-            for filename in os.listdir(TEMPORAL_FILES_PATH):
-                file_path = os.path.join(TEMPORAL_FILES_PATH, filename)
-                try:
-                    if os.path.isfile(file_path):
-                        os.remove(file_path)
-                        deleted_count += 1
-                except Exception as e:
-                    print(f"Error borrando archivo temporal {filename}: {e}")
-                        
-        return {"message": f"Limpieza TOTAL completada. {deleted_count} archivos eliminados."}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error en limpieza: {str(e)}")
+
+    # 2. La eliminación física se omite por ahora para mayor seguridad
+    # durante el procesamiento de lotes grandes.
+    
+    return {"message": f"Limpieza de caché para {request_id} completada."}

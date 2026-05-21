@@ -36,6 +36,7 @@ class FacturaArchivoPlano(BaseModel):
     id: Optional[int] = None
     numero_factura: Optional[str] = None
     fecha_factura: Optional[date] = None  # For extracting month
+    iva: Optional[Decimal] = None  # Optional global IVA for the invoice
     oficinas: List[OficinaArchivoPlano]
 
 
@@ -195,33 +196,33 @@ def build_detalle(numero_factura: str, nombre_oficina: str, mes_factura: str, pr
 
 # --- Casos especiales: cuenta única (sin división 70/30) ---
 # Estructura de cada regla:
+#   "nit": NIT del proveedor
 #   "contratos": set de números de contrato específicos, o None para aplicar a TODOS los contratos
 #   "cuenta": cuenta contable donde va el 100% del valor base
-CUENTA_UNICA_REGLAS = {
-    # NIT 830122566: solo en contratos 10434167091 y 181161832 → cuenta 51209505
-    "830122566": {"contratos": {"10434167091", "181161832"}, "cuenta": "51209505"},
+CUENTA_UNICA_REGLAS = [
+    # NIT 830122566 (Movistar): contratos 10434167091 y 181161832 → cuenta 51209505
+    {"nit": "830122566", "contratos": {"10434167091", "181161832"}, "cuenta": "51209505"},
+    # NIT 830122566 (Movistar): contrato 1043416709 → cuenta 51353505
+    {"nit": "830122566", "contratos": {"1043416709"}, "cuenta": "51353505"},
+    # NIT 800153993 (Claro): contrato 8223607573 → cuenta 51353505
+    {"nit": "800153993", "contratos": {"8223607573"}, "cuenta": "51353505"},
     # NIT 819006966 (Medicommerce): todos los contratos → cuenta 51353503
-    "819006966": {"contratos": None, "cuenta": "51353503"},
-}
+    {"nit": "819006966", "contratos": None, "cuenta": "51353503"},
+]
 
 def get_cuenta_unica(proveedor_nit: str, num_contrato: Optional[str]) -> Optional[str]:
     """
     Returns the single account to use (100% of valor_base) if this NIT+contrato
     combination requires it, or None if the normal 70/30 split applies.
-
-    Rules:
-    - If regla["contratos"] is None  -> applies to ALL contracts of that NIT.
-    - If regla["contratos"] is a set -> applies only when num_contrato is in that set.
     """
-    regla = CUENTA_UNICA_REGLAS.get(proveedor_nit)
-    if not regla:
-        return None
-    contratos_especificos = regla["contratos"]
-    if contratos_especificos is None:
-        # Applies to all contracts (and even when there is no contract)
-        return regla["cuenta"]
-    if num_contrato and num_contrato.strip() in contratos_especificos:
-        return regla["cuenta"]
+    for regla in CUENTA_UNICA_REGLAS:
+        if regla["nit"] == proveedor_nit:
+            contratos_especificos = regla["contratos"]
+            if contratos_especificos is None:
+                # Applies to all contracts
+                return regla["cuenta"]
+            if num_contrato and num_contrato.strip() in contratos_especificos:
+                return regla["cuenta"]
     return None
 
 
@@ -327,7 +328,9 @@ async def generate_rows_for_oficina(
     tiene_iva: bool,
     numero_factura: str,  # For building DETALLE
     fecha_factura: Optional[date],  # For extracting month
-    starting_row_index: int  # Excel row number to start (2, 3, 4...)
+    starting_row_index: int,  # Excel row number to start (2, 3, 4...)
+    factura_iva: Optional[float] = None,
+    factura_total_valor: float = 0
 ) -> tuple[List[list], int, dict]:
     """
     Generate debit rows for a single office.
@@ -366,7 +369,15 @@ async def generate_rows_for_oficina(
     valor = round(float(oficina.valor), 0)  # Valor total de la oficina (ENTERO)
 
     # Calculate base value (without IVA if applicable)
-    if tiene_iva:
+    if factura_iva is not None and tiene_iva:
+        if factura_total_valor > 0:
+            ratio = valor / factura_total_valor
+            valor_iva = round(factura_iva * ratio, 0)
+            valor_base = valor - valor_iva
+        else:
+            valor_base = valor
+            valor_iva = 0
+    elif tiene_iva:
         if proveedor_nit == "901073256":
             # REGLA ESPECIAL: T = B * 1.15 (Base + 19% IVA - 4% Rete)
             # Bruto (B) = T / 1.15, IVA = B * 0.19
@@ -383,7 +394,29 @@ async def generate_rows_for_oficina(
     # Check if this NIT+contrato uses a single account instead of 70/30 split
     cuenta_unica = get_cuenta_unica(proveedor_nit, oficina.num_contrato)
 
-    if cuenta_unica:
+    if oficina.num_contrato == "17703924":
+        # Special case: split into 3 equal parts to account 51353503
+        valor_parte = round(valor_base / 3, 0)
+        remainder = valor_base - (valor_parte * 2)
+        
+        for i in range(3):
+            val = remainder if i == 2 else valor_parte
+            rows.append(create_flat_file_row(
+                row_index=current_row,
+                numedoc=numedoc,
+                fecha=fecha,
+                cuenta=format_value("51353503"),
+                vinculado=vinculado,
+                ccosto=ccosto,
+                destino=destino,
+                valdebi=val,
+                detalle=detalle
+            ))
+            current_row += 1
+            
+        valor_70 = valor_base  # For accumulator compatibility
+        valor_30 = 0
+    elif cuenta_unica:
         # Special case: 100% of valor_base to a single account
         rows.append(create_flat_file_row(
             row_index=current_row,
@@ -585,6 +618,11 @@ async def generar_archivo_plano(request: ArchivoPlanoRequest):
         last_office_info = None
         last_detalle = ""  # Store the last detalle for summary rows
         
+        factura_total_valor = sum(float(o.valor) for o in factura.oficinas)
+        iva_global = float(factura.iva) if factura.iva is not None else None
+        
+        print(f"DEBUG CAUSACION - Factura: {factura.numero_factura}, IVA recibido: {factura.iva}, IVA a usar: {iva_global}, Valor Total: {factura_total_valor}")
+        
         # Generate rows for each office in this factura
         for oficina in factura.oficinas:
             rows, current_row_index, office_info = await generate_rows_for_oficina(
@@ -595,7 +633,9 @@ async def generar_archivo_plano(request: ArchivoPlanoRequest):
                 tiene_iva=request.tiene_iva,
                 numero_factura=factura.numero_factura or '',
                 fecha_factura=factura.fecha_factura,
-                starting_row_index=current_row_index
+                starting_row_index=current_row_index,
+                factura_iva=iva_global,
+                factura_total_valor=factura_total_valor
             )
             all_rows.extend(rows)
             
@@ -688,6 +728,11 @@ async def preview_archivo_plano(request: ArchivoPlanoRequest):
         last_office_info = None
         last_detalle = ""
         
+        factura_total_valor = sum(float(o.valor) for o in factura.oficinas)
+        iva_global = float(factura.iva) if factura.iva is not None else None
+        
+        print(f"DEBUG PREVIEW - Factura: {factura.numero_factura}, IVA recibido: {factura.iva}, IVA a usar: {iva_global}, Valor Total: {factura_total_valor}")
+        
         for oficina in factura.oficinas:
             rows, current_row_index, office_info = await generate_rows_for_oficina(
                 oficina=oficina,
@@ -697,7 +742,9 @@ async def preview_archivo_plano(request: ArchivoPlanoRequest):
                 tiene_iva=request.tiene_iva,
                 numero_factura=factura.numero_factura or '',
                 fecha_factura=factura.fecha_factura,
-                starting_row_index=current_row_index
+                starting_row_index=current_row_index,
+                factura_iva=iva_global,
+                factura_total_valor=factura_total_valor
             )
             all_rows.extend(rows)
             
@@ -818,6 +865,9 @@ async def preview_causacion_manager(request: CausacionManagerPreviewRequest):
         factura_valor_base = 0  # Sum of valor_base (sin IVA) para calcular retefuente
         row_counter = 1
         
+        factura_total_valor = sum(float(o.valor) for o in factura.oficinas)
+        iva_global = float(factura.iva) if factura.iva is not None else None
+        
         # Process each oficina
         for oficina in factura.oficinas:
             ccosto_raw = await get_centro_costo(oficina.cod_oficina)
@@ -837,7 +887,15 @@ async def preview_causacion_manager(request: CausacionManagerPreviewRequest):
             valor = round(float(oficina.valor), 0)
 
             # Calculate base value
-            if request.tiene_iva:
+            if iva_global is not None and request.tiene_iva:
+                if factura_total_valor > 0:
+                    ratio = valor / factura_total_valor
+                    valor_iva = round(iva_global * ratio, 0)
+                    valor_base = valor - valor_iva
+                else:
+                    valor_base = valor
+                    valor_iva = 0
+            elif request.tiene_iva:
                 if request.proveedor_nit == "901073256":
                     # REGLA ESPECIAL: Bruto (B) = T / 1.15, IVA = B * 0.19
                     valor_base = round(valor / 1.15, 0)
@@ -852,7 +910,25 @@ async def preview_causacion_manager(request: CausacionManagerPreviewRequest):
             # Check special single-account rule
             cuenta_unica = get_cuenta_unica(request.proveedor_nit, oficina.num_contrato)
 
-            if cuenta_unica:
+            if oficina.num_contrato == "17703924":
+                # Special case: split into 3 equal parts to account 51353503
+                valor_parte = round(valor_base / 3, 0)
+                remainder = valor_base - (valor_parte * 2)
+                
+                for i in range(3):
+                    val = remainder if i == 2 else valor_parte
+                    rows_preview.append(CausacionRowPreview(
+                        row_num=row_counter,
+                        cuenta="51353503",
+                        tipo_movimiento="DEBITO",
+                        ccosto=ccosto,
+                        destino=destino,
+                        valor=val,
+                        detalle=detalle
+                    ))
+                    row_counter += 1
+                factura_debitos += valor_base
+            elif cuenta_unica:
                 # Special case: 100% to single account
                 rows_preview.append(CausacionRowPreview(
                     row_num=row_counter,

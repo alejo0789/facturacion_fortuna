@@ -350,6 +350,7 @@ class Factura(FacturaBase):
     # Debugging/Info fields
     storage_path: Optional[str] = None  # Expected network path
     file_exists: Optional[bool] = None  # Whether the file was found
+    es_duplicada: Optional[bool] = None  # Whether another invoice with same number exists for this provider
     
     class Config:
         from_attributes = True
