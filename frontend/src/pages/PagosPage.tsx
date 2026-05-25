@@ -82,7 +82,7 @@ export default function PagosPage() {
             if (filtroEstado === 'TODAS') return true;
 
             const mData = managerData[f.id] || {};
-            const isPagada = f.es_pagada_manager || !!mData.pagado;
+            const isPagada = f.estado === 'PAGADA' || f.es_pagada_manager || !!mData.pagado;
             const isAprobada = f.es_aprobado_manager || mData.es_aprobado;
 
             if (filtroEstado === 'PAGADA') return isPagada;

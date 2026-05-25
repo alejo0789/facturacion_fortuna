@@ -564,6 +564,7 @@ export default function FacturasPage() {
                 id: number;
                 numero_factura: string;
                 fecha_factura: string | null;
+                iva: number | null;
                 oficinas: Array<{ cod_oficina: string; valor: number; nombre_oficina: string }>;
             }> = [];
 
@@ -586,6 +587,7 @@ export default function FacturasPage() {
                         id: factura.id,
                         numero_factura: factura.numero_factura || '',
                         fecha_factura: factura.fecha_factura || null,
+                        iva: factura.iva || null,
                         oficinas: oficinas
                     });
                 }
@@ -645,6 +647,7 @@ export default function FacturasPage() {
             const facturasForRequest: Array<{
                 numero_factura: string;
                 fecha_factura: string | null;
+                iva: number | null;
                 oficinas: Array<{ cod_oficina: string; valor: number; nombre_oficina: string; num_contrato?: string | null }>;
             }> = [];
 
@@ -666,6 +669,7 @@ export default function FacturasPage() {
                     facturasForRequest.push({
                         numero_factura: factura.numero_factura || '',
                         fecha_factura: factura.fecha_factura || null,
+                        iva: factura.iva || null,
                         oficinas: oficinas
                     });
                 }
@@ -1381,7 +1385,7 @@ export default function FacturasPage() {
                 <div className="relative flex-1">
                     <input
                         type="text"
-                        placeholder="Buscar por proveedor, NIT, factura, CUFE..."
+                        placeholder="Buscar por proveedor, NIT, factura, CUFE, contrato..."
                         className="w-full px-4 py-3 pl-11 bg-white border border-gray-200 rounded-xl shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
@@ -1673,7 +1677,14 @@ export default function FacturasPage() {
                                     <div className="grid grid-cols-2 gap-2 text-sm">
                                         <div>
                                             <span className="block text-gray-400 text-xs uppercase">Factura #</span>
-                                            <span className="font-mono text-gray-700">{f.numero_factura || '-'}</span>
+                                            <div className="flex items-center gap-2">
+                                                <span className="font-mono text-gray-700">{f.numero_factura || '-'}</span>
+                                                {f.es_duplicada && (
+                                                    <span className="animate-pulse bg-red-100 text-red-700 text-[10px] px-1.5 py-0.5 rounded-full border border-red-200 font-bold" title="Ya existe otra factura con este mismo número para este proveedor">
+                                                        REPETIDA
+                                                    </span>
+                                                )}
+                                            </div>
                                         </div>
                                         <div>
                                             <span className="block text-gray-400 text-xs uppercase">Valor</span>

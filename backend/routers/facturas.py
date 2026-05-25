@@ -33,6 +33,11 @@ from services.pago import crear_asiento_pago_factura, CUENTA_PROVEEDORES_DEFAULT
 from sqlalchemy import select, func as sqlfunc
 from models_contabilidad import AsientoContable, LineaAsiento
 
+# Helper compatible con cambio del compañero: alias `func` apunta a `sqlfunc`
+# (el compañero importó `from sqlalchemy import select, func` para detectar
+# duplicados; preservamos ese nombre sin doble-import).
+func = sqlfunc
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
@@ -71,6 +76,23 @@ async def _generar_asiento_causacion_safe(
         f"Causación factura {factura.numero_factura or factura.id} - NIT {proveedor_nit}"
     )
 
+    # Si la factura trae IVA explícito (típico desde n8n del compañero),
+    # derivamos el rate efectivo y se lo pasamos al servicio para que la
+    # causación cuadre con lo que el OCR/n8n vio en el PDF, en vez de
+    # aplicar la tarifa default de la empresa.
+    iva_rate_override = None
+    factura_iva = getattr(factura, "iva", None)
+    if tiene_iva and factura_iva is not None and Decimal(factura_iva) > 0:
+        try:
+            valor_total_dec = Decimal(factura.valor)
+            valor_iva_dec = Decimal(factura_iva)
+            valor_base_dec = valor_total_dec - valor_iva_dec
+            if valor_base_dec > 0:
+                # rate efectivo = iva / base * 100
+                iva_rate_override = (valor_iva_dec / valor_base_dec * Decimal("100")).quantize(Decimal("0.01"))
+        except Exception:
+            iva_rate_override = None  # cualquier fallo de cálculo → tarifa default
+
     try:
         asiento = await crear_asiento_causacion_factura(
             empresa_id=empresa_id,
@@ -87,6 +109,7 @@ async def _generar_asiento_causacion_safe(
             descripcion=descripcion,
             user_id=user_id,
             db=db,
+            iva_rate_override=iva_rate_override,
         )
         await db.commit()
         return {
@@ -184,6 +207,7 @@ async def create_factura_api(
         fecha_factura=factura.fecha_factura,
         fecha_vencimiento=factura.fecha_vencimiento,
         valor=factura.valor,
+        iva=factura.iva,
         url_factura=factura.url_factura,
         observaciones=factura.observaciones,
         estado='PENDIENTE'
@@ -344,6 +368,7 @@ async def create_factura_con_oficinas(
                 fecha_factura=request.fecha_factura,
                 fecha_vencimiento=request.fecha_vencimiento,
                 valor=request.valor,
+                iva=request.iva,
                 url_factura=request.url_factura,
                 observaciones=request.observaciones,
                 estado='PENDIENTE' if not request.oficinas else 'ASIGNADA'
@@ -486,6 +511,7 @@ async def create_factura_con_oficinas(
                 "fecha_factura": str(factura.fecha_factura) if factura.fecha_factura else None,
                 "fecha_vencimiento": str(factura.fecha_vencimiento) if factura.fecha_vencimiento else None,
                 "valor": str(factura.valor) if factura.valor else None,
+                "iva": str(factura.iva) if factura.iva is not None else None,
                 "estado": factura.estado,
                 "url_factura": factura.url_factura,
                 "observaciones": factura.observaciones,
@@ -610,8 +636,41 @@ async def list_facturas(
         empresa_id=empresa.id,
     )
     
-    # Enrich with file info
-    return [enrich_factura_with_file_info(f) for f in facturas_models]
+    # Check for duplicates in the current results
+    # A factura is duplicate if there's another one with same proveedor_id and numero_factura
+    # that is NOT null/empty.
+    
+    # Efficiently find all duplicates for these providers in one go
+    prov_ids = list(set(f.proveedor_id for f in facturas_models))
+    nums = list(set(f.numero_factura for f in facturas_models if f.numero_factura))
+    
+    duplicate_counts = {}
+    if nums:
+        # select proveedor_id, numero_factura, count(*) from facturas 
+        # where proveedor_id in (...) and numero_factura in (...)
+        # group by proveedor_id, numero_factura having count(*) > 1
+        dup_query = (
+            select(models.Factura.proveedor_id, models.Factura.numero_factura, func.count(models.Factura.id))
+            .filter(models.Factura.proveedor_id.in_(prov_ids))
+            .filter(models.Factura.numero_factura.in_(nums))
+            .group_by(models.Factura.proveedor_id, models.Factura.numero_factura)
+        )
+        dup_res = await db.execute(dup_query)
+        for p_id, f_num, count in dup_res.all():
+            if count > 1:
+                duplicate_counts[(p_id, f_num)] = True
+
+    # Enrich with file info and duplicate flag
+    enriched = []
+    for f in facturas_models:
+        schema_obj = enrich_factura_with_file_info(f)
+        if f.numero_factura and (f.proveedor_id, f.numero_factura) in duplicate_counts:
+            schema_obj.es_duplicada = True
+        else:
+            schema_obj.es_duplicada = False
+        enriched.append(schema_obj)
+        
+    return enriched
 
 
 @router.get("/facturas/{factura_id}", response_model=schemas.Factura)
@@ -621,7 +680,21 @@ async def get_factura(factura_id: int, db: AsyncSession = Depends(get_db)):
     if not factura:
         raise HTTPException(status_code=404, detail="Factura no encontrada")
     
-    return enrich_factura_with_file_info(factura)
+    schema_obj = enrich_factura_with_file_info(factura)
+    
+    # Check if duplicate exists
+    if factura.numero_factura:
+        dup_query = (
+            select(func.count(models.Factura.id))
+            .filter(models.Factura.proveedor_id == factura.proveedor_id)
+            .filter(models.Factura.numero_factura == factura.numero_factura)
+        )
+        dup_count = await db.execute(dup_query)
+        schema_obj.es_duplicada = dup_count.scalar() > 1
+    else:
+        schema_obj.es_duplicada = False
+        
+    return schema_obj
 
 
 @router.put("/facturas/{factura_id}", response_model=schemas.Factura)
@@ -1458,7 +1531,11 @@ async def upload_factura_zip(
                                             "filename": original_filename,
                                             "status": "success",
                                             "factura_id": n8n_result.get("factura_id"),
-                                            "message": "Procesado correctamente"
+                                            "message": "Procesado correctamente",
+                                            "data": {
+                                                "numero_factura": n8n_result.get("factura", {}).get("numero_factura"),
+                                                "es_duplicada": n8n_result.get("factura", {}).get("es_duplicada", False)
+                                            }
                                         })
                                     else:
                                         errors.append({

@@ -404,48 +404,93 @@ psql -U postgres -c "CREATE DATABASE supplier_db OWNER fortuna;"
 Y usa en `.env`:
 `DATABASE_URL=postgresql+asyncpg://fortuna:fortuna@localhost:5432/supplier_db`.
 
-### 4. Configurar el `.env`
+### 4. Configuración local — archivos `.env`
 
-Copia la plantilla:
+> ⚠️ **Seguridad**: los archivos `.env`, `.env.example` y `.env.production`
+> **NO están en el repositorio** (contienen credenciales y secretos). Cada
+> desarrollador debe crearlos a mano siguiendo las plantillas de abajo.
+> El `.gitignore` los bloquea automáticamente.
 
-```bash
-# desde backend/
-copy .env.example .env          # Windows
-cp .env.example .env            # macOS / Linux
-```
+#### 4.1 `backend/.env` — secretos del backend
 
-Edita `backend/.env` y ajusta al mínimo:
+Crea el archivo `backend/.env` con este contenido **exacto**, reemplazando
+los valores marcados con `CAMBIAR`:
 
 ```env
-# Base de datos
-DATABASE_URL=postgresql+asyncpg://postgres:TU_PASSWORD@localhost:5432/supplier_db
+# ==========================================================
+# Base de datos PostgreSQL
+# ==========================================================
+DATABASE_URL=postgresql+asyncpg://postgres:CAMBIAR_PASSWORD@localhost:5432/supplier_db
 
-# JWT — genera una clave aleatoria propia
-JWT_SECRET_KEY=UNA-CLAVE-LARGA-Y-ALEATORIA
+# ==========================================================
+# JWT — autenticación de usuarios (CRÍTICO en producción)
+# ==========================================================
+# Genera una clave nueva con:
+#   python -c "import secrets; print(secrets.token_urlsafe(64))"
+JWT_SECRET_KEY=CAMBIAR_POR_UNA_CLAVE_ALEATORIA_LARGA
+JWT_ALGORITHM=HS256
+JWT_ACCESS_TOKEN_EXPIRE_MINUTES=60
+JWT_REFRESH_TOKEN_EXPIRE_DAYS=7
 
-# Superadmin que se creará en el primer arranque
+# ==========================================================
+# CORS — dominios autorizados a llamar al backend
+# ==========================================================
+CORS_ORIGINS=http://localhost:5173,http://localhost:3000,http://192.168.2.91:5173,https://saman.lafortuna.com.co,http://saman.lafortuna.com.co
+
+# ==========================================================
+# Superadmin inicial (se crea en el primer arranque)
+# ==========================================================
 SUPERADMIN_EMAIL=admin@admin.com
-SUPERADMIN_PASSWORD=admin123
+SUPERADMIN_PASSWORD=CAMBIAR_PASSWORD_FUERTE
+
+# ==========================================================
+# Empresa y firma por defecto (se crean al hacer seed)
+# ==========================================================
+DEFAULT_FIRMA_NOMBRE=Fortuna
+DEFAULT_FIRMA_NIT=000000000-0
+DEFAULT_EMPRESA_NOMBRE=La Fortuna
+DEFAULT_EMPRESA_NIT=000000000-0
+
+# ==========================================================
+# Seguridad
+# ==========================================================
+MAX_LOGIN_ATTEMPTS=5
+LOGIN_LOCKOUT_MINUTES=15
+MIN_PASSWORD_LENGTH=8
+
+# ==========================================================
+# Opcional — sólo si n8n / integraciones legacy siguen usando X-API-Key
+# ==========================================================
+# API_KEY=la_api_key_que_usa_n8n
 ```
 
-Para una `JWT_SECRET_KEY` segura:
-
-```bash
-python -c "import secrets; print(secrets.token_urlsafe(64))"
-```
-
-El resto (`CORS_ORIGINS`, `DEFAULT_FIRMA_*`, `DEFAULT_EMPRESA_*`) puede
-quedar con los defaults.
-
-> Si migras desde La Fortuna y quieres que n8n siga funcionando,
-> coloca también `API_KEY=<la_api_key_que_ya_usaba_n8n>`.
-
-Para el frontend, crea `frontend/.env`:
+#### 4.2 `frontend/.env` — config local del frontend (dev)
 
 ```env
 VITE_API_URL=http://localhost:8000
-# VITE_API_KEY=<opcional, sólo si tienes integraciones legacy>
 ```
+
+Es lo mínimo. Si tu n8n local llama directamente al frontend con X-API-Key,
+agrega también `VITE_API_KEY=...` (opcional).
+
+#### 4.3 `frontend/.env.production` — sólo si vas a hacer `npm run build`
+
+```env
+VITE_API_URL=https://saman.lafortuna.com.co/api
+```
+
+Ajusta el dominio al que corresponda tu deploy.
+
+#### 4.4 Verificación
+
+```bash
+# desde la raíz del repo
+ls backend/.env frontend/.env       # deben existir
+git status                          # NO deben aparecer en "untracked" ni "modified"
+```
+
+Si ves `backend/.env` en `git status`, algo anda mal con el `.gitignore` —
+revisa que el bloque `.env` esté presente en la raíz `.gitignore`.
 
 ### 5. (Si migras datos existentes) Ejecutar la migración SaaS
 
@@ -566,7 +611,16 @@ cd frontend
 npm install
 ```
 
-#### 9.2 Arrancar
+#### 9.2 Crear `.env` del frontend
+
+Si todavía no creaste `frontend/.env`, hazlo ahora (ver
+[Sección 4.2](#42-frontendenv--config-local-del-frontend-dev)):
+
+```env
+VITE_API_URL=http://localhost:8000
+```
+
+#### 9.3 Arrancar
 
 ```bash
 npm run dev

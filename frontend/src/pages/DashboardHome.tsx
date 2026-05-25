@@ -76,18 +76,8 @@ const formatCurrency = (value: number) => {
     }).format(value);
 };
 
-// Formato compacto para cards (ej: $412M) — disponible si se requiere en otro lado
-// @ts-expect-error: reservado para uso futuro
-const formatCompact = (value: number) => {
-    if (value >= 1000000000) {
-        return `$${(value / 1000000000).toFixed(1)}B`;
-    } else if (value >= 1000000) {
-        return `$${(value / 1000000).toFixed(1)}M`;
-    } else if (value >= 1000) {
-        return `$${(value / 1000).toFixed(0)}K`;
-    }
-    return `$${value.toLocaleString()}`;
-};
+// formatCompact (B/M/K) removido — no se usa hoy. Si vuelve a necesitarse,
+// recuperarlo desde el commit anterior del tag backup/pre-merge-main-2026-05-10.
 
 interface StatCardProps {
     title: string;

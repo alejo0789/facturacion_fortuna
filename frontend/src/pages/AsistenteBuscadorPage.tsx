@@ -61,6 +61,8 @@ export default function AsistenteBuscadorPage() {
 
     const pollStatus = async (requestId: string) => {
         try {
+            // Auth: JWT vía authFetch (Opción A). El X-API-Key legacy queda en
+            // el AuthDualMiddleware del backend para compatibilidad con n8n.
             const res = await authFetch(`${API_URL}/asistente/search/${requestId}`);
             if (!res.ok) {
                 // If 404, maybe not ready yet or error
@@ -109,6 +111,7 @@ export default function AsistenteBuscadorPage() {
         }
 
         try {
+            // Auth: JWT vía authFetch (Opción A)
             const res = await authFetch(`${API_URL}/asistente/search`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -163,7 +166,7 @@ export default function AsistenteBuscadorPage() {
         setError(null);
 
         try {
-            // Filter results to get full objects of selected items
+            // Auth: JWT vía authFetch (Opción A)
             const filesToProcess = results.filter(r => selected.has(r.sourceId + r.filename));
 
             const res = await authFetch(`${API_URL}/asistente/process`, {

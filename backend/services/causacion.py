@@ -120,6 +120,7 @@ async def crear_asiento_causacion_factura(
     cuenta_reteica: str = CUENTA_RETEICA_PAGAR,
     concepto_dian: Optional[str] = None,
     centro_costo: Optional[str] = None,
+    iva_rate_override: Optional[Decimal] = None,
 ) -> AsientoContable:
     """
     Crea un asiento CAUSACION para la factura.
@@ -162,6 +163,7 @@ async def crear_asiento_causacion_factura(
             aplica_reteiva=aplica_reteiva,
             aplica_reteica=aplica_reteica,
             concepto_dian=concepto_dian,
+            iva_rate_override=iva_rate_override,
         )
 
         # 3. Siguiente número

@@ -101,6 +101,7 @@ class FacturaBase(BaseModel):
     fecha_factura: Optional[date] = None
     fecha_vencimiento: Optional[date] = None
     valor: Optional[Decimal] = None
+    iva: Optional[Decimal] = None
     estado: Optional[str] = "PENDIENTE"
     status_updated_at: Optional[datetime] = None
     url_factura: Optional[str] = None
@@ -124,6 +125,7 @@ class FacturaCreateAPI(BaseModel):
     fecha_factura: Optional[date] = None
     fecha_vencimiento: Optional[date] = None
     valor: Optional[Decimal] = None
+    iva: Optional[Decimal] = None
     url_factura: Optional[str] = None  # URL where invoice is stored
     observaciones: Optional[str] = None
     # --- Causación contable automática ---
@@ -159,6 +161,7 @@ class FacturaCreateConOficinas(BaseModel):
     fecha_factura: Optional[date] = None
     fecha_vencimiento: Optional[date] = None
     valor: Optional[Decimal] = None  # Valor total de la factura
+    iva: Optional[Decimal] = None  # Opcional: IVA total de la factura
     url_factura: Optional[str] = None
     observaciones: Optional[str] = None
     oficinas: Optional[list[OficinaConValor]] = None  # Opcional: lista de oficinas con valores
@@ -186,7 +189,7 @@ class FacturaCreateConOficinas(BaseModel):
             return None
         return v
     
-    @validator('valor', pre=True)
+    @validator('valor', 'iva', pre=True)
     def empty_string_to_none_decimal(cls, v):
         if v == '' or v == 'null' or v == 'undefined' or v is None:
             return None
@@ -241,6 +244,7 @@ class Factura(FacturaBase):
     # Debugging/Info fields
     storage_path: Optional[str] = None  # Expected network path
     file_exists: Optional[bool] = None  # Whether the file was found
+    es_duplicada: Optional[bool] = None  # Whether another invoice with same number exists for this provider
     
     class Config:
         from_attributes = True

@@ -62,11 +62,15 @@ env/
 # pyenv
 .python-version
 
-# Environment variables
+# ===========================
+# Environment variables (NUNCA al repo, ni siquiera .env.example)
+# ===========================
+# Las plantillas y las instrucciones para crearlos viven en README.md
+# (sección "Configuración local — archivos .env").
 .env
-.env.local
-.env.*.local
+.env.*
 *.env
+!.env.template-doc          # marker symbolic, in case se documente ahí
 
 # ===========================
 # Node.js / Frontend
@@ -205,6 +209,10 @@ service-account.json
 # Oracle Snapshot DB (Too large for Git)
 backend/oracle_snapshot.sql
 
+# Database dumps locales (NUNCA al repo — datos sensibles)
+backup_db/
+*.dump
+
 # User request: exclude from github but keep local
 *.pdf
 *.md
@@ -213,5 +221,6 @@ backend/oracle_snapshot.sql
 # Excepciones — archivos del proyecto que SÍ deben ir al repo (rama saas-multitenant)
 !README.md
 !DEPLOYMENT_LOCAL.md
-!backend/.env.example
 !backend/migrations/*.sql
+# NOTA: backend/.env.example y frontend/.env.production se SACARON del repo
+# por seguridad. Las instrucciones para crearlos están en README.md.
