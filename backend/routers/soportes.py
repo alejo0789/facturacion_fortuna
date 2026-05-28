@@ -1,8 +1,10 @@
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from database import get_db
+from typing import Optional
 import models
 import os
 import fitz  # PyMuPDF
@@ -202,3 +204,74 @@ async def get_soporte_file(soporte_id: int, db: Session = Depends(get_db)):
         media_type="application/pdf",
         filename=os.path.basename(soporte.ruta_archivo)
     )
+
+@router.post("/upload-factura")
+async def upload_soporte_factura(
+    file: Optional[UploadFile] = File(None),
+    data: Optional[UploadFile] = File(None), 
+    archivo: Optional[UploadFile] = File(None),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Recibe un soporte de pago desde n8n.
+    El nombre del archivo debe contener el número de factura, ej. 'fe234343.pdf'.
+    Relaciona el PDF a la factura y guarda el registro en soportes_bancarios.
+    """
+    uploaded_file = file or data or archivo
+    if not uploaded_file:
+        raise HTTPException(status_code=422, detail="No se encontró ningún archivo en la petición. Asegúrate de enviar multipart/form-data con el campo 'file', 'data' o 'archivo'.")
+        
+    if not uploaded_file.filename.lower().endswith('.pdf'):
+        raise HTTPException(status_code=400, detail="El archivo debe ser un PDF")
+        
+    # Extraer el nombre base removiendo todas las extensiones .pdf que pueda tener
+    base_name = uploaded_file.filename
+    while base_name.lower().endswith('.pdf'):
+        base_name = base_name[:-4]
+    
+    # Buscar factura por numero de factura (case insensitive)
+    result = await db.execute(
+        select(models.Factura).where(models.Factura.numero_factura.ilike(f"%{base_name}%"))
+    )
+    factura = result.scalars().first()
+    
+    if not factura:
+        raise HTTPException(status_code=404, detail=f"Factura con número conteniendo '{base_name}' no encontrada")
+        
+    content = await uploaded_file.read()
+    ahora = datetime.now()
+    mes_str = f"{ahora.month:02d}"
+    dia_str = f"{ahora.day:02d}"
+    
+    destino_dir = os.path.join(NETWORK_BASE_PATH, mes_str, dia_str)
+    try:
+        os.makedirs(destino_dir, exist_ok=True)
+    except Exception as e:
+        logger.error(f"Error creando carpeta de red {destino_dir}: {e}")
+        destino_dir = os.path.join(os.getcwd(), "tmp", "soportes", mes_str, dia_str)
+        os.makedirs(destino_dir, exist_ok=True)
+        
+    ruta_guardado = os.path.join(destino_dir, uploaded_file.filename)
+    
+    try:
+        with open(ruta_guardado, "wb") as f:
+            f.write(content)
+    except Exception as e:
+        logger.error(f"Error guardando soporte de factura: {e}")
+        raise HTTPException(status_code=500, detail="Error guardando el archivo físico")
+        
+    nuevo_soporte = models.SoporteBancario(
+        proveedor_id=factura.proveedor_id,
+        factura_id=factura.id,
+        ruta_archivo=ruta_guardado
+    )
+    db.add(nuevo_soporte)
+    await db.commit()
+    await db.refresh(nuevo_soporte)
+    
+    return {
+        "message": "Soporte de factura guardado correctamente", 
+        "soporte_id": nuevo_soporte.id, 
+        "factura_id": factura.id, 
+        "ruta": ruta_guardado
+    }

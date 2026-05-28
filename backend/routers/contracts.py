@@ -165,7 +165,7 @@ async def read_proveedores(
 ):
     """List providers. Optionally filter by authorized category/area."""
     allowed_categoria_ids = None
-    if not is_super_admin(x_user_email, int(x_user_id) if x_user_id else None):
+    if not is_super_admin(x_user_email, int(x_user_id) if x_user_id else None, int(x_user_rol_id) if x_user_rol_id else None):
         rol_id_int = int(x_user_rol_id) if x_user_rol_id else None
         allowed_categoria_ids = await get_user_categoria_ids(db, rol_id_int, x_user_email)
         
@@ -364,7 +364,7 @@ async def desautorizar_proveedor_categoria(
     from sqlalchemy import select as sa_select
 
     # Check if user has permission for this category
-    if not is_super_admin(x_user_email, int(x_user_id) if x_user_id else None):
+    if not is_super_admin(x_user_email, int(x_user_id) if x_user_id else None, int(x_user_rol_id) if x_user_rol_id else None):
         rol_id_int = int(x_user_rol_id) if x_user_rol_id else None
         allowed_categoria_ids = await get_user_categoria_ids(db, rol_id_int, x_user_email)
         if categoria_id not in allowed_categoria_ids:

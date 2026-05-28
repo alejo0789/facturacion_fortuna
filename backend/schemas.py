@@ -336,6 +336,29 @@ class AsignarMultiplesOficinasRequest(BaseModel):
     """Request to assign multiple oficinas to a factura"""
     oficinas: list[FacturaOficinaCreate]
 
+# --- SoporteBancario Schemas ---
+
+class SoporteBancarioBase(BaseModel):
+    proveedor_id: Optional[int] = None
+    factura_id: Optional[int] = None
+    banco_origen: Optional[str] = None
+    cuenta_origen: Optional[str] = None
+    beneficiario: Optional[str] = None
+    nit_cedula: Optional[str] = None
+    fecha_pago: Optional[date] = None
+    valor: Optional[Decimal] = None
+    ruta_archivo: Optional[str] = None
+
+class SoporteBancarioCreate(SoporteBancarioBase):
+    pass
+
+class SoporteBancario(SoporteBancarioBase):
+    id: int
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
 # --- Factura Response Schema ---
 
 class Factura(FacturaBase):
@@ -345,6 +368,7 @@ class Factura(FacturaBase):
     oficina: Optional[Oficina] = None  # Legacy single oficina
     contrato: Optional[Contrato] = None  # Legacy single contrato
     oficinas_asignadas: list[FacturaOficina] = []  # New: multiple oficinas
+    soportes: list[SoporteBancario] = []
     created_at: Optional[datetime] = None  # When invoice was received
     
     # Debugging/Info fields

@@ -24,6 +24,7 @@ interface UploadResult {
         proveedor_nit?: string;
         valor?: number;
         estado?: string;
+        es_duplicada?: boolean;
     };
 }
 
@@ -396,9 +397,16 @@ export default function UploadFacturaModal({ isOpen, onClose, onSuccess }: Uploa
                                     </div>
                                     <div>
                                         <span className="text-slate-400 block mb-1">N° Factura</span>
-                                        <p className="text-white font-medium">
-                                            {result.factura.numero_factura || '-'}
-                                        </p>
+                                        <div className="flex items-center gap-2">
+                                            <p className="text-white font-medium">
+                                                {result.factura.numero_factura || '-'}
+                                            </p>
+                                            {result.factura.es_duplicada && (
+                                                <span className="animate-pulse bg-red-500/20 text-red-400 text-[10px] px-1.5 py-0.5 rounded-full border border-red-500/30 font-bold" title="Ya existe otra factura con este mismo número para este proveedor">
+                                                    REPETIDA
+                                                </span>
+                                            )}
+                                        </div>
                                     </div>
                                     <div>
                                         <span className="text-slate-400 block mb-1">Valor</span>

@@ -99,6 +99,9 @@ export interface Factura {
 
     // New: multiple oficinas with individual values
     oficinas_asignadas?: FacturaOficina[];
+    
+    // Payment supports
+    soportes?: SoporteBancario[];
 }
 
 // Assignment of an oficina to a factura with individual value
@@ -113,6 +116,20 @@ export interface FacturaOficina {
     oficina?: Oficina;
     contrato?: Contrato;
     info_contrato_audit?: string;
+}
+
+export interface SoporteBancario {
+    id: number;
+    proveedor_id: number;
+    factura_id?: number;
+    banco_origen?: string;
+    cuenta_origen?: string;
+    beneficiario?: string;
+    nit_cedula?: string;
+    fecha_pago?: string;
+    valor?: number;
+    ruta_archivo?: string;
+    created_at?: string;
 }
 
 // Oficina with contract info - used for selecting oficina when assigning to factura

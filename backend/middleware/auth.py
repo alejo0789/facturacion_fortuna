@@ -36,6 +36,8 @@ PUBLIC_ROUTES = [
 import re
 PUBLIC_PATTERNS = [
     re.compile(r"^/api/facturas/\d+/ver$"),  # Ver PDFs de facturas
+    re.compile(r"^/api/facturas/file/\d+$"),  # Nuevo endpoint para ver facturas
+    re.compile(r"^/api/soportes/file/\d+$"),  # Endpoint para ver soportes bancarios
     re.compile(r"^/api/contratos/\d+/pdf$"),  # Ver PDFs de contratos
     re.compile(r"^/api/asistente/preview/.*$"),  # Ver PDFs temporales de asistente
     re.compile(r"^/api/pagos/nota-bancaria/.*/pdf$"),  # Ver PDFs de notas bancarias (NB01)

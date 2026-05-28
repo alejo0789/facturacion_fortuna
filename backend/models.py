@@ -126,6 +126,7 @@ class SoporteBancario(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     proveedor_id = Column(Integer, ForeignKey("proveedores.id", ondelete="CASCADE"), nullable=True)
+    factura_id = Column(Integer, ForeignKey("facturas.id", ondelete="SET NULL"), nullable=True)
     
     # Extractos de OpenAI
     banco_origen = Column(String(255), nullable=True)
@@ -142,6 +143,7 @@ class SoporteBancario(Base):
     
     # Relationships
     proveedor = relationship("Proveedor", back_populates="soportes")
+    factura = relationship("Factura", back_populates="soportes")
 
 
 # ============================================
@@ -276,6 +278,7 @@ class Factura(Base):
     categoria = relationship("Categoria", back_populates="facturas")
     oficina = relationship("Oficina")  # Legacy single oficina
     contrato = relationship("Contrato")  # Legacy single contrato
+    soportes = relationship("SoporteBancario", back_populates="factura")
     
     # New: multiple oficinas with individual values
     oficinas_asignadas = relationship("FacturaOficina", back_populates="factura", cascade="all, delete-orphan")

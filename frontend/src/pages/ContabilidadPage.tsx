@@ -1,7 +1,9 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import type { Proveedor } from '../types';
+import type { Proveedor, Factura } from '../types';
 import DataTable from '../components/DataTable';
 import { apiGet, apiPost } from '../utils/apiClient';
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
 export default function ContabilidadPage() {
     const [proveedores, setProveedores] = useState<Proveedor[]>([]);
@@ -10,6 +12,51 @@ export default function ContabilidadPage() {
     const [selectedIds, setSelectedIds] = useState<number[]>([]);
     const [uploading, setUploading] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
+
+    // Modal Historial Facturas
+    const [facturasModalOpen, setFacturasModalOpen] = useState(false);
+    const [selectedProveedorId, setSelectedProveedorId] = useState<number | null>(null);
+    const [proveedorFacturas, setProveedorFacturas] = useState<Factura[]>([]);
+    const [loadingFacturas, setLoadingFacturas] = useState(false);
+    const [facturasSearch, setFacturasSearch] = useState('');
+
+    const now = new Date();
+    const firstDay = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+    const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    const lastDayStr = `${lastDay.getFullYear()}-${String(lastDay.getMonth() + 1).padStart(2, '0')}-${String(lastDay.getDate()).padStart(2, '0')}`;
+    const [fechaDesde, setFechaDesde] = useState(firstDay);
+    const [fechaHasta, setFechaHasta] = useState(lastDayStr);
+
+    const openHistorialModal = (item: any) => {
+        setSelectedProveedorId(item.id);
+        setFacturasModalOpen(true);
+        fetchFacturas(item.id, fechaDesde, fechaHasta);
+    };
+
+    const fetchFacturas = async (proveedorId: number, desde: string, hasta: string) => {
+        setLoadingFacturas(true);
+        try {
+            const params = new URLSearchParams();
+            params.append('proveedor_id', proveedorId.toString());
+            if (desde) params.append('fecha_desde', desde);
+            if (hasta) params.append('fecha_hasta', hasta);
+            
+            const res = await apiGet<Factura[]>(`/facturas/?${params.toString()}`);
+            setProveedorFacturas(res || []);
+        } catch (err) {
+            console.error(err);
+        } finally {
+            setLoadingFacturas(false);
+        }
+    };
+
+    const filteredFacturas = useMemo(() => {
+        if (!facturasSearch.trim()) return proveedorFacturas;
+        const term = facturasSearch.toLowerCase();
+        return proveedorFacturas.filter(f => 
+            f.numero_factura?.toLowerCase().includes(term)
+        );
+    }, [proveedorFacturas, facturasSearch]);
 
     const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
@@ -134,7 +181,7 @@ export default function ContabilidadPage() {
             header: 'Soporte',
             render: (item: any) => item.ruta_soporte ? (
                 <a 
-                    href={`http://localhost:8000/api/soportes/file/${item.soporte_id}`} 
+                    href={`${API_URL}/soportes/file/${item.soporte_id}`} 
                     target="_blank" 
                     rel="noreferrer"
                     className="text-blue-600 hover:text-blue-800 text-sm font-medium flex items-center gap-1"
@@ -146,6 +193,21 @@ export default function ContabilidadPage() {
                     Ver PDF
                 </a>
             ) : <span className="text-gray-400 text-sm italic">-</span>
+        },
+        {
+            key: 'acciones',
+            header: 'Historial',
+            render: (item: any) => (
+                <button
+                    onClick={() => openHistorialModal(item)}
+                    className="text-indigo-600 hover:text-indigo-800 text-sm font-medium flex items-center gap-1"
+                >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                    </svg>
+                    Ver Facturas
+                </button>
+            )
         }
     ];
 
@@ -211,6 +273,122 @@ export default function ContabilidadPage() {
                 columns={columns}
                 loading={loading}
             />
+
+            {/* Modal de Facturas */}
+            {facturasModalOpen && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-xl shadow-xl w-full max-w-5xl max-h-[90vh] flex flex-col">
+                        <div className="p-6 border-b border-gray-200 flex justify-between items-center bg-gray-50 rounded-t-xl">
+                            <h2 className="text-xl font-bold text-gray-800">Historial de Facturas del Proveedor</h2>
+                            <button onClick={() => setFacturasModalOpen(false)} className="text-gray-500 hover:text-gray-700">
+                                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
+                        </div>
+                        <div className="p-6 flex-1 overflow-auto bg-gray-50">
+                            {/* Filtros */}
+                            <div className="flex flex-wrap gap-4 mb-6 bg-white p-4 rounded-lg shadow-sm border border-gray-200">
+                                <div className="flex-1 min-w-[200px]">
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Buscar Número Factura</label>
+                                    <input 
+                                        type="text" 
+                                        value={facturasSearch} 
+                                        onChange={e => setFacturasSearch(e.target.value)} 
+                                        placeholder="Ej: FAC-123" 
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Fecha Desde</label>
+                                    <input 
+                                        type="date" 
+                                        value={fechaDesde} 
+                                        onChange={e => setFechaDesde(e.target.value)} 
+                                        className="px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Fecha Hasta</label>
+                                    <input 
+                                        type="date" 
+                                        value={fechaHasta} 
+                                        onChange={e => setFechaHasta(e.target.value)} 
+                                        className="px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                                    />
+                                </div>
+                                <div className="flex items-end">
+                                    <button 
+                                        onClick={() => selectedProveedorId && fetchFacturas(selectedProveedorId, fechaDesde, fechaHasta)}
+                                        className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md shadow-sm transition-colors"
+                                    >
+                                        Filtrar
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            {/* Tabla */}
+                            {loadingFacturas ? (
+                                <div className="text-center py-10">Cargando facturas...</div>
+                            ) : filteredFacturas.length === 0 ? (
+                                <div className="text-center py-10 text-gray-500 bg-white rounded-lg border border-gray-200">No se encontraron facturas para los filtros seleccionados.</div>
+                            ) : (
+                                <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+                                    <table className="min-w-full divide-y divide-gray-200">
+                                        <thead className="bg-gray-50">
+                                            <tr>
+                                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Factura</th>
+                                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fecha</th>
+                                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Valor</th>
+                                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estado</th>
+                                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">PDF</th>
+                                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Soporte Pago</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="bg-white divide-y divide-gray-200">
+                                            {filteredFacturas.map(f => (
+                                                <tr key={f.id} className="hover:bg-gray-50">
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{f.numero_factura || 'N/A'}</td>
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{f.fecha_factura || 'N/A'}</td>
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${(f.valor || 0).toLocaleString()}</td>
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                                                            f.estado === 'PAGADA' ? 'bg-green-100 text-green-800' :
+                                                            f.estado === 'EN_TRAMITE' ? 'bg-blue-100 text-blue-800' :
+                                                            f.estado === 'ASIGNADA' ? 'bg-yellow-100 text-yellow-800' :
+                                                            'bg-gray-100 text-gray-800'
+                                                        }`}>
+                                                            {f.estado || 'PENDIENTE'}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                        {f.url_factura ? (
+                                                            <a href={`${API_URL}/facturas/file/${f.id}`} target="_blank" rel="noreferrer" className="text-indigo-600 hover:text-indigo-900 flex items-center gap-1">
+                                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                                                Ver PDF
+                                                            </a>
+                                                        ) : (
+                                                            <span className="text-gray-400">Sin PDF</span>
+                                                        )}
+                                                    </td>
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                        {f.soportes && f.soportes.length > 0 ? (
+                                                            <a href={`${API_URL}/soportes/file/${f.soportes[0].id}`} target="_blank" rel="noreferrer" className="text-green-600 hover:text-green-900 flex items-center gap-1">
+                                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                                                                Ver Soporte
+                                                            </a>
+                                                        ) : (
+                                                            <span className="text-gray-400 text-xs italic">Pendiente</span>
+                                                        )}
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

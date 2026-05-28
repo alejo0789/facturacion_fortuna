@@ -168,7 +168,24 @@ async def create_factura_api(
         estado='PENDIENTE'
     )
     
-    return await crud.create_factura(db, factura_data)
+    db_factura = await crud.create_factura(db, factura_data)
+    schema_obj = schemas.Factura.model_validate(db_factura)
+    
+    # Check if duplicate exists
+    if schema_obj.numero_factura and schema_obj.proveedor_id:
+        import models
+        from sqlalchemy import select, func
+        dup_query = (
+            select(func.count(models.Factura.id))
+            .filter(models.Factura.proveedor_id == schema_obj.proveedor_id)
+            .filter(models.Factura.numero_factura == schema_obj.numero_factura)
+        )
+        dup_count = await db.execute(dup_query)
+        schema_obj.es_duplicada = dup_count.scalar() > 1
+    else:
+        schema_obj.es_duplicada = False
+        
+    return schema_obj
 
 
 @router.post("/facturas/crear-con-oficina")
@@ -579,7 +596,7 @@ async def list_facturas(
     
     # If not super admin, get allowed categories for this role
     allowed_categoria_ids = None
-    if not is_super_admin(x_user_email, x_user_id):
+    if not is_super_admin(x_user_email, x_user_id, x_user_rol_id):
         allowed_categoria_ids = await get_user_categoria_ids(db, rol_id=x_user_rol_id, email=x_user_email)
         # If categoria_id is specified, verify user has access
         if categoria_id and categoria_id not in allowed_categoria_ids:
@@ -597,8 +614,38 @@ async def list_facturas(
         usar_fecha_estado=usar_fecha_estado
     )
     
-    # Enrich with file info
-    return [enrich_factura_with_file_info(f) for f in facturas_models]
+    # Check for duplicates in the current results
+    # A factura is duplicate if there's another one with same proveedor_id and numero_factura
+    # that is NOT null/empty.
+    prov_ids = list(set(f.proveedor_id for f in facturas_models if f.proveedor_id))
+    nums = list(set(f.numero_factura for f in facturas_models if f.numero_factura))
+    
+    duplicate_counts = {}
+    if nums and prov_ids:
+        import models
+        from sqlalchemy import select, func
+        dup_query = (
+            select(models.Factura.proveedor_id, models.Factura.numero_factura, func.count(models.Factura.id))
+            .filter(models.Factura.proveedor_id.in_(prov_ids))
+            .filter(models.Factura.numero_factura.in_(nums))
+            .group_by(models.Factura.proveedor_id, models.Factura.numero_factura)
+        )
+        dup_res = await db.execute(dup_query)
+        for p_id, f_num, count in dup_res.all():
+            if count > 1:
+                duplicate_counts[(p_id, f_num)] = True
+
+    # Enrich with file info and duplicate flag
+    enriched = []
+    for f in facturas_models:
+        schema_obj = enrich_factura_with_file_info(f)
+        if f.numero_factura and (f.proveedor_id, f.numero_factura) in duplicate_counts:
+            schema_obj.es_duplicada = True
+        else:
+            schema_obj.es_duplicada = False
+        enriched.append(schema_obj)
+        
+    return enriched
 
 
 @router.get("/facturas/{factura_id}", response_model=schemas.Factura)
@@ -608,7 +655,23 @@ async def get_factura(factura_id: int, db: AsyncSession = Depends(get_db)):
     if not factura:
         raise HTTPException(status_code=404, detail="Factura no encontrada")
     
-    return enrich_factura_with_file_info(factura)
+    schema_obj = enrich_factura_with_file_info(factura)
+    
+    # Check if duplicate exists
+    if factura.numero_factura and factura.proveedor_id:
+        import models
+        from sqlalchemy import select, func
+        dup_query = (
+            select(func.count(models.Factura.id))
+            .filter(models.Factura.proveedor_id == factura.proveedor_id)
+            .filter(models.Factura.numero_factura == factura.numero_factura)
+        )
+        dup_count = await db.execute(dup_query)
+        schema_obj.es_duplicada = dup_count.scalar() > 1
+    else:
+        schema_obj.es_duplicada = False
+        
+    return schema_obj
 
 
 @router.put("/facturas/{factura_id}", response_model=schemas.Factura)

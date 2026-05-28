@@ -88,7 +88,7 @@ async def list_categorias(
     ).where(models.Categoria.activa == True)
     
     # If not super admin, filter by role/email
-    if not is_super_admin(x_user_email, x_user_id):
+    if not is_super_admin(x_user_email, x_user_id, x_user_rol_id):
         categoria_ids = await get_user_categoria_ids(db, rol_id=x_user_rol_id, email=x_user_email)
         if categoria_ids:
             query = query.where(models.Categoria.id.in_(categoria_ids))
@@ -114,7 +114,7 @@ async def get_mis_categorias(
     query = select(models.Categoria).where(models.Categoria.activa == True)
     
     # Super admin sees all
-    if is_super_admin(x_user_email, x_user_id):
+    if is_super_admin(x_user_email, x_user_id, x_user_rol_id):
         pass  # No filter
     else:
         categoria_ids = await get_user_categoria_ids(db, rol_id=x_user_rol_id, email=x_user_email)
@@ -133,11 +133,12 @@ async def create_categoria(
     categoria: schemas.CategoriaCreate,
     x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
     x_user_id: Optional[int] = Header(None, alias="X-User-Id"),
+    x_user_rol_id: Optional[int] = Header(None, alias="X-User-Rol-Id"),
     x_user_name: Optional[str] = Header(None, alias="X-User-Name"),
     db: AsyncSession = Depends(get_db)
 ):
     """Create a new category (Super Admin only)"""
-    if not is_super_admin(x_user_email, x_user_id):
+    if not is_super_admin(x_user_email, x_user_id, x_user_rol_id):
         raise HTTPException(status_code=403, detail="Solo super admin puede crear categorías")
     
     # Check if name already exists
@@ -187,10 +188,11 @@ async def update_categoria(
     categoria: schemas.CategoriaUpdate,
     x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
     x_user_id: Optional[int] = Header(None, alias="X-User-Id"),
+    x_user_rol_id: Optional[int] = Header(None, alias="X-User-Rol-Id"),
     db: AsyncSession = Depends(get_db)
 ):
     """Update a category (Super Admin only)"""
-    if not is_super_admin(x_user_email, x_user_id):
+    if not is_super_admin(x_user_email, x_user_id, x_user_rol_id):
         raise HTTPException(status_code=403, detail="Solo super admin puede editar categorías")
     
     result = await db.execute(
@@ -229,10 +231,11 @@ async def delete_categoria(
     categoria_id: int,
     x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
     x_user_id: Optional[int] = Header(None, alias="X-User-Id"),
+    x_user_rol_id: Optional[int] = Header(None, alias="X-User-Rol-Id"),
     db: AsyncSession = Depends(get_db)
 ):
     """Delete a category (Super Admin only)"""
-    if not is_super_admin(x_user_email, x_user_id):
+    if not is_super_admin(x_user_email, x_user_id, x_user_rol_id):
         raise HTTPException(status_code=403, detail="Solo super admin puede eliminar categorías")
     
     result = await db.execute(
@@ -266,10 +269,11 @@ async def get_categoria_roles(
     categoria_id: int,
     x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
     x_user_id: Optional[int] = Header(None, alias="X-User-Id"),
+    x_user_rol_id: Optional[int] = Header(None, alias="X-User-Rol-Id"),
     db: AsyncSession = Depends(get_db)
 ):
     """Get all roles assigned to a category (Super Admin only)"""
-    if not is_super_admin(x_user_email, x_user_id):
+    if not is_super_admin(x_user_email, x_user_id, x_user_rol_id):
         raise HTTPException(status_code=403, detail="Solo super admin puede ver roles de categorías")
     
     result = await db.execute(
@@ -284,10 +288,11 @@ async def assign_rol_to_categoria(
     rol: schemas.CategoriaRolCreate,
     x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
     x_user_id: Optional[int] = Header(None, alias="X-User-Id"),
+    x_user_rol_id: Optional[int] = Header(None, alias="X-User-Rol-Id"),
     db: AsyncSession = Depends(get_db)
 ):
     """Assign a role to a category (Super Admin only)"""
-    if not is_super_admin(x_user_email, x_user_id):
+    if not is_super_admin(x_user_email, x_user_id, x_user_rol_id):
         raise HTTPException(status_code=403, detail="Solo super admin puede asignar roles")
     
     # Verify category exists
@@ -323,10 +328,11 @@ async def remove_rol_from_categoria(
     rol_id: int,
     x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
     x_user_id: Optional[int] = Header(None, alias="X-User-Id"),
+    x_user_rol_id: Optional[int] = Header(None, alias="X-User-Rol-Id"),
     db: AsyncSession = Depends(get_db)
 ):
     """Remove a role from a category (Super Admin only)"""
-    if not is_super_admin(x_user_email, x_user_id):
+    if not is_super_admin(x_user_email, x_user_id, x_user_rol_id):
         raise HTTPException(status_code=403, detail="Solo super admin puede quitar roles")
     
     result = await db.execute(
@@ -351,12 +357,13 @@ async def remove_rol_from_categoria(
 async def get_roles_disponibles(
     x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
     x_user_id: Optional[int] = Header(None, alias="X-User-Id"),
+    x_user_rol_id: Optional[int] = Header(None, alias="X-User-Rol-Id"),
 ):
     """
     Fetch available roles from parent system (Super Admin only).
     Configure PARENT_SYSTEM_ROLES_URL in .env
     """
-    if not is_super_admin(x_user_email, x_user_id):
+    if not is_super_admin(x_user_email, x_user_id, x_user_rol_id):
         raise HTTPException(status_code=403, detail="Solo super admin puede consultar roles")
     
     if not PARENT_SYSTEM_ROLES_URL:
@@ -385,10 +392,11 @@ async def get_roles_disponibles(
 async def check_super_admin(
     x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
     x_user_id: Optional[int] = Header(None, alias="X-User-Id"),
+    x_user_rol_id: Optional[int] = Header(None, alias="X-User-Rol-Id"),
 ):
     """Check if current user is super admin"""
     return {
-        "is_super_admin": is_super_admin(x_user_email, x_user_id),
+        "is_super_admin": is_super_admin(x_user_email, x_user_id, x_user_rol_id),
         "user_email": x_user_email,
         "user_id": x_user_id,
         "super_admin_emails": SUPER_ADMIN_EMAILS
@@ -403,10 +411,11 @@ async def get_categoria_usuarios(
     categoria_id: int,
     x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
     x_user_id: Optional[int] = Header(None, alias="X-User-Id"),
+    x_user_rol_id: Optional[int] = Header(None, alias="X-User-Rol-Id"),
     db: AsyncSession = Depends(get_db)
 ):
     """Get all users (emails) assigned to a category (Super Admin only)"""
-    if not is_super_admin(x_user_email, x_user_id):
+    if not is_super_admin(x_user_email, x_user_id, x_user_rol_id):
         raise HTTPException(status_code=403, detail="Solo super admin puede ver usuarios de categorías")
     
     result = await db.execute(
@@ -421,10 +430,11 @@ async def assign_usuario_to_categoria(
     usuario: schemas.CategoriaUsuarioCreate,
     x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
     x_user_id: Optional[int] = Header(None, alias="X-User-Id"),
+    x_user_rol_id: Optional[int] = Header(None, alias="X-User-Rol-Id"),
     db: AsyncSession = Depends(get_db)
 ):
     """Assign a user email to a category (Super Admin only)"""
-    if not is_super_admin(x_user_email, x_user_id):
+    if not is_super_admin(x_user_email, x_user_id, x_user_rol_id):
         raise HTTPException(status_code=403, detail="Solo super admin puede asignar usuarios")
     
     usuario.email = usuario.email.lower().strip()
@@ -461,10 +471,11 @@ async def remove_usuario_from_categoria(
     email: str,
     x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
     x_user_id: Optional[int] = Header(None, alias="X-User-Id"),
+    x_user_rol_id: Optional[int] = Header(None, alias="X-User-Rol-Id"),
     db: AsyncSession = Depends(get_db)
 ):
     """Remove a user email from a category (Super Admin only)"""
-    if not is_super_admin(x_user_email, x_user_id):
+    if not is_super_admin(x_user_email, x_user_id, x_user_rol_id):
         raise HTTPException(status_code=403, detail="Solo super admin puede quitar usuarios")
     
     email = email.lower().strip()
@@ -491,10 +502,11 @@ async def get_modulo_roles(
     modulo: str,
     x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
     x_user_id: Optional[int] = Header(None, alias="X-User-Id"),
+    x_user_rol_id: Optional[int] = Header(None, alias="X-User-Rol-Id"),
     db: AsyncSession = Depends(get_db)
 ):
     """Get all roles assigned to a module (Super Admin only)"""
-    if not is_super_admin(x_user_email, x_user_id):
+    if not is_super_admin(x_user_email, x_user_id, x_user_rol_id):
         raise HTTPException(status_code=403, detail="Solo super admin puede ver accesos de módulos")
     
     result = await db.execute(
@@ -509,10 +521,11 @@ async def assign_rol_to_modulo(
     rol: schemas.ModuloAccesoRolCreate,
     x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
     x_user_id: Optional[int] = Header(None, alias="X-User-Id"),
+    x_user_rol_id: Optional[int] = Header(None, alias="X-User-Rol-Id"),
     db: AsyncSession = Depends(get_db)
 ):
     """Assign a role to a module (Super Admin only)"""
-    if not is_super_admin(x_user_email, x_user_id):
+    if not is_super_admin(x_user_email, x_user_id, x_user_rol_id):
         raise HTTPException(status_code=403, detail="Solo super admin puede asignar roles a módulos")
     
     modulo_upper = modulo.upper()
@@ -543,10 +556,11 @@ async def remove_rol_from_modulo(
     rol_id: int,
     x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
     x_user_id: Optional[int] = Header(None, alias="X-User-Id"),
+    x_user_rol_id: Optional[int] = Header(None, alias="X-User-Rol-Id"),
     db: AsyncSession = Depends(get_db)
 ):
     """Remove a role from a module (Super Admin only)"""
-    if not is_super_admin(x_user_email, x_user_id):
+    if not is_super_admin(x_user_email, x_user_id, x_user_rol_id):
         raise HTTPException(status_code=403, detail="Solo super admin puede quitar roles de módulos")
     
     modulo_upper = modulo.upper()
@@ -570,10 +584,11 @@ async def get_modulo_usuarios(
     modulo: str,
     x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
     x_user_id: Optional[int] = Header(None, alias="X-User-Id"),
+    x_user_rol_id: Optional[int] = Header(None, alias="X-User-Rol-Id"),
     db: AsyncSession = Depends(get_db)
 ):
     """Get all users (emails) assigned to a module (Super Admin only)"""
-    if not is_super_admin(x_user_email, x_user_id):
+    if not is_super_admin(x_user_email, x_user_id, x_user_rol_id):
         raise HTTPException(status_code=403, detail="Solo super admin puede ver accesos de módulos")
     
     result = await db.execute(
@@ -588,10 +603,11 @@ async def assign_usuario_to_modulo(
     usuario: schemas.ModuloAccesoUsuarioCreate,
     x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
     x_user_id: Optional[int] = Header(None, alias="X-User-Id"),
+    x_user_rol_id: Optional[int] = Header(None, alias="X-User-Rol-Id"),
     db: AsyncSession = Depends(get_db)
 ):
     """Assign a user email to a module (Super Admin only)"""
-    if not is_super_admin(x_user_email, x_user_id):
+    if not is_super_admin(x_user_email, x_user_id, x_user_rol_id):
         raise HTTPException(status_code=403, detail="Solo super admin puede asignar usuarios a módulos")
     
     modulo_upper = modulo.upper()
@@ -622,10 +638,11 @@ async def remove_usuario_from_modulo(
     email: str,
     x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
     x_user_id: Optional[int] = Header(None, alias="X-User-Id"),
+    x_user_rol_id: Optional[int] = Header(None, alias="X-User-Rol-Id"),
     db: AsyncSession = Depends(get_db)
 ):
     """Remove a user email from a module (Super Admin only)"""
-    if not is_super_admin(x_user_email, x_user_id):
+    if not is_super_admin(x_user_email, x_user_id, x_user_rol_id):
         raise HTTPException(status_code=403, detail="Solo super admin puede quitar usuarios de módulos")
     
     modulo_upper = modulo.upper()
@@ -654,7 +671,7 @@ async def check_modulo_acceso(
     db: AsyncSession = Depends(get_db)
 ):
     """Check if current user has access to a specific module"""
-    if is_super_admin(x_user_email, x_user_id):
+    if is_super_admin(x_user_email, x_user_id, x_user_rol_id):
         return {"has_access": True, "is_super_admin": True}
         
     modulo_upper = modulo.upper()
