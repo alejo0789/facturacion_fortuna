@@ -933,6 +933,347 @@ async def cambiar_estado(
     return await crud.get_factura(db, factura_id)
 
 
+# --- Manual Payment ---
+
+@router.post("/facturas/{factura_id}/pagar-manual")
+async def pagar_factura_manual(
+    factura_id: int,
+    observaciones: Optional[str] = Form(None),
+    file: Optional[UploadFile] = File(None),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Manually mark a factura as PAGADA, with optional observation and payment support file.
+    """
+    import models
+    from sqlalchemy.future import select
+    
+    # 1. Fetch factura
+    factura = await crud.get_factura(db, factura_id)
+    if not factura:
+        raise HTTPException(status_code=404, detail="Factura no encontrada")
+        
+    # 2. Update status and observations
+    factura.estado = 'PAGADA'
+    factura.status_updated_at = datetime.now()
+    
+    if observaciones:
+        if factura.observaciones:
+            factura.observaciones = f"{factura.observaciones} | {observaciones}"
+        else:
+            factura.observaciones = observaciones
+            
+    # 3. If file is provided, upload and create SoporteBancario
+    if file and file.filename:
+        if not file.filename.lower().endswith('.pdf'):
+            raise HTTPException(status_code=400, detail="El soporte de pago debe ser un archivo PDF")
+            
+        # Create directory path
+        ahora = datetime.now()
+        mes_str = f"{ahora.month:02d}"
+        dia_str = f"{ahora.day:02d}"
+        
+        soporte_base_path = r"\\192.168.2.20\Facturas\soportes"
+        destino_dir = os.path.join(soporte_base_path, mes_str, dia_str)
+        
+        try:
+            if not os.path.exists(destino_dir):
+                os.makedirs(destino_dir, exist_ok=True)
+        except Exception:
+            destino_dir = os.path.join(os.getcwd(), "tmp", "soportes", mes_str, dia_str)
+            os.makedirs(destino_dir, exist_ok=True)
+            
+        # Generate unique filename for the support to avoid duplicates
+        timestamp = ahora.strftime("%Y%m%d_%H%M%S")
+        unique_id = str(uuid.uuid4())[:8]
+        safe_filename = f"soporte_manual_{timestamp}_{unique_id}_{file.filename}"
+        ruta_guardado = os.path.join(destino_dir, safe_filename)
+        
+        # Read and write content
+        try:
+            content = await file.read()
+            with open(ruta_guardado, "wb") as f:
+                f.write(content)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error guardando el archivo de soporte: {str(e)}")
+            
+        # Create SoporteBancario
+        nuevo_soporte = models.SoporteBancario(
+            proveedor_id=factura.proveedor_id,
+            factura_id=factura.id,
+            ruta_archivo=ruta_guardado,
+            fecha_pago=ahora.date(),
+            valor=factura.valor
+        )
+        db.add(nuevo_soporte)
+        
+    await db.commit()
+    
+    # Refresh to return updated object
+    return await crud.get_factura(db, factura_id)
+
+
+@router.post("/facturas/pagar-manual-lote")
+async def pagar_facturas_manual_lote(
+    factura_ids: str = Form(...),  # JSON string representing array of ints, e.g. "[1, 2, 3]"
+    observaciones: Optional[str] = Form(None),
+    file: Optional[UploadFile] = File(None),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Manually mark a list of facturas as PAGADA, with a common observation and optional shared payment support.
+    """
+    import models
+    import json
+    from sqlalchemy.future import select
+    
+    try:
+        ids = json.loads(factura_ids)
+        if not isinstance(ids, list):
+            raise ValueError()
+    except Exception:
+        raise HTTPException(status_code=400, detail="factura_ids debe ser un array de enteros en formato JSON")
+        
+    # Fetch all requested facturas
+    stmt = select(models.Factura).where(models.Factura.id.in_(ids))
+    res = await db.execute(stmt)
+    facturas = res.scalars().all()
+    
+    if not facturas:
+        raise HTTPException(status_code=404, detail="No se encontraron facturas válidas")
+        
+    ahora = datetime.now()
+    mes_str = f"{ahora.month:02d}"
+    dia_str = f"{ahora.day:02d}"
+    
+    # Check if a support file was uploaded
+    ruta_guardado = None
+    if file and file.filename:
+        if not file.filename.lower().endswith('.pdf'):
+            raise HTTPException(status_code=400, detail="El soporte de pago debe ser un archivo PDF")
+            
+        soporte_base_path = r"\\192.168.2.20\Facturas\soportes"
+        destino_dir = os.path.join(soporte_base_path, mes_str, dia_str)
+        
+        try:
+            if not os.path.exists(destino_dir):
+                os.makedirs(destino_dir, exist_ok=True)
+        except Exception:
+            destino_dir = os.path.join(os.getcwd(), "tmp", "soportes", mes_str, dia_str)
+            os.makedirs(destino_dir, exist_ok=True)
+            
+        timestamp = ahora.strftime("%Y%m%d_%H%M%S")
+        unique_id = str(uuid.uuid4())[:8]
+        safe_filename = f"soporte_lote_{timestamp}_{unique_id}_{file.filename}"
+        ruta_guardado = os.path.join(destino_dir, safe_filename)
+        
+        try:
+            content = await file.read()
+            with open(ruta_guardado, "wb") as f:
+                f.write(content)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error guardando el archivo: {str(e)}")
+            
+    # Update each invoice and link support
+    for factura in facturas:
+        factura.estado = 'PAGADA'
+        factura.status_updated_at = ahora
+        
+        if observaciones:
+            if factura.observaciones:
+                factura.observaciones = f"{factura.observaciones} | {observaciones}"
+            else:
+                factura.observaciones = observaciones
+                
+        if ruta_guardado:
+            nuevo_soporte = models.SoporteBancario(
+                proveedor_id=factura.proveedor_id,
+                factura_id=factura.id,
+                ruta_archivo=ruta_guardado,
+                fecha_pago=ahora.date(),
+                valor=factura.valor
+            )
+            db.add(nuevo_soporte)
+            
+    await db.commit()
+    return {"success": True, "count": len(facturas), "message": f"{len(facturas)} facturas marcadas como PAGADAS"}
+
+
+@router.post("/facturas/pagar-pendiente-contrato")
+async def pagar_pendiente_contrato(
+    contrato_id: int = Form(...),
+    numero_factura: Optional[str] = Form(None),
+    observaciones: Optional[str] = Form(None),
+    file: Optional[UploadFile] = File(None),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Mark a pending contract as paid for the current month by creating a PAGADA invoice.
+    """
+    import models
+    from sqlalchemy.future import select
+    
+    # Fetch contract
+    stmt = select(models.Contrato).where(models.Contrato.id == contrato_id)
+    res = await db.execute(stmt)
+    contrato = res.scalar_one_or_none()
+    
+    if not contrato:
+        raise HTTPException(status_code=404, detail="Contrato no encontrado")
+        
+    ahora = datetime.now()
+    
+    num_factura = numero_factura or f"MANUAL-{contrato.num_contrato or 'CONTRATO'}-{ahora.strftime('%Y%m')}"
+    
+    ruta_guardado = None
+    if file and file.filename:
+        if not file.filename.lower().endswith('.pdf'):
+            raise HTTPException(status_code=400, detail="El soporte de pago debe ser un archivo PDF")
+            
+        mes_str = f"{ahora.month:02d}"
+        dia_str = f"{ahora.day:02d}"
+        soporte_base_path = r"\\192.168.2.20\Facturas\soportes"
+        destino_dir = os.path.join(soporte_base_path, mes_str, dia_str)
+        
+        try:
+            if not os.path.exists(destino_dir):
+                os.makedirs(destino_dir, exist_ok=True)
+        except Exception:
+            destino_dir = os.path.join(os.getcwd(), "tmp", "soportes", mes_str, dia_str)
+            os.makedirs(destino_dir, exist_ok=True)
+            
+        timestamp = ahora.strftime("%Y%m%d_%H%M%S")
+        unique_id = str(uuid.uuid4())[:8]
+        safe_filename = f"soporte_pendiente_{timestamp}_{unique_id}_{file.filename}"
+        ruta_guardado = os.path.join(destino_dir, safe_filename)
+        
+        try:
+            content = await file.read()
+            with open(ruta_guardado, "wb") as f:
+                f.write(content)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error guardando el soporte: {str(e)}")
+            
+    nueva_factura = models.Factura(
+        proveedor_id=contrato.proveedor_id,
+        oficina_id=contrato.oficina_id,
+        contrato_id=contrato.id,
+        numero_factura=num_factura,
+        fecha_factura=ahora.date(),
+        fecha_vencimiento=ahora.date(),
+        valor=contrato.valor_mensual,
+        estado='PAGADA',
+        status_updated_at=ahora,
+        observaciones=observaciones or "Marcada como pagada manualmente desde pendientes"
+    )
+    db.add(nueva_factura)
+    await db.flush()
+    
+    if ruta_guardado:
+        nuevo_soporte = models.SoporteBancario(
+            proveedor_id=contrato.proveedor_id,
+            factura_id=nueva_factura.id,
+            ruta_archivo=ruta_guardado,
+            fecha_pago=ahora.date(),
+            valor=contrato.valor_mensual
+        )
+        db.add(nuevo_soporte)
+        
+    await db.commit()
+    return {"success": True, "message": "Factura de contrato pendiente creada y pagada con éxito"}
+
+
+@router.post("/facturas/pagar-pendiente-contrato-lote")
+async def pagar_pendiente_contrato_lote(
+    contrato_ids: str = Form(...),  # JSON array of ints, e.g. "[1, 2, 3]"
+    observaciones: Optional[str] = Form(None),
+    file: Optional[UploadFile] = File(None),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Mark multiple pending contracts as paid for the current month by creating PAGADA invoices.
+    """
+    import models
+    import json
+    from sqlalchemy.future import select
+    
+    try:
+        ids = json.loads(contrato_ids)
+        if not isinstance(ids, list):
+            raise ValueError()
+    except Exception:
+        raise HTTPException(status_code=400, detail="contrato_ids debe ser un array JSON de enteros")
+        
+    stmt = select(models.Contrato).where(models.Contrato.id.in_(ids))
+    res = await db.execute(stmt)
+    contratos = res.scalars().all()
+    
+    if not contratos:
+        raise HTTPException(status_code=404, detail="No se encontraron contratos válidos")
+        
+    ahora = datetime.now()
+    
+    ruta_guardado = None
+    if file and file.filename:
+        if not file.filename.lower().endswith('.pdf'):
+            raise HTTPException(status_code=400, detail="El soporte de pago debe ser un archivo PDF")
+            
+        mes_str = f"{ahora.month:02d}"
+        dia_str = f"{ahora.day:02d}"
+        soporte_base_path = r"\\192.168.2.20\Facturas\soportes"
+        destino_dir = os.path.join(soporte_base_path, mes_str, dia_str)
+        
+        try:
+            if not os.path.exists(destino_dir):
+                os.makedirs(destino_dir, exist_ok=True)
+        except Exception:
+            destino_dir = os.path.join(os.getcwd(), "tmp", "soportes", mes_str, dia_str)
+            os.makedirs(destino_dir, exist_ok=True)
+            
+        timestamp = ahora.strftime("%Y%m%d_%H%M%S")
+        unique_id = str(uuid.uuid4())[:8]
+        safe_filename = f"soporte_lote_pendientes_{timestamp}_{unique_id}_{file.filename}"
+        ruta_guardado = os.path.join(destino_dir, safe_filename)
+        
+        try:
+            content = await file.read()
+            with open(ruta_guardado, "wb") as f:
+                f.write(content)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error guardando el soporte: {str(e)}")
+            
+    for contrato in contratos:
+        num_factura = f"MANUAL-{contrato.num_contrato or 'CONTRATO'}-{ahora.strftime('%Y%m')}"
+        
+        nueva_factura = models.Factura(
+            proveedor_id=contrato.proveedor_id,
+            oficina_id=contrato.oficina_id,
+            contrato_id=contrato.id,
+            numero_factura=num_factura,
+            fecha_factura=ahora.date(),
+            fecha_vencimiento=ahora.date(),
+            valor=contrato.valor_mensual,
+            estado='PAGADA',
+            status_updated_at=ahora,
+            observaciones=observaciones or "Marcada como pagada manualmente desde lote de pendientes"
+        )
+        db.add(nueva_factura)
+        await db.flush()
+        
+        if ruta_guardado:
+            nuevo_soporte = models.SoporteBancario(
+                proveedor_id=contrato.proveedor_id,
+                factura_id=nueva_factura.id,
+                ruta_archivo=ruta_guardado,
+                fecha_pago=ahora.date(),
+                valor=contrato.valor_mensual
+            )
+            db.add(nuevo_soporte)
+            
+    await db.commit()
+    return {"success": True, "count": len(contratos), "message": f"{len(contratos)} contratos pendientes marcados como pagados"}
+
+
 # --- Statistics ---
 
 @router.get("/facturas/stats/resumen")

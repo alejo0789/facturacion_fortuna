@@ -1335,8 +1335,8 @@ export default function FacturasPage() {
                             {/* Pendientes por llegar - navigate to dedicated page */}
                             <button
                                 onClick={() => {
-                                    const url = filterCategoriaId 
-                                        ? `/facturas/pendientes?categoria_id=${filterCategoriaId}` 
+                                    const url = filterCategoriaId
+                                        ? `/facturas/pendientes?categoria_id=${filterCategoriaId}`
                                         : '/facturas/pendientes';
                                     navigate(url);
                                 }}
