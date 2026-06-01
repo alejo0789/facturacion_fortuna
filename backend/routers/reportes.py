@@ -318,6 +318,11 @@ def create_excel_report(data: List[dict], months: List[tuple], titulo: str = "Re
     )
     
     currency_font = Font(bold=True)
+
+    # Row fill colors by contract status
+    fill_cancelado = PatternFill(start_color="FFCCCC", end_color="FFCCCC", fill_type="solid")    # Rojo claro
+    fill_en_tramite = PatternFill(start_color="C4A882", end_color="C4A882", fill_type="solid")   # Marrón claro
+    fill_none = PatternFill(fill_type=None)
     
     # Static headers (without Observaciones - it will be added at the end)
     static_headers = [
@@ -379,51 +384,64 @@ def create_excel_report(data: List[dict], months: List[tuple], titulo: str = "Re
     row_num = 2
     for item in data:
         col = 1
-        
+
+        # Determine row fill color based on contract status
+        estado = (item.get('estado_contrato') or '').upper()
+        if estado == 'CANCELADO':
+            row_fill = fill_cancelado
+        elif 'TRAMITE' in estado or 'EN TRAMITE' in estado:
+            row_fill = fill_en_tramite
+        else:
+            row_fill = fill_none
+
+        def _cell(r, c, value):
+            """Write a cell and apply border + row fill."""
+            cell = ws.cell(row=r, column=c, value=value)
+            cell.border = thin_border
+            if row_fill.fill_type:
+                cell.fill = row_fill
+            return cell
+
         # Static columns
-        ws.cell(row=row_num, column=col, value=item['nit_proveedor']).border = thin_border; col += 1
-        ws.cell(row=row_num, column=col, value=item['nombre_proveedor']).border = thin_border; col += 1
-        ws.cell(row=row_num, column=col, value=item.get('nombre_comercial', '')).border = thin_border; col += 1
-        ws.cell(row=row_num, column=col, value=item['cod_oficina']).border = thin_border; col += 1
-        ws.cell(row=row_num, column=col, value=item['nombre_oficina']).border = thin_border; col += 1
-        ws.cell(row=row_num, column=col, value=item['direccion']).border = thin_border; col += 1
-        ws.cell(row=row_num, column=col, value=item['ciudad']).border = thin_border; col += 1
-        ws.cell(row=row_num, column=col, value=item['zona']).border = thin_border; col += 1
-        ws.cell(row=row_num, column=col, value=item['tipo']).border = thin_border; col += 1
-        ws.cell(row=row_num, column=col, value=item['num_contrato']).border = thin_border; col += 1
-        ws.cell(row=row_num, column=col, value=item['estado_contrato']).border = thin_border; col += 1
-        ws.cell(row=row_num, column=col, value=item['tipo_plan']).border = thin_border; col += 1
-        ws.cell(row=row_num, column=col, value=item['tipo_canal']).border = thin_border; col += 1
-        
-        valor_cell = ws.cell(row=row_num, column=col, value=item['valor_mensual'])
-        valor_cell.border = thin_border
+        _cell(row_num, col, item['nit_proveedor']); col += 1
+        _cell(row_num, col, item['nombre_proveedor']); col += 1
+        _cell(row_num, col, item.get('nombre_comercial', '')); col += 1
+        _cell(row_num, col, item['cod_oficina']); col += 1
+        _cell(row_num, col, item['nombre_oficina']); col += 1
+        _cell(row_num, col, item['direccion']); col += 1
+        _cell(row_num, col, item['ciudad']); col += 1
+        _cell(row_num, col, item['zona']); col += 1
+        _cell(row_num, col, item['tipo']); col += 1
+        _cell(row_num, col, item['num_contrato']); col += 1
+        _cell(row_num, col, item['estado_contrato']); col += 1
+        _cell(row_num, col, item['tipo_plan']); col += 1
+        _cell(row_num, col, item['tipo_canal']); col += 1
+
+        valor_cell = _cell(row_num, col, item['valor_mensual'])
         valor_cell.number_format = '#,##0'
         col += 1
-        
+
         # Dynamic month columns
         for year, month in months:
-            # Use same string key format as data
             month_key = f"{year}-{month:02d}"
             pago_data = item['pagos'].get(month_key, {})
-            
+
             # Valor
             valor = pago_data.get('valor', 0)
-            valor_cell = ws.cell(row=row_num, column=col, value=valor if valor > 0 else '')
-            valor_cell.border = thin_border
+            valor_cell = _cell(row_num, col, valor if valor > 0 else '')
             if valor > 0:
                 valor_cell.number_format = '#,##0'
                 valor_cell.font = currency_font
             col += 1
-            
+
             # Fecha
             fecha = pago_data.get('fecha')
-            fecha_cell = ws.cell(row=row_num, column=col, value=fecha if fecha else '')
-            fecha_cell.border = thin_border
+            _cell(row_num, col, fecha if fecha else '')
             col += 1
-        
+
         # Observaciones (last column)
-        ws.cell(row=row_num, column=col, value=item.get('observaciones', '')).border = thin_border
-        
+        _cell(row_num, col, item.get('observaciones', ''))
+
         row_num += 1
     
     # Adjust column widths
