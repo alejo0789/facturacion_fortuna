@@ -133,18 +133,29 @@ async def get_report_data(
         .outerjoin(models.Oficina, models.FacturaOficina.oficina_id == models.Oficina.id)
     )
     
-    # Apply date filter - use fecha_factura or created_at if fecha_factura is NULL
-    # Get the effective date (fecha_factura or created_at date)
-    # SOLO FACTURAS PAGADAS
+    # Filtro de fechas:
+    # PRIORIDAD 1: status_updated_at (fecha real de pago) dentro del rango
+    # PRIORIDAD 2: fecha_factura dentro del rango (para facturas sin status_updated_at)
+    # PRIORIDAD 3: created_at cuando no hay fecha_factura
     fo_filters = [
-        models.Factura.estado == 'PAGADA',  # Solo traer facturas pagadas
+        models.Factura.estado == 'PAGADA',  # Solo facturas pagadas
         or_(
+            # Pagadas (status_updated_at) dentro del período
             and_(
+                models.Factura.status_updated_at.isnot(None),
+                cast(models.Factura.status_updated_at, Date) >= start_date,
+                cast(models.Factura.status_updated_at, Date) <= end_date
+            ),
+            # Sin status_updated_at → usar fecha_factura
+            and_(
+                models.Factura.status_updated_at.is_(None),
                 models.Factura.fecha_factura.isnot(None),
                 models.Factura.fecha_factura >= start_date,
                 models.Factura.fecha_factura <= end_date
             ),
+            # Sin ninguna fecha → usar created_at
             and_(
+                models.Factura.status_updated_at.is_(None),
                 models.Factura.fecha_factura.is_(None),
                 cast(models.Factura.created_at, Date) >= start_date,
                 cast(models.Factura.created_at, Date) <= end_date
@@ -181,25 +192,23 @@ async def get_report_data(
     
     for fo in factura_oficinas:
         if fo.factura:
-            # Use fecha_factura if available, otherwise use created_at
-            if fo.factura.fecha_factura:
-                factura_fecha = fo.factura.fecha_factura
-            elif fo.factura.created_at:
-                factura_fecha = fo.factura.created_at.date() if hasattr(fo.factura.created_at, 'date') else fo.factura.created_at
-            else:
-                continue  # Skip if no date available
-            
-            month_key = f"{factura_fecha.year}-{factura_fecha.month:02d}"
-            valor_fo = float(fo.valor) if fo.valor else 0
-            # Fecha a mostrar en el reporte = cuándo se marcó PAGADA (status_updated_at)
-            # Si no existe, cae al fallback de fecha_factura
+            # FECHA PRIMARIA: status_updated_at (cuándo se marcó PAGADA)
+            # FALLBACK: fecha_factura → created_at
+            # Esta misma fecha determina TANTO la columna de mes como lo que se muestra.
             if fo.factura.status_updated_at:
-                fecha_display = fo.factura.status_updated_at
-                if hasattr(fecha_display, 'date'):
-                    fecha_display = fecha_display.date()
+                fecha_base = fo.factura.status_updated_at
+                if hasattr(fecha_base, 'date'):
+                    fecha_base = fecha_base.date()
+            elif fo.factura.fecha_factura:
+                fecha_base = fo.factura.fecha_factura
+            elif fo.factura.created_at:
+                fecha_base = fo.factura.created_at.date() if hasattr(fo.factura.created_at, 'date') else fo.factura.created_at
             else:
-                fecha_display = factura_fecha
-            fecha_str = fecha_display.isoformat() if hasattr(fecha_display, 'isoformat') else str(fecha_display)
+                continue  # Sin fecha → no incluir
+
+            # month_key y fecha_display usan la MISMA fecha → no puede haber desincronización
+            month_key = f"{fecha_base.year}-{fecha_base.month:02d}"
+            fecha_str = fecha_base.isoformat() if hasattr(fecha_base, 'isoformat') else str(fecha_base)
             
             # Lookup by (proveedor_id, oficina_id)
             proveedor_id_fo = fo.factura.proveedor_id
