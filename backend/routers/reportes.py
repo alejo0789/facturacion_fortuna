@@ -191,7 +191,15 @@ async def get_report_data(
             
             month_key = f"{factura_fecha.year}-{factura_fecha.month:02d}"
             valor_fo = float(fo.valor) if fo.valor else 0
-            fecha_str = factura_fecha.isoformat() if hasattr(factura_fecha, 'isoformat') else str(factura_fecha)
+            # Fecha a mostrar en el reporte = cuándo se marcó PAGADA (status_updated_at)
+            # Si no existe, cae al fallback de fecha_factura
+            if fo.factura.status_updated_at:
+                fecha_display = fo.factura.status_updated_at
+                if hasattr(fecha_display, 'date'):
+                    fecha_display = fecha_display.date()
+            else:
+                fecha_display = factura_fecha
+            fecha_str = fecha_display.isoformat() if hasattr(fecha_display, 'isoformat') else str(fecha_display)
             
             # Lookup by (proveedor_id, oficina_id)
             proveedor_id_fo = fo.factura.proveedor_id
