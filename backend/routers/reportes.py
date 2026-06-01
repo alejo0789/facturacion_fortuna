@@ -209,6 +209,7 @@ async def get_report_data(
             # month_key y fecha_display usan la MISMA fecha → no puede haber desincronización
             month_key = f"{fecha_base.year}-{fecha_base.month:02d}"
             fecha_str = fecha_base.isoformat() if hasattr(fecha_base, 'isoformat') else str(fecha_base)
+            valor_fo = float(fo.valor) if fo.valor else 0
             
             # Lookup by (proveedor_id, oficina_id)
             proveedor_id_fo = fo.factura.proveedor_id
