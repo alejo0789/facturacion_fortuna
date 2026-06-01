@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
+import { apiFetch } from '../utils/apiClient';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
@@ -463,7 +464,7 @@ export default function ReportesPage() {
 
     // Load filters and stats on mount
     useEffect(() => {
-        fetch(`${API_URL}/reportes/filtros`)
+        apiFetch('/reportes/filtros')
             .then(r => r.json())
             .then(data => {
                 setFiltros(data);
@@ -473,7 +474,7 @@ export default function ReportesPage() {
             })
             .catch(err => console.error('Error loading filters:', err));
 
-        fetch(`${API_URL}/reportes/estadisticas`)
+        apiFetch('/reportes/estadisticas')
             .then(r => r.json())
             .then(data => setStats(data))
             .catch(err => console.error('Error loading stats:', err))
@@ -484,14 +485,11 @@ export default function ReportesPage() {
     useEffect(() => {
         if (año) {
             setLoadingStats(true);
-            let url = `${API_URL}/reportes/estadisticas?año=${año}`;
-            if (chartOficina) {
-                url += `&oficina_id=${chartOficina}`;
-            }
-            if (chartProveedor) {
-                url += `&proveedor_id=${chartProveedor}`;
-            }
-            fetch(url)
+            const statsParams = new URLSearchParams();
+            statsParams.append('año', año);
+            if (chartOficina) statsParams.append('oficina_id', chartOficina.toString());
+            if (chartProveedor) statsParams.append('proveedor_id', chartProveedor.toString());
+            apiFetch(`/reportes/estadisticas?${statsParams}`)
                 .then(r => r.json())
                 .then(data => setStats(data))
                 .catch(err => console.error('Error loading stats:', err))
@@ -523,7 +521,7 @@ export default function ReportesPage() {
         setLoading(true);
         try {
             const params = buildQueryParams();
-            const res = await fetch(`${API_URL}/reportes/preview?${params}`);
+            const res = await apiFetch(`/reportes/preview?${params}`);
             const data = await res.json();
             setPreview(data);
         } catch (error) {
@@ -537,7 +535,7 @@ export default function ReportesPage() {
         setExporting(true);
         try {
             const params = buildQueryParams();
-            const res = await fetch(`${API_URL}/reportes/export?${params}`);
+            const res = await apiFetch(`/reportes/export?${params}`);
 
             if (res.ok) {
                 const blob = await res.blob();
