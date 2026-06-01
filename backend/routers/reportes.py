@@ -107,7 +107,12 @@ async def get_report_data(
         filters.append(models.Oficina.ciudad.ilike(f"%{ciudad}%"))
     
     if allowed_categoria_ids is not None:
-        filters.append(models.Contrato.categoria_id.in_(allowed_categoria_ids))
+        filters.append(
+            or_(
+                models.Contrato.categoria_id.in_(allowed_categoria_ids),
+                models.Contrato.categoria_id.is_(None)  # Incluir contratos sin categoría asignada (registros antiguos)
+            )
+        )
     
     if filters:
         query = query.filter(and_(*filters))
@@ -158,7 +163,12 @@ async def get_report_data(
         fo_filters.append(models.Oficina.ciudad.ilike(f"%{ciudad}%"))
 
     if allowed_categoria_ids is not None:
-        fo_filters.append(models.Factura.categoria_id.in_(allowed_categoria_ids))
+        fo_filters.append(
+            or_(
+                models.Factura.categoria_id.in_(allowed_categoria_ids),
+                models.Factura.categoria_id.is_(None)  # Incluir facturas sin categoría asignada (registros antiguos)
+            )
+        )
     
     factura_oficina_query = factura_oficina_query.filter(and_(*fo_filters))
     
@@ -656,8 +666,14 @@ async def get_report_stats(
             return q.filter(model_class.categoria_id == int(categoria_id))
         
         # If they didn't pick one, show all their allowed categories
+        # IMPORTANT: also include records with NULL categoria_id (invoices uploaded before categories existed)
         if allowed_categoria_ids is not None:
-            return q.filter(model_class.categoria_id.in_(allowed_categoria_ids))
+            return q.filter(
+                or_(
+                    model_class.categoria_id.in_(allowed_categoria_ids),
+                    model_class.categoria_id.is_(None)
+                )
+            )
             
         return q.filter(models.False_()) # Security fallback: show nothing if not admin and no allowed categories
     
