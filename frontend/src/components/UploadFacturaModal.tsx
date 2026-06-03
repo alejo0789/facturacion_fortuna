@@ -2,7 +2,15 @@ import { useState, useRef, useEffect } from 'react';
 import type { Proveedor } from '../types';
 import Modal, { FormField, inputClassName } from './Modal';
 
-import { apiFetch } from '../utils/apiClient';
+import { apiFetch, apiGet } from '../utils/apiClient';
+
+interface TarifaRetencion {
+    id: number;
+    concepto: string;
+    tarifa_pct: number;
+    base_minima: number;
+    es_default: boolean;
+}
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
@@ -63,6 +71,16 @@ export default function UploadFacturaModal({ isOpen, onClose, onSuccess }: Uploa
     const [proveedores, setProveedores] = useState<Proveedor[]>([]);
     const [showProveedorSuggestions, setShowProveedorSuggestions] = useState(false);
     const [selectedProveedor, setSelectedProveedor] = useState<Proveedor | null>(null);
+
+    // Tarifas de retención (catálogo DIAN 2026) — cargadas del backend
+    const [tarifasRetefuente, setTarifasRetefuente] = useState<TarifaRetencion[]>([]);
+
+    useEffect(() => {
+        if (!isOpen) return;
+        apiGet<TarifaRetencion[]>('/impuestos/tarifas?tipo=RETEFUENTE')
+            .then(setTarifasRetefuente)
+            .catch((e) => console.error('Error cargando tarifas:', e));
+    }, [isOpen]);
 
     // Reset state when modal opens/closes
     useEffect(() => {
@@ -658,19 +676,34 @@ export default function UploadFacturaModal({ isOpen, onClose, onSuccess }: Uploa
                                 Causación contable
                             </h4>
                             <div className="grid grid-cols-2 gap-4">
-                                <FormField label="Concepto DIAN">
+                                <FormField label={`Concepto retención DIAN ${tarifasRetefuente.length ? `(${tarifasRetefuente.length} oficiales 2026)` : ''}`}>
                                     <select
                                         className={inputClassName}
                                         value={formData.concepto_dian}
                                         onChange={e => setFormData({ ...formData, concepto_dian: e.target.value })}
                                     >
-                                        <option value="5001">5001 — Honorarios (11%)</option>
-                                        <option value="5002">5002 — Servicios (4–6%)</option>
-                                        <option value="5003">5003 — Compras (2.5%)</option>
-                                        <option value="5004">5004 — Arrendamientos (3.5%)</option>
-                                        <option value="5005">5005 — Transporte carga (1%)</option>
-                                        <option value="5006">5006 — Comisiones (11%)</option>
-                                        <option value="5007">5007 — Rendimientos fin (7%)</option>
+                                        <option value="">— Sin concepto específico (tarifa default) —</option>
+                                        {tarifasRetefuente.length === 0 ? (
+                                            <>
+                                                <option value="5001">5001 — Honorarios (11%)</option>
+                                                <option value="5002">5002 — Servicios (4–6%)</option>
+                                                <option value="5003">5003 — Compras (2.5%)</option>
+                                                <option value="5004">5004 — Arrendamientos (3.5%)</option>
+                                            </>
+                                        ) : (
+                                            tarifasRetefuente
+                                                .filter((t) => !t.es_default)
+                                                .map((t) => {
+                                                    const baseLbl = t.base_minima > 0
+                                                        ? `base $${t.base_minima.toLocaleString('es-CO')}`
+                                                        : 'sin base mínima';
+                                                    return (
+                                                        <option key={t.id} value={t.concepto.split(' ')[0]}>
+                                                            {t.concepto} — {t.tarifa_pct}% ({baseLbl})
+                                                        </option>
+                                                    );
+                                                })
+                                        )}
                                     </select>
                                 </FormField>
                                 <div className="flex flex-col justify-end gap-2 pb-2">
