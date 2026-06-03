@@ -71,6 +71,143 @@ async def listar_puc(
     return result.scalars().all()
 
 
+@router.get("/puc/catalogo")
+async def listar_puc_catalogo(
+    q: Optional[str] = Query(None, description="Búsqueda libre (código o nombre)"),
+    clase: Optional[str] = Query(None, description="Filtrar por clase 1-9"),
+    solo_movimiento: bool = Query(True, description="Sólo subcuentas (permite_mov=true)"),
+    limit: int = Query(50, ge=1, le=500),
+    _=Depends(get_current_empresa),  # autenticación pero el catálogo es shared
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Catálogo PUC maestro (Decreto 2650). Compartido entre todas las empresas.
+    Se usa para autocomplete al añadir una cuenta nueva al PUC de la empresa:
+    el usuario escribe y se filtran las cuentas del catálogo.
+    """
+    from sqlalchemy import text
+    sql = ["SELECT codigo, nombre, clase, nivel, naturaleza, permite_mov, padre_codigo",
+           "FROM puc_catalogo WHERE 1=1"]
+    params: dict = {}
+    if clase:
+        sql.append("AND clase = :clase")
+        params["clase"] = clase
+    if solo_movimiento:
+        sql.append("AND permite_mov = true")
+    if q:
+        sql.append("AND (busqueda LIKE :q OR codigo LIKE :code)")
+        params["q"] = f"%{q.lower()}%"
+        params["code"] = f"{q}%"
+    sql.append("ORDER BY codigo")
+    sql.append("LIMIT :limit")
+    params["limit"] = limit
+
+    result = await db.execute(text(" ".join(sql)), params)
+    return [
+        {
+            "codigo": r.codigo,
+            "nombre": r.nombre,
+            "clase": r.clase,
+            "nivel": r.nivel,
+            "naturaleza": r.naturaleza,
+            "permite_movimiento": r.permite_mov,
+            "padre_codigo": r.padre_codigo,
+        }
+        for r in result.all()
+    ]
+
+
+@router.post("/puc/agregar-desde-catalogo", response_model=CuentaPUCResponse)
+async def agregar_cuenta_desde_catalogo(
+    codigo: str = Query(..., description="Código de la cuenta en el catálogo"),
+    requiere_tercero: bool = Query(False),
+    empresa=Depends(get_current_empresa),
+    _=Depends(require_role("ADMIN", "CONTADOR", "CONTABILIDAD")),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Clona una cuenta del catálogo Decreto 2650 al PUC de la empresa activa.
+    Si la cuenta ya existe en la empresa, devuelve 409.
+    Si la cuenta tiene padres en el catálogo que no están en el PUC de la
+    empresa, se siembran automáticamente (cascada hacia arriba).
+    """
+    from sqlalchemy import text
+
+    # 1. Verificar duplicado en la empresa
+    existing = await db.execute(
+        select(CuentaPUC).where(
+            CuentaPUC.empresa_id == empresa.id,
+            CuentaPUC.codigo == codigo,
+        )
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(409, f"La cuenta {codigo} ya existe en su PUC")
+
+    # 2. Buscar la cuenta en el catálogo
+    cat_row = (await db.execute(
+        text("SELECT codigo, nombre, naturaleza, nivel, permite_mov, padre_codigo "
+             "FROM puc_catalogo WHERE codigo = :c"),
+        {"c": codigo},
+    )).one_or_none()
+    if not cat_row:
+        raise HTTPException(404, f"Código {codigo} no existe en el catálogo PUC")
+
+    # 3. Sembrar padres faltantes (cascada hacia arriba)
+    async def _ensure_parent(padre_codigo: str | None):
+        if not padre_codigo:
+            return
+        ya = (await db.execute(
+            select(CuentaPUC).where(
+                CuentaPUC.empresa_id == empresa.id,
+                CuentaPUC.codigo == padre_codigo,
+            )
+        )).scalar_one_or_none()
+        if ya:
+            return
+        padre_cat = (await db.execute(
+            text("SELECT codigo, nombre, naturaleza, nivel, permite_mov, padre_codigo "
+                 "FROM puc_catalogo WHERE codigo = :c"),
+            {"c": padre_codigo},
+        )).one_or_none()
+        if not padre_cat:
+            return
+        await _ensure_parent(padre_cat.padre_codigo)
+        # Mapeo nivel int → string que espera el modelo
+        nivel_str = {1: "CLASE", 2: "GRUPO", 4: "CUENTA", 6: "SUBCUENTA"}.get(padre_cat.nivel, "CUENTA")
+        db.add(CuentaPUC(
+            empresa_id=empresa.id,
+            codigo=padre_cat.codigo,
+            nombre=padre_cat.nombre,
+            naturaleza=padre_cat.naturaleza,
+            nivel=nivel_str,
+            padre_codigo=padre_cat.padre_codigo,
+            permite_movimiento=padre_cat.permite_mov,
+            requiere_tercero=False,
+            activa=True,
+        ))
+        await db.flush()
+
+    await _ensure_parent(cat_row.padre_codigo)
+
+    # 4. Crear la cuenta
+    nivel_str = {1: "CLASE", 2: "GRUPO", 4: "CUENTA", 6: "SUBCUENTA"}.get(cat_row.nivel, "SUBCUENTA")
+    cuenta = CuentaPUC(
+        empresa_id=empresa.id,
+        codigo=cat_row.codigo,
+        nombre=cat_row.nombre,
+        naturaleza=cat_row.naturaleza,
+        nivel=nivel_str,
+        padre_codigo=cat_row.padre_codigo,
+        permite_movimiento=cat_row.permite_mov,
+        requiere_tercero=requiere_tercero,
+        activa=True,
+    )
+    db.add(cuenta)
+    await db.commit()
+    await db.refresh(cuenta)
+    return cuenta
+
+
 @router.post("/puc", response_model=CuentaPUCResponse)
 async def crear_cuenta_puc(
     data: CuentaPUCCreate,

@@ -5,7 +5,7 @@ Incluye endpoint `/calcular` para simular el cálculo de impuestos.
 from decimal import Decimal
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -166,6 +166,46 @@ async def calcular(
         retefuente_rate_override=data.retefuente_rate_override,
     )
     return CalcularImpuestosResponse(**resultado)
+
+
+# ==========================================================
+# Tarifas — listado plano para dropdowns del frontend
+# ==========================================================
+@router.get("/tarifas")
+async def listar_tarifas(
+    tipo: str = Query(..., description="IVA | RETEFUENTE | RETEIVA | RETEICA"),
+    q: Optional[str] = Query(None, description="Buscar por concepto (case-insensitive)"),
+    empresa=Depends(get_current_empresa),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Lista plana de tarifas de un tipo de impuesto, lista para alimentar un
+    `<select>` o autocomplete en el frontend. Incluye base mínima en pesos
+    pre-calculada.
+    """
+    stmt = (
+        select(TarifaImpuesto, ConfiguracionImpuesto)
+        .join(ConfiguracionImpuesto, ConfiguracionImpuesto.id == TarifaImpuesto.configuracion_id)
+        .where(
+            ConfiguracionImpuesto.empresa_id == empresa.id,
+            ConfiguracionImpuesto.tipo == tipo.upper(),
+            ConfiguracionImpuesto.activo == True,  # noqa: E712
+        )
+        .order_by(TarifaImpuesto.concepto)
+    )
+    if q:
+        stmt = stmt.where(TarifaImpuesto.concepto.ilike(f"%{q}%"))
+    rows = (await db.execute(stmt)).all()
+    return [
+        {
+            "id": t.id,
+            "concepto": t.concepto,
+            "tarifa_pct": float(t.tarifa_pct),
+            "base_minima": float(t.base_minima or 0),
+            "es_default": t.es_default,
+        }
+        for (t, _ci) in rows
+    ]
 
 
 # ==========================================================
