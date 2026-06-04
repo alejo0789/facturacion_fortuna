@@ -1,5 +1,5 @@
 {
-    "updatedAt": "2026-04-27T21:34:39.766Z",
+    "updatedAt": "2026-05-22T19:15:41.697Z",
     "createdAt": "2025-12-03T21:08:01.084Z",
     "id": "XtbJG0fxGuuWIz36",
     "name": "Recepción y guardado de documentos",
@@ -93,7 +93,8 @@
                 },
                 "output": "raw",
                 "filters": {
-                    "hasAttachments": true
+                    "hasAttachments": true,
+                    "sender": "auxiliaradmintic@acertemos.com"
                 },
                 "options": {
                     "downloadAttachments": true
@@ -398,14 +399,14 @@
             "parameters": {
                 "modelId": {
                     "__rl": true,
-                    "value": "gpt-4.1-mini",
+                    "value": "gpt-5-mini",
                     "mode": "list",
-                    "cachedResultName": "GPT-4.1-MINI"
+                    "cachedResultName": "GPT-5-MINI"
                 },
                 "responses": {
                     "values": [
                         {
-                            "content": "=Eres un excelente asistente experto en extraer información de PDFs y llenar una base de datos sql con la información requerida usando la herramienta add_information (nunca inventes informacion).\n\n===========================\n📄 PDF\nFilename:\n{{ $binary.data.fileName }}\n\n===========================\n\nHerramientas disponibles:\n- knowledge_base\n- add_information\n- get_information\n\n\nObjetivo:\n1. Extraer la información del PDF.\n2. Identificar\n\"proveedor_nit\", diferente al 817007005\n\"numero_factura\"\n\"cufe\"\n\"fecha_factura\"\n\"fecha_vencimiento\"\n\"valor total\"\n\"iva\"\n3. Obtener información adicional de los proveedores, y contratos y oficinas que tiene el proveedor utilizndo la herrmaienta get information .\n4. tratar de identificar la oficina que mejor corresponda por campos como la direccion de la oficina si la factura no tiene una referencia de pago o numero de contrato que los vincule. \n5. ENTREGAR un JSON FINAL con esta estructura:\n\nCAMPOS QUE DEBES EXTRAER DEL PDF:\n\n\n*nit proveedor*\nnit prohibido 817007005\nnit prohibido 817007005-2 \n\nDeberas extarer el nit del proveedor del emisor de la factura y dejarlo sin comas ni puntos y simpre completo.\n\nnunca podra ser 817007005-2 o 817007005 ya q ese es es mi nit y necesito encontra es la identificacion al que le voy a pagar.\n\nel nit podra estar como imagen en el encabezado, siempre busca el nit del proveedor.\nsiempre sera sin el digito d everificacion por ejemplo  891502163-1 nit es 891502163.\nejemplo 10.722.639-0 el nit es 10722639\n***\npara el caso de emtel siempre el nit = 891502163.\n**\npara el caso de cuentas de cobro busca la cedula cc o cedula, o identificaciona de la personaa quien es la persona a la que se le va pagar \n\ncaso especial proveedor TIGO por lo regular esta factura trae esta nota: El prestador del servicio, así como sus adicionales, complementarios o suplementarios es UNE EPM TELECOMUNICACIONES, y el logo de tigo  a la derecha. nit =  830114921\n\nsiempre WILSON ARLEY RODRIGUEZ LUCUMIi = 1062315596\n\n*Numero de factura:\nlo encuentas como numero factura, factura venta, factura. Nota:\nten cuidado de no confundir con otro numero, siempre es el numero de factura, facura venta. deberas traer el numero completo en algunos casos apare asi 1FVI 21348 el numero de factura es : 1FVI21348. \nsi encuentras el nit 817007005 deberas buscar otro en la factura.\n**Fecha de Factura**\n   - Extraer la fecha que fue emitida la factura.\n   - Siempre devolverla en formato YYYY-MM-DD.\n   - Nunca puede ser mayor a la fecha actual: {{ $now }}\n\n\"fecha_vencimiento\"\nEs la fecha de pago \nSiempre devolverla en formato YYYY-MM-DD.\nsi puede o no ser mayor a la fecha actual\n----------------------------\nReferencia de pago.: es difernete al numero de factura,\n\neste es el numero que viene como suscripcion, referencia pago, numero contrato. ref pagos.\n-------------------------------------------------\n\n\nEjemplo:\n- Referencia de pago: 878237873  \n- Número factura PDF: M2323  \n\n\nDebes usar SOLO:\nNumero de factura = 878237873\n\nNOTa MANDATORIA:\nNunca usar codigos de barras\n\n📌 USO DE LA HERRAMIENTA knowledge_base\n-------------------------------------------------\nuna vez identificado el proveedor tu le enviaras el nit del proveedor a knowledge_base y te va devolver la infomracion de como se ha procesado infomracion relacionada con este proveedor, asi como loes errores que se han cometido en el pasado.\n\n### Si no hay información en knowledge_base:\n- Proceder con las reglas estándar\n- Tu extracción servirá como base para futuro feedback\n-------------------------------------------------\n📌 VALOR TOTAL\n-------------------------------------------------\n- Extraer el valor total con IVA.\n- Puede estar como “total”, “valor”, “precio”, “valor total”.\n- Entregarlo SIN puntos, SIN comas, SIN signos peso.\n  Ejemplo:\n  $123.456  →  123456\nsiempre si hay decimales aproxima al entero mayor ejemplo 15.917.044,3 deberas aproximar a 15.917.045.\n-------------------------------------------------\n📌 Iva\n-------------------------------------------------\n- Extraer el valor Del Iva total de la factura. como experto en revision del iva debes analizar muy bien la factura para determinar cual es el valor del iva restando los decuentos.\n- Entregarlo SIN puntos, SIN comas, SIN signos peso.\n  Ejemplo:\n  $123.456  →  123456\nsiempre si hay decimales aproxima al entero mayor ejemplo 15.917.044,3 deberas aproximar a 15.917.045. SINO EXISTE LO DEJAS COMO NULL\n-------------------------------------------------\n📌 Codigo de Suscripcion\n-------------------------------------------------\nReferencia pago = suscripcion\n\n-------------------------------\n📌 Direccion\nes la direccion de la factura\n-------------------------------------------------\nReferencia pago = suscripcion\n-------------------------------------------------\n📌 USO DE LA HERRAMIENTA get_information\n-------------------------------------------------\ntu le enviras el nit del proveedor y te va devolver los numeros de contratos disponibles, num_contrato, codigo oficina, nombre oficina, direccion.\nnunca podras consultar el proveedor 817007005-2 o 817007005 ese es mi nit, si tienes este nit deberas volver a buscar en la factura otro nit del que emite la factura.\n*Obligatorio*: si te devuelve proveedor no encontrado o no te deuelve ningun ningun contrato intenta encontrar el nit correcto en la factura de nuevo, vuelve a escanear la factura intenta encontrar el nit valido.\n--------------------------\nIdentificacion de contrato:\n\nsi solo hay un solo contrato, ya identificaste el num_contrato, y extare el\"oficina_id1\": cod_oficna (completo) si es 001_int_09 debes utilizarlo todo.\nEn caso de haber mas oficinas, valida si la referencia de pago es igual al num_contrato si es igual ya encontraste el num_contrato.\nEn caso de que hayan varios contratos y no tengas una referencia de pago, mira la direccion y trata de identificar por la direccion de la factura.\ntrata de identificar la oficina que mejor corresponda por campos como la direccion de la oficina, por las observaiones si la factura no tiene una referencia de pago o numero de contrato que los vincule, si tien referencia d epago numero de contrato utilizalo.\nsi las identificas guarda:\n \"oficina_id1\": cod_oficna \n  \"contrato_id1\":num_contrato\n\nsi encuentras varias oficinas \nidentificalas todas pero es porque tiene varias direcciones o varias oficinas la factura.\n \"oficina_id1\": cod_oficna \n  \"contrato_id1\":num_contrato\n\n \"oficina_id2\": cod_oficna\n  \"contrato_id2\":num_contrato\n\nsi no encuentras el proveexor intenta buscar otro nit\n\n\n----------------------------------------\nINSTRUCCIONES PARA EL USO DE LA HERRAMIENTA add_information:\n\n\nCuando identifiques datos de una factura, DEBES ejecutar la herramienta add_information utilizando estrictamente el siguiente esquema JSON. No añadas texto adicional, solo envía el JSON con estos campos:\n\nproveedor_nit: (String) NIT del proveedor sin puntos ni guiones.\n\noficina_id: (Integer) ID de la oficina.\n\nnumero_factura: (String) El número alfanumérico de la factura.\n\ncufe: (String) Código único de factura electrónica.\n\nfecha_factura: (String) Formato AAAA-MM-DD.\n\nfecha_vencimiento: (String) Formato AAAA-MM-DD.\n\nvalor: (Number) Valor total sin símbolos de moneda ni miles.\n\nurl_factura: (String) Siempre debe ser el path proporcionado: file://192.168.2.20/Facturas/ diciembre/23/71a2e88d-cabc-4ae6-b362-4b906040feb7.pdf\n\nobservaciones: (String) Breve descripción o dejar vacío si no hay.\n\noficinas: (array) [  {\"cod_oficina\": oficina_id1, \"valor\": valor }].\n\niva : (Number) Valor total sin símbolos de moneda ni miles.\n\n\nal finalizar tu respuesta debera ser un json tipo \n\n{\n  \"success\": true,\n  \"factura_id\": 123,\n  \"factura\": {\n    \"id\": 123,\n    \"numero_factura\": \"FAC-001\",\n    \"proveedor_nombre\": \"Proveedor XYZ\",\n    \"proveedor_nit\": \"900123456\",\n    \"valor\": 1500000\n    \"iva\":12000\n  }\n} o si hay error {\n  \"success\": false,\n  \"error\": \"No se pudo extraer información del PDF erro no XXX informacion adicional..... \"\n}"
+                            "content": "=Eres un excelente asistente experto en extraer información de PDFs y llenar una base de datos sql con la información requerida usando la herramienta add_information (nunca inventes informacion).\n\n===========================\n📄 PDF\nFilename:\n{{ $binary.data.fileName }}\n\n===========================\n\nHerramientas disponibles:\n- knowledge_base\n- add_information\n- get_information\n\n\nObjetivo:\n1. Extraer la información del PDF.\n2. Identificar\n\"proveedor_nit\", diferente al 817007005\n\"numero_factura\"\n\"cufe\"\n\"fecha_factura\"\n\"fecha_vencimiento\"\n\"valor total\"\n\"iva\"\n3. Obtener información adicional de los proveedores, y contratos y oficinas que tiene el proveedor utilizndo la herrmaienta get information .\n4. tratar de identificar la oficina que mejor corresponda por campos como la direccion de la oficina si la factura no tiene una referencia de pago o numero de contrato que los vincule. \n5. ENTREGAR un JSON FINAL con esta estructura:\n\nCAMPOS QUE DEBES EXTRAER DEL PDF:\n\n\n*nit proveedor*\nnit prohibido 817007005\nnit prohibido 817007005-2 \n\nDeberas extarer el nit del proveedor del emisor de la factura y dejarlo sin comas ni puntos y simpre completo.\n\nnunca podra ser 817007005-2 o 817007005 ya q ese es es mi nit y necesito encontra es la identificacion al que le voy a pagar.\n\nel nit podra estar como imagen en el encabezado, siempre busca el nit del proveedor.\nsiempre sera sin el digito d everificacion por ejemplo  891502163-1 nit es 891502163.\nejemplo 10.722.639-0 el nit es 10722639\n***\npara el caso de emtel siempre el nit = 891502163.\n**\npara el caso de cuentas de cobro busca la cedula cc o cedula, o identificaciona de la personaa quien es la persona a la que se le va pagar \n\ncaso especial proveedor TIGO por lo regular esta factura trae esta nota: El prestador del servicio, así como sus adicionales, complementarios o suplementarios es UNE EPM TELECOMUNICACIONES, y el logo de tigo  a la derecha. nit =  830114921\n\nsiempre WILSON ARLEY RODRIGUEZ LUCUMIi = 1062315596\n\n*Numero de factura:\nlo encuentas como numero factura, factura venta, factura. Nota:\nten cuidado de no confundir con otro numero, siempre es el numero de factura, facura venta. deberas traer el numero completo en algunos casos apare asi 1FVI 21348 el numero de factura es : 1FVI21348. \nsi encuentras el nit 817007005 deberas buscar otro en la factura.\n\n**Fecha de Factura**\n   - Extraer la fecha que fue emitida la factura.\n   - Siempre devolverla en formato YYYY-MM-DD.\n   - Nunca puede ser mayor a la fecha actual: {{ $now }}\n\n\"fecha_vencimiento\"\nEs la fecha de pago \nSiempre devolverla en formato YYYY-MM-DD.\nsi puede o no ser mayor a la fecha actual\n----------------------------\nReferencia de pago.: es difernete al numero de factura,\n\neste es el numero que viene como suscripcion, referencia pago, numero contrato. ref pagos.\n-------------------------------------------------\n\n\nEjemplo:\n- Referencia de pago: 878237873  \n- Número factura PDF: M2323  \n\n\nDebes usar SOLO:\nNumero de factura = 878237873\n\nNOTa MANDATORIA:\nNunca usar codigos de barras\n\n📌 USO DE LA HERRAMIENTA knowledge_base\n-------------------------------------------------\nuna vez identificado el proveedor tu le enviaras el nit del proveedor a knowledge_base y te va devolver la infomracion de como se ha procesado infomracion relacionada con este proveedor, asi como loes errores que se han cometido en el pasado.\n\n### Si no hay información en knowledge_base:\n- Proceder con las reglas estándar\n- Tu extracción servirá como base para futuro feedback\n-------------------------------------------------\n📌 VALOR TOTAL\n-------------------------------------------------\n- Extraer el valor total con IVA.\n- Puede estar como “total”, “valor”, “precio”, “valor total”.\n- Entregarlo SIN puntos, SIN comas, SIN signos peso.\n  Ejemplo:\n  $123.456  →  123456\nsiempre si hay decimales aproxima al entero mayor ejemplo 15.917.044,3 deberas aproximar a 15.917.045.\n-------------------------------------------------\n📌 Iva\n-------------------------------------------------\n- Extraer el valor Del Iva total de la factura. como experto en revision del iva debes analizar muy bien la factura para determinar cual es el valor del iva restando los decuentos.\n- Entregarlo SIN puntos, SIN comas, SIN signos peso.\n  Ejemplo:\n  $123.456  →  123456\nsiempre si hay decimales aproxima al entero mayor ejemplo 15.917.044,3 deberas aproximar a 15.917.045. SINO EXISTE LO DEJAS COMO NULL\n-------------------------------------------------\n📌 Codigo de Suscripcion\n-------------------------------------------------\nReferencia pago = suscripcion\n\n-------------------------------\n📌 Direccion\nes la direccion de la factura\n-------------------------------------------------\nReferencia pago = suscripcion\n-------------------------------------------------\n📌 USO DE LA HERRAMIENTA get_information\n-------------------------------------------------\ntu le enviras el nit del proveedor y te va devolver los numeros de contratos disponibles, num_contrato, codigo oficina, nombre oficina, direccion.\nnunca podras consultar el proveedor 817007005-2 o 817007005 ese es mi nit, si tienes este nit deberas volver a buscar en la factura otro nit del que emite la factura.\n*Obligatorio*: si te devuelve proveedor no encontrado o no te deuelve ningun ningun contrato intenta encontrar el nit correcto en la factura de nuevo, vuelve a escanear la factura intenta encontrar el nit valido.\n--------------------------\nIdentificacion de contrato:\n\nsi solo hay un solo contrato, ya identificaste el num_contrato, y extare el\"oficina_id1\": cod_oficna (completo) si es 001_int_09 debes utilizarlo todo.\nEn caso de haber mas oficinas, valida si la referencia de pago es igual al num_contrato si es igual ya encontraste el num_contrato.\nEn caso de que hayan varios contratos y no tengas una referencia de pago, mira la direccion y trata de identificar por la direccion de la factura.\ntrata de identificar la oficina que mejor corresponda por campos como la direccion de la oficina, por las observaiones si la factura no tiene una referencia de pago o numero de contrato que los vincule, si tien referencia d epago numero de contrato utilizalo.\nsi las identificas guarda:\n \"oficina_id1\": cod_oficna \n  \"contrato_id1\":num_contrato\n\nsi encuentras varias oficinas \nidentificalas todas pero es porque tiene varias direcciones o varias oficinas la factura.\n \"oficina_id1\": cod_oficna \n  \"contrato_id1\":num_contrato\n\n \"oficina_id2\": cod_oficna\n  \"contrato_id2\":num_contrato\n\nsi no encuentras el proveexor intenta buscar otro nit\n\n\n----------------------------------------\nINSTRUCCIONES PARA EL USO DE LA HERRAMIENTA add_information:\n\n\nCuando identifiques datos de una factura, DEBES ejecutar la herramienta add_information utilizando estrictamente el siguiente esquema JSON. No añadas texto adicional, solo envía el JSON con estos campos:\n\nproveedor_nit: (String) NIT del proveedor sin puntos ni guiones.\n\noficina_id: (Integer) ID de la oficina.\n\nnumero_factura: (String) numero identificado de la factura.\n\ncufe: (String) Código único de factura electrónica.\n\nfecha_factura: (String) Formato AAAA-MM-DD.\n\nfecha_vencimiento: (String) Formato AAAA-MM-DD.\n\nvalor: (Number) Valor total sin símbolos de moneda ni miles.\n\nurl_factura: (String) Siempre debe ser el path proporcionado: ejemplo: file://192.168.2.20/Facturas/ diciembre/23/71a2e88d-cabc-4ae6-b362-4b906040feb7.pdf\n\nobservaciones: (String) Breve descripción o dejar vacío si no hay.\n\noficinas: (array) [  {\"cod_oficina\": oficina_id1, \"valor\": valor }].\n\niva : (Number) Valor total sin símbolos de moneda ni miles.\n\n\nal finalizar tu respuesta debera ser un json tipo \n\n{\n  \"success\": true,\n  \"factura_id\": 123,\n  \"factura\": {\n    \"id\": 123,\n    \"numero_factura\": \"FAC-001\",\n    \"proveedor_nombre\": \"Proveedor XYZ\",\n    \"proveedor_nit\": \"900123456\",\n    \"valor\": 1500000\n    \"iva\":12000\n  }\n} o si hay error {\n  \"success\": false,\n  \"error\": \"No se pudo extraer información del PDF erro no XXX informacion adicional..... \"\n}"
                         },
                         {
                             "type": "file",
@@ -489,7 +490,7 @@
                         {
                             "name": "url_factura",
                             "valueProvider": "fieldValue",
-                            "value": "=file://192.168.2.20//Facturas/{{ $('obtener_fecha').item.json.mes }}/{{ $('obtener_fecha').item.json.dia }}/{{ $if($(\"Code2\").isExecuted, $('Code2').item.binary.data.fileName + '.pdf', $('FTP13').item.json.name) }}"
+                            "value": "={{ (\"file://192.168.2.20//Facturas/\" + $('Loop Over Items1').item.json.mes + \"/\" + $('Loop Over Items1').item.json.dia + \"/\" + String($('Loop Over Items1').item.json.name.toLowerCase().endsWith('.zip') ? $('Loop Over Items1').item.binary.data.fileName + '.pdf' : $('Loop Over Items1').item.json.name)).trim() }}"
                         },
                         {
                             "name": "observaciones",
@@ -502,6 +503,11 @@
                         {
                             "name": "iva",
                             "valueProvider": "modelOptional"
+                        },
+                        {
+                            "name": "remitente_email",
+                            "valueProvider": "fieldValue",
+                            "value": "={{ $('entrey_email').isExecuted ? ($('entrey_email').first().json?.from?.emailAddress?.address || 'auxiliaradmintic@acertemos.com') : 'auxiliaradmintic@acertemos.com' }}"
                         }
                     ]
                 },
@@ -581,6 +587,10 @@
                         {
                             "name": "X-API-Key",
                             "value": "fortuna_2026_secret_api"
+                        },
+                        {
+                            "name": "X-User-Email",
+                            "value": "={{ $('entrey_email').isExecuted ? ($('entrey_email').first().json?.from?.emailAddress?.address || 'auxiliaradmintic@acertemos.com') : 'auxiliaradmintic@acertemos.com' }}"
                         }
                     ]
                 },
@@ -674,6 +684,20 @@
                     "name": "FTP account"
                 }
             }
+        },
+        {
+            "parameters": {
+                "mode": "chooseBranch",
+                "chooseBranch": "input1"
+            },
+            "type": "n8n-nodes-base.merge",
+            "typeVersion": 3.2,
+            "position": [
+                -5232,
+                -1072
+            ],
+            "id": "5c9f5f0a-8bf9-4b8f-b3d6-eda36955a4f1",
+            "name": "MergeWaitCleanup"
         }
     ],
     "connections": {
@@ -703,7 +727,12 @@
             "main": [
                 [
                     {
-                        "node": "Code in JavaScript",
+                        "node": "MergeWaitCleanup",
+                        "type": "main",
+                        "index": 0
+                    },
+                    {
+                        "node": "FTP17",
                         "type": "main",
                         "index": 0
                     }
@@ -942,7 +971,13 @@
         },
         "FTP": {
             "main": [
-                []
+                [
+                    {
+                        "node": "MergeWaitCleanup",
+                        "type": "main",
+                        "index": 1
+                    }
+                ]
             ]
         },
         "FTP17": {
@@ -950,6 +985,17 @@
                 [
                     {
                         "node": "FTP",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "MergeWaitCleanup": {
+            "main": [
+                [
+                    {
+                        "node": "Code in JavaScript",
                         "type": "main",
                         "index": 0
                     }
@@ -968,21 +1014,21 @@
             "recurrenceRules": []
         },
         "node:entrey_email": {
-            "lastTimeChecked": "2026-05-21T11:35:57.772-04:00"
+            "lastTimeChecked": "2026-06-04T08:49:00.160-04:00"
         }
     },
     "meta": {
         "templateCredsSetupCompleted": true
     },
     "pinData": {},
-    "versionId": "311ecbfc-e120-444e-a082-ab06a6967252",
-    "activeVersionId": "311ecbfc-e120-444e-a082-ab06a6967252",
-    "versionCounter": 1431,
+    "versionId": "f803d0bb-4265-4ac0-85ae-d6071b07008f",
+    "activeVersionId": "f803d0bb-4265-4ac0-85ae-d6071b07008f",
+    "versionCounter": 1571,
     "triggerCount": 2,
     "activeVersion": {
-        "updatedAt": "2026-04-27T21:34:39.763Z",
-        "createdAt": "2026-04-27T21:34:39.763Z",
-        "versionId": "311ecbfc-e120-444e-a082-ab06a6967252",
+        "updatedAt": "2026-05-22T19:15:41.691Z",
+        "createdAt": "2026-05-22T19:15:41.691Z",
+        "versionId": "f803d0bb-4265-4ac0-85ae-d6071b07008f",
         "workflowId": "XtbJG0fxGuuWIz36",
         "nodes": [
             {
@@ -1071,7 +1117,8 @@
                     },
                     "output": "raw",
                     "filters": {
-                        "hasAttachments": true
+                        "hasAttachments": true,
+                        "sender": "auxiliaradmintic@acertemos.com"
                     },
                     "options": {
                         "downloadAttachments": true
@@ -1376,14 +1423,14 @@
                 "parameters": {
                     "modelId": {
                         "__rl": true,
-                        "value": "gpt-4.1-mini",
+                        "value": "gpt-5-mini",
                         "mode": "list",
-                        "cachedResultName": "GPT-4.1-MINI"
+                        "cachedResultName": "GPT-5-MINI"
                     },
                     "responses": {
                         "values": [
                             {
-                                "content": "=Eres un excelente asistente experto en extraer información de PDFs y llenar una base de datos sql con la información requerida usando la herramienta add_information (nunca inventes informacion).\n\n===========================\n📄 PDF\nFilename:\n{{ $binary.data.fileName }}\n\n===========================\n\nHerramientas disponibles:\n- knowledge_base\n- add_information\n- get_information\n\n\nObjetivo:\n1. Extraer la información del PDF.\n2. Identificar\n\"proveedor_nit\", diferente al 817007005\n\"numero_factura\"\n\"cufe\"\n\"fecha_factura\"\n\"fecha_vencimiento\"\n\"valor total\"\n\"iva\"\n3. Obtener información adicional de los proveedores, y contratos y oficinas que tiene el proveedor utilizndo la herrmaienta get information .\n4. tratar de identificar la oficina que mejor corresponda por campos como la direccion de la oficina si la factura no tiene una referencia de pago o numero de contrato que los vincule. \n5. ENTREGAR un JSON FINAL con esta estructura:\n\nCAMPOS QUE DEBES EXTRAER DEL PDF:\n\n\n*nit proveedor*\nnit prohibido 817007005\nnit prohibido 817007005-2 \n\nDeberas extarer el nit del proveedor del emisor de la factura y dejarlo sin comas ni puntos y simpre completo.\n\nnunca podra ser 817007005-2 o 817007005 ya q ese es es mi nit y necesito encontra es la identificacion al que le voy a pagar.\n\nel nit podra estar como imagen en el encabezado, siempre busca el nit del proveedor.\nsiempre sera sin el digito d everificacion por ejemplo  891502163-1 nit es 891502163.\nejemplo 10.722.639-0 el nit es 10722639\n***\npara el caso de emtel siempre el nit = 891502163.\n**\npara el caso de cuentas de cobro busca la cedula cc o cedula, o identificaciona de la personaa quien es la persona a la que se le va pagar \n\ncaso especial proveedor TIGO por lo regular esta factura trae esta nota: El prestador del servicio, así como sus adicionales, complementarios o suplementarios es UNE EPM TELECOMUNICACIONES, y el logo de tigo  a la derecha. nit =  830114921\n\nsiempre WILSON ARLEY RODRIGUEZ LUCUMIi = 1062315596\n\n*Numero de factura:\nlo encuentas como numero factura, factura venta, factura. Nota:\nten cuidado de no confundir con otro numero, siempre es el numero de factura, facura venta. deberas traer el numero completo en algunos casos apare asi 1FVI 21348 el numero de factura es : 1FVI21348. \nsi encuentras el nit 817007005 deberas buscar otro en la factura.\n**Fecha de Factura**\n   - Extraer la fecha que fue emitida la factura.\n   - Siempre devolverla en formato YYYY-MM-DD.\n   - Nunca puede ser mayor a la fecha actual: {{ $now }}\n\n\"fecha_vencimiento\"\nEs la fecha de pago \nSiempre devolverla en formato YYYY-MM-DD.\nsi puede o no ser mayor a la fecha actual\n----------------------------\nReferencia de pago.: es difernete al numero de factura,\n\neste es el numero que viene como suscripcion, referencia pago, numero contrato. ref pagos.\n-------------------------------------------------\n\n\nEjemplo:\n- Referencia de pago: 878237873  \n- Número factura PDF: M2323  \n\n\nDebes usar SOLO:\nNumero de factura = 878237873\n\nNOTa MANDATORIA:\nNunca usar codigos de barras\n\n📌 USO DE LA HERRAMIENTA knowledge_base\n-------------------------------------------------\nuna vez identificado el proveedor tu le enviaras el nit del proveedor a knowledge_base y te va devolver la infomracion de como se ha procesado infomracion relacionada con este proveedor, asi como loes errores que se han cometido en el pasado.\n\n### Si no hay información en knowledge_base:\n- Proceder con las reglas estándar\n- Tu extracción servirá como base para futuro feedback\n-------------------------------------------------\n📌 VALOR TOTAL\n-------------------------------------------------\n- Extraer el valor total con IVA.\n- Puede estar como “total”, “valor”, “precio”, “valor total”.\n- Entregarlo SIN puntos, SIN comas, SIN signos peso.\n  Ejemplo:\n  $123.456  →  123456\nsiempre si hay decimales aproxima al entero mayor ejemplo 15.917.044,3 deberas aproximar a 15.917.045.\n-------------------------------------------------\n📌 Iva\n-------------------------------------------------\n- Extraer el valor Del Iva total de la factura. como experto en revision del iva debes analizar muy bien la factura para determinar cual es el valor del iva restando los decuentos.\n- Entregarlo SIN puntos, SIN comas, SIN signos peso.\n  Ejemplo:\n  $123.456  →  123456\nsiempre si hay decimales aproxima al entero mayor ejemplo 15.917.044,3 deberas aproximar a 15.917.045. SINO EXISTE LO DEJAS COMO NULL\n-------------------------------------------------\n📌 Codigo de Suscripcion\n-------------------------------------------------\nReferencia pago = suscripcion\n\n-------------------------------\n📌 Direccion\nes la direccion de la factura\n-------------------------------------------------\nReferencia pago = suscripcion\n-------------------------------------------------\n📌 USO DE LA HERRAMIENTA get_information\n-------------------------------------------------\ntu le enviras el nit del proveedor y te va devolver los numeros de contratos disponibles, num_contrato, codigo oficina, nombre oficina, direccion.\nnunca podras consultar el proveedor 817007005-2 o 817007005 ese es mi nit, si tienes este nit deberas volver a buscar en la factura otro nit del que emite la factura.\n*Obligatorio*: si te devuelve proveedor no encontrado o no te deuelve ningun ningun contrato intenta encontrar el nit correcto en la factura de nuevo, vuelve a escanear la factura intenta encontrar el nit valido.\n--------------------------\nIdentificacion de contrato:\n\nsi solo hay un solo contrato, ya identificaste el num_contrato, y extare el\"oficina_id1\": cod_oficna (completo) si es 001_int_09 debes utilizarlo todo.\nEn caso de haber mas oficinas, valida si la referencia de pago es igual al num_contrato si es igual ya encontraste el num_contrato.\nEn caso de que hayan varios contratos y no tengas una referencia de pago, mira la direccion y trata de identificar por la direccion de la factura.\ntrata de identificar la oficina que mejor corresponda por campos como la direccion de la oficina, por las observaiones si la factura no tiene una referencia de pago o numero de contrato que los vincule, si tien referencia d epago numero de contrato utilizalo.\nsi las identificas guarda:\n \"oficina_id1\": cod_oficna \n  \"contrato_id1\":num_contrato\n\nsi encuentras varias oficinas \nidentificalas todas pero es porque tiene varias direcciones o varias oficinas la factura.\n \"oficina_id1\": cod_oficna \n  \"contrato_id1\":num_contrato\n\n \"oficina_id2\": cod_oficna\n  \"contrato_id2\":num_contrato\n\nsi no encuentras el proveexor intenta buscar otro nit\n\n\n----------------------------------------\nINSTRUCCIONES PARA EL USO DE LA HERRAMIENTA add_information:\n\n\nCuando identifiques datos de una factura, DEBES ejecutar la herramienta add_information utilizando estrictamente el siguiente esquema JSON. No añadas texto adicional, solo envía el JSON con estos campos:\n\nproveedor_nit: (String) NIT del proveedor sin puntos ni guiones.\n\noficina_id: (Integer) ID de la oficina.\n\nnumero_factura: (String) El número alfanumérico de la factura.\n\ncufe: (String) Código único de factura electrónica.\n\nfecha_factura: (String) Formato AAAA-MM-DD.\n\nfecha_vencimiento: (String) Formato AAAA-MM-DD.\n\nvalor: (Number) Valor total sin símbolos de moneda ni miles.\n\nurl_factura: (String) Siempre debe ser el path proporcionado: file://192.168.2.20/Facturas/ diciembre/23/71a2e88d-cabc-4ae6-b362-4b906040feb7.pdf\n\nobservaciones: (String) Breve descripción o dejar vacío si no hay.\n\noficinas: (array) [  {\"cod_oficina\": oficina_id1, \"valor\": valor }].\n\niva : (Number) Valor total sin símbolos de moneda ni miles.\n\n\nal finalizar tu respuesta debera ser un json tipo \n\n{\n  \"success\": true,\n  \"factura_id\": 123,\n  \"factura\": {\n    \"id\": 123,\n    \"numero_factura\": \"FAC-001\",\n    \"proveedor_nombre\": \"Proveedor XYZ\",\n    \"proveedor_nit\": \"900123456\",\n    \"valor\": 1500000\n    \"iva\":12000\n  }\n} o si hay error {\n  \"success\": false,\n  \"error\": \"No se pudo extraer información del PDF erro no XXX informacion adicional..... \"\n}"
+                                "content": "=Eres un excelente asistente experto en extraer información de PDFs y llenar una base de datos sql con la información requerida usando la herramienta add_information (nunca inventes informacion).\n\n===========================\n📄 PDF\nFilename:\n{{ $binary.data.fileName }}\n\n===========================\n\nHerramientas disponibles:\n- knowledge_base\n- add_information\n- get_information\n\n\nObjetivo:\n1. Extraer la información del PDF.\n2. Identificar\n\"proveedor_nit\", diferente al 817007005\n\"numero_factura\"\n\"cufe\"\n\"fecha_factura\"\n\"fecha_vencimiento\"\n\"valor total\"\n\"iva\"\n3. Obtener información adicional de los proveedores, y contratos y oficinas que tiene el proveedor utilizndo la herrmaienta get information .\n4. tratar de identificar la oficina que mejor corresponda por campos como la direccion de la oficina si la factura no tiene una referencia de pago o numero de contrato que los vincule. \n5. ENTREGAR un JSON FINAL con esta estructura:\n\nCAMPOS QUE DEBES EXTRAER DEL PDF:\n\n\n*nit proveedor*\nnit prohibido 817007005\nnit prohibido 817007005-2 \n\nDeberas extarer el nit del proveedor del emisor de la factura y dejarlo sin comas ni puntos y simpre completo.\n\nnunca podra ser 817007005-2 o 817007005 ya q ese es es mi nit y necesito encontra es la identificacion al que le voy a pagar.\n\nel nit podra estar como imagen en el encabezado, siempre busca el nit del proveedor.\nsiempre sera sin el digito d everificacion por ejemplo  891502163-1 nit es 891502163.\nejemplo 10.722.639-0 el nit es 10722639\n***\npara el caso de emtel siempre el nit = 891502163.\n**\npara el caso de cuentas de cobro busca la cedula cc o cedula, o identificaciona de la personaa quien es la persona a la que se le va pagar \n\ncaso especial proveedor TIGO por lo regular esta factura trae esta nota: El prestador del servicio, así como sus adicionales, complementarios o suplementarios es UNE EPM TELECOMUNICACIONES, y el logo de tigo  a la derecha. nit =  830114921\n\nsiempre WILSON ARLEY RODRIGUEZ LUCUMIi = 1062315596\n\n*Numero de factura:\nlo encuentas como numero factura, factura venta, factura. Nota:\nten cuidado de no confundir con otro numero, siempre es el numero de factura, facura venta. deberas traer el numero completo en algunos casos apare asi 1FVI 21348 el numero de factura es : 1FVI21348. \nsi encuentras el nit 817007005 deberas buscar otro en la factura.\n\n**Fecha de Factura**\n   - Extraer la fecha que fue emitida la factura.\n   - Siempre devolverla en formato YYYY-MM-DD.\n   - Nunca puede ser mayor a la fecha actual: {{ $now }}\n\n\"fecha_vencimiento\"\nEs la fecha de pago \nSiempre devolverla en formato YYYY-MM-DD.\nsi puede o no ser mayor a la fecha actual\n----------------------------\nReferencia de pago.: es difernete al numero de factura,\n\neste es el numero que viene como suscripcion, referencia pago, numero contrato. ref pagos.\n-------------------------------------------------\n\n\nEjemplo:\n- Referencia de pago: 878237873  \n- Número factura PDF: M2323  \n\n\nDebes usar SOLO:\nNumero de factura = 878237873\n\nNOTa MANDATORIA:\nNunca usar codigos de barras\n\n📌 USO DE LA HERRAMIENTA knowledge_base\n-------------------------------------------------\nuna vez identificado el proveedor tu le enviaras el nit del proveedor a knowledge_base y te va devolver la infomracion de como se ha procesado infomracion relacionada con este proveedor, asi como loes errores que se han cometido en el pasado.\n\n### Si no hay información en knowledge_base:\n- Proceder con las reglas estándar\n- Tu extracción servirá como base para futuro feedback\n-------------------------------------------------\n📌 VALOR TOTAL\n-------------------------------------------------\n- Extraer el valor total con IVA.\n- Puede estar como “total”, “valor”, “precio”, “valor total”.\n- Entregarlo SIN puntos, SIN comas, SIN signos peso.\n  Ejemplo:\n  $123.456  →  123456\nsiempre si hay decimales aproxima al entero mayor ejemplo 15.917.044,3 deberas aproximar a 15.917.045.\n-------------------------------------------------\n📌 Iva\n-------------------------------------------------\n- Extraer el valor Del Iva total de la factura. como experto en revision del iva debes analizar muy bien la factura para determinar cual es el valor del iva restando los decuentos.\n- Entregarlo SIN puntos, SIN comas, SIN signos peso.\n  Ejemplo:\n  $123.456  →  123456\nsiempre si hay decimales aproxima al entero mayor ejemplo 15.917.044,3 deberas aproximar a 15.917.045. SINO EXISTE LO DEJAS COMO NULL\n-------------------------------------------------\n📌 Codigo de Suscripcion\n-------------------------------------------------\nReferencia pago = suscripcion\n\n-------------------------------\n📌 Direccion\nes la direccion de la factura\n-------------------------------------------------\nReferencia pago = suscripcion\n-------------------------------------------------\n📌 USO DE LA HERRAMIENTA get_information\n-------------------------------------------------\ntu le enviras el nit del proveedor y te va devolver los numeros de contratos disponibles, num_contrato, codigo oficina, nombre oficina, direccion.\nnunca podras consultar el proveedor 817007005-2 o 817007005 ese es mi nit, si tienes este nit deberas volver a buscar en la factura otro nit del que emite la factura.\n*Obligatorio*: si te devuelve proveedor no encontrado o no te deuelve ningun ningun contrato intenta encontrar el nit correcto en la factura de nuevo, vuelve a escanear la factura intenta encontrar el nit valido.\n--------------------------\nIdentificacion de contrato:\n\nsi solo hay un solo contrato, ya identificaste el num_contrato, y extare el\"oficina_id1\": cod_oficna (completo) si es 001_int_09 debes utilizarlo todo.\nEn caso de haber mas oficinas, valida si la referencia de pago es igual al num_contrato si es igual ya encontraste el num_contrato.\nEn caso de que hayan varios contratos y no tengas una referencia de pago, mira la direccion y trata de identificar por la direccion de la factura.\ntrata de identificar la oficina que mejor corresponda por campos como la direccion de la oficina, por las observaiones si la factura no tiene una referencia de pago o numero de contrato que los vincule, si tien referencia d epago numero de contrato utilizalo.\nsi las identificas guarda:\n \"oficina_id1\": cod_oficna \n  \"contrato_id1\":num_contrato\n\nsi encuentras varias oficinas \nidentificalas todas pero es porque tiene varias direcciones o varias oficinas la factura.\n \"oficina_id1\": cod_oficna \n  \"contrato_id1\":num_contrato\n\n \"oficina_id2\": cod_oficna\n  \"contrato_id2\":num_contrato\n\nsi no encuentras el proveexor intenta buscar otro nit\n\n\n----------------------------------------\nINSTRUCCIONES PARA EL USO DE LA HERRAMIENTA add_information:\n\n\nCuando identifiques datos de una factura, DEBES ejecutar la herramienta add_information utilizando estrictamente el siguiente esquema JSON. No añadas texto adicional, solo envía el JSON con estos campos:\n\nproveedor_nit: (String) NIT del proveedor sin puntos ni guiones.\n\noficina_id: (Integer) ID de la oficina.\n\nnumero_factura: (String) numero identificado de la factura.\n\ncufe: (String) Código único de factura electrónica.\n\nfecha_factura: (String) Formato AAAA-MM-DD.\n\nfecha_vencimiento: (String) Formato AAAA-MM-DD.\n\nvalor: (Number) Valor total sin símbolos de moneda ni miles.\n\nurl_factura: (String) Siempre debe ser el path proporcionado: ejemplo: file://192.168.2.20/Facturas/ diciembre/23/71a2e88d-cabc-4ae6-b362-4b906040feb7.pdf\n\nobservaciones: (String) Breve descripción o dejar vacío si no hay.\n\noficinas: (array) [  {\"cod_oficina\": oficina_id1, \"valor\": valor }].\n\niva : (Number) Valor total sin símbolos de moneda ni miles.\n\n\nal finalizar tu respuesta debera ser un json tipo \n\n{\n  \"success\": true,\n  \"factura_id\": 123,\n  \"factura\": {\n    \"id\": 123,\n    \"numero_factura\": \"FAC-001\",\n    \"proveedor_nombre\": \"Proveedor XYZ\",\n    \"proveedor_nit\": \"900123456\",\n    \"valor\": 1500000\n    \"iva\":12000\n  }\n} o si hay error {\n  \"success\": false,\n  \"error\": \"No se pudo extraer información del PDF erro no XXX informacion adicional..... \"\n}"
                             },
                             {
                                 "type": "file",
@@ -1480,6 +1527,11 @@
                             {
                                 "name": "iva",
                                 "valueProvider": "modelOptional"
+                            },
+                            {
+                                "name": "remitente_email",
+                                "valueProvider": "fieldValue",
+                                "value": "={{ $('entrey_email').isExecuted ? ($('entrey_email').first().json?.from?.emailAddress?.address || 'auxiliaradmintic@acertemos.com') : 'auxiliaradmintic@acertemos.com' }}"
                             }
                         ]
                     },
@@ -1559,6 +1611,10 @@
                             {
                                 "name": "X-API-Key",
                                 "value": "fortuna_2026_secret_api"
+                            },
+                            {
+                                "name": "X-User-Email",
+                                "value": "={{ $('entrey_email').isExecuted ? ($('entrey_email').first().json?.from?.emailAddress?.address || 'auxiliaradmintic@acertemos.com') : 'auxiliaradmintic@acertemos.com' }}"
                             }
                         ]
                     },
@@ -1652,6 +1708,20 @@
                         "name": "FTP account"
                     }
                 }
+            },
+            {
+                "parameters": {
+                    "mode": "chooseBranch",
+                    "chooseBranch": "input1"
+                },
+                "type": "n8n-nodes-base.merge",
+                "typeVersion": 3.2,
+                "position": [
+                    -5232,
+                    -1072
+                ],
+                "id": "5c9f5f0a-8bf9-4b8f-b3d6-eda36955a4f1",
+                "name": "MergeWaitCleanup"
             }
         ],
         "connections": {
@@ -1681,7 +1751,12 @@
                 "main": [
                     [
                         {
-                            "node": "Code in JavaScript",
+                            "node": "MergeWaitCleanup",
+                            "type": "main",
+                            "index": 0
+                        },
+                        {
+                            "node": "FTP17",
                             "type": "main",
                             "index": 0
                         }
@@ -1920,7 +1995,13 @@
             },
             "FTP": {
                 "main": [
-                    []
+                    [
+                        {
+                            "node": "MergeWaitCleanup",
+                            "type": "main",
+                            "index": 1
+                        }
+                    ]
                 ]
             },
             "FTP17": {
@@ -1928,6 +2009,17 @@
                     [
                         {
                             "node": "FTP",
+                            "type": "main",
+                            "index": 0
+                        }
+                    ]
+                ]
+            },
+            "MergeWaitCleanup": {
+                "main": [
+                    [
+                        {
+                            "node": "Code in JavaScript",
                             "type": "main",
                             "index": 0
                         }
@@ -1941,18 +2033,18 @@
         "autosaved": false,
         "workflowPublishHistory": [
             {
-                "createdAt": "2026-04-27T21:35:22.388Z",
-                "id": 439,
+                "createdAt": "2026-05-22T19:15:43.766Z",
+                "id": 477,
                 "workflowId": "XtbJG0fxGuuWIz36",
-                "versionId": "311ecbfc-e120-444e-a082-ab06a6967252",
+                "versionId": "f803d0bb-4265-4ac0-85ae-d6071b07008f",
                 "event": "activated",
                 "userId": "de8d0752-fee5-467a-bd27-8e8af92a6c23"
             },
             {
-                "createdAt": "2026-05-21T15:35:58.229Z",
-                "id": 458,
+                "createdAt": "2026-06-04T12:49:00.613Z",
+                "id": 480,
                 "workflowId": "XtbJG0fxGuuWIz36",
-                "versionId": "311ecbfc-e120-444e-a082-ab06a6967252",
+                "versionId": "f803d0bb-4265-4ac0-85ae-d6071b07008f",
                 "event": "activated",
                 "userId": "de8d0752-fee5-467a-bd27-8e8af92a6c23"
             }

@@ -100,6 +100,21 @@ def convert_image_to_pdf(image_content: bytes, original_filename: str) -> tuple[
         )
 
 
+def clear_temp_folder(folder_path: str):
+    """
+    Delete all files inside the temp folder to prevent processing leftover files.
+    """
+    if not os.path.exists(folder_path):
+        return
+    for item in os.listdir(folder_path):
+        item_path = os.path.join(folder_path, item)
+        if os.path.isfile(item_path):
+            try:
+                os.unlink(item_path)
+            except Exception as e:
+                print(f"Warning: failed to delete {item_path}: {e}")
+
+
 # --- Main Factura Endpoints ---
 
 @router.post("/facturas/", response_model=schemas.Factura)
@@ -1424,6 +1439,8 @@ async def upload_factura(
         try:
             if not os.path.exists(INVOICE_UPLOAD_PATH):
                 os.makedirs(INVOICE_UPLOAD_PATH, exist_ok=True)
+            else:
+                clear_temp_folder(INVOICE_UPLOAD_PATH)
         except Exception as e:
             raise HTTPException(
                 status_code=500, 
@@ -1590,6 +1607,8 @@ async def upload_factura_pdf(
     try:
         if not os.path.exists(INVOICE_UPLOAD_PATH):
             os.makedirs(INVOICE_UPLOAD_PATH, exist_ok=True)
+        else:
+            clear_temp_folder(INVOICE_UPLOAD_PATH)
         
         with open(file_path, "wb") as f:
             f.write(content)
@@ -1700,6 +1719,9 @@ async def upload_factura_zip(
     
     # Save ZIP to temp location and extract
     try:
+        # Clear temp folder before extracting ZIP files
+        clear_temp_folder(INVOICE_UPLOAD_PATH)
+        
         # Read ZIP content
         zip_content = await file.read()
         
