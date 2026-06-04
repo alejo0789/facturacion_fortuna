@@ -30,7 +30,7 @@
         },
         {
             "parameters": {
-                "jsCode": "// Limpiamos el objeto para que la IA no reciba 5MB de basura HTML del correo\nreturn items.map((item, index) => {\n  const binaries = [];\n  if (item.binary) {\n    for (const key of Object.keys(item.binary)) {\n      binaries.push({\n        json: {\n          fileName: item.binary[key].fileName,\n          fileExtension: item.binary[key].fileExtension,\n          originalMessageId: item.json.id,\n          from: item.json.from.emailAddress.address\n        },\n        binary: {\n          data: item.binary[key]\n        },\n        pairedItem: { item: index }\n      });\n    }\n  }\n  return binaries;\n}).flat();"
+                "jsCode": "// Limpiamos el objeto para que la IA no reciba 5MB de basura HTML del correo\nconst timestamp = new Date().toISOString().replace(/[-:T.]/g, '').substring(0, 14);\nreturn items.map((item, index) => {\n  const binaries = [];\n  if (item.binary) {\n    for (const key of Object.keys(item.binary)) {\n      const uniqueId = Math.random().toString(36).substring(2, 6);\n      const originalName = item.binary[key].fileName || 'archivo';\n      const newFileName = `${timestamp}_${uniqueId}_${originalName}`;\n      \n      // Update the binary fileName property\n      item.binary[key].fileName = newFileName;\n\n      binaries.push({\n        json: {\n          fileName: newFileName,\n          fileExtension: item.binary[key].fileExtension,\n          originalMessageId: item.json.id,\n          from: item.json.from.emailAddress.address\n        },\n        binary: {\n          data: item.binary[key]\n        },\n        pairedItem: { item: index }\n      });\n    }\n  }\n  return binaries;\n}).flat();"
             },
             "type": "n8n-nodes-base.code",
             "typeVersion": 2,
@@ -273,7 +273,7 @@
         },
         {
             "parameters": {
-                "jsCode": "const output = [];\n\n// Usamos i para mantener el índice y no romper el vínculo (Paired Item)\nfor (let i = 0; i < items.length; i++) {\n  const item = items[i];\n  \n  for (const key of Object.keys(item.binary || {})) {\n    const bin = item.binary[key];\n    const fileName = bin.fileName?.toLowerCase() || '';\n\n    if (bin.mimeType === 'application/pdf' || fileName.endsWith('.pdf')) {\n      output.push({\n        // CLAVE: Usamos ...item.json para heredar TODO lo que venía de atrás\n        // (ID del correo, fechas, metadata del servidor, etc.)\n        json: { \n          ...item.json, \n          fileName: bin.fileName || 'archivo.pdf' \n        },\n        binary: { \n          data: bin \n        },\n        // CLAVE 2: Le decimos a n8n exactamente de qué ítem de entrada viene este\n        pairedItem: {\n          item: i\n        }\n      });\n    }\n  }\n}\n\nreturn output;\n"
+                "jsCode": "const output = [];\n\n// Usamos i para mantener el índice y no romper el vínculo (Paired Item)\nconst timestamp = new Date().toISOString().replace(/[-:T.]/g, '').substring(0, 14);\nfor (let i = 0; i < items.length; i++) {\n  const item = items[i];\n  \n  for (const key of Object.keys(item.binary || {})) {\n    const bin = item.binary[key];\n    const fileName = bin.fileName?.toLowerCase() || '';\n\n    if (bin.mimeType === 'application/pdf' || fileName.endsWith('.pdf')) {\n      const uniqueId = Math.random().toString(36).substring(2, 6);\n      const originalName = bin.fileName || 'archivo.pdf';\n      const newFileName = `${timestamp}_${uniqueId}_${originalName}`;\n      \n      bin.fileName = newFileName;\n\n      output.push({\n        // CLAVE: Usamos ...item.json para heredar TODO lo que venía de atrás\n        // (ID del correo, fechas, metadata del servidor, etc.)\n        json: { \n          ...item.json, \n          fileName: newFileName \n        },\n        binary: { \n          data: bin \n        },\n        // CLAVE 2: Le decimos a n8n exactamente de qué ítem de entrada viene este\n        pairedItem: {\n          item: i\n        }\n      });\n    }\n  }\n}\n\nreturn output;\n"
             },
             "type": "n8n-nodes-base.code",
             "typeVersion": 2,
@@ -289,7 +289,7 @@
         {
             "parameters": {
                 "operation": "upload",
-                "path": "=/Facturas/temp/{{$binary.data.fileName }}.pdf",
+                "path": "=/Facturas/temp/{{ $binary.data.fileName }}",
                 "options": {}
             },
             "type": "n8n-nodes-base.ftp",
@@ -1054,7 +1054,7 @@
             },
             {
                 "parameters": {
-                    "jsCode": "// Limpiamos el objeto para que la IA no reciba 5MB de basura HTML del correo\nreturn items.map((item, index) => {\n  const binaries = [];\n  if (item.binary) {\n    for (const key of Object.keys(item.binary)) {\n      binaries.push({\n        json: {\n          fileName: item.binary[key].fileName,\n          fileExtension: item.binary[key].fileExtension,\n          originalMessageId: item.json.id,\n          from: item.json.from.emailAddress.address\n        },\n        binary: {\n          data: item.binary[key]\n        },\n        pairedItem: { item: index }\n      });\n    }\n  }\n  return binaries;\n}).flat();"
+                    "jsCode": "// Limpiamos el objeto para que la IA no reciba 5MB de basura HTML del correo\nconst timestamp = new Date().toISOString().replace(/[-:T.]/g, '').substring(0, 14);\nreturn items.map((item, index) => {\n  const binaries = [];\n  if (item.binary) {\n    for (const key of Object.keys(item.binary)) {\n      const uniqueId = Math.random().toString(36).substring(2, 6);\n      const originalName = item.binary[key].fileName || 'archivo';\n      const newFileName = `${timestamp}_${uniqueId}_${originalName}`;\n      \n      // Update the binary fileName property\n      item.binary[key].fileName = newFileName;\n\n      binaries.push({\n        json: {\n          fileName: newFileName,\n          fileExtension: item.binary[key].fileExtension,\n          originalMessageId: item.json.id,\n          from: item.json.from.emailAddress.address\n        },\n        binary: {\n          data: item.binary[key]\n        },\n        pairedItem: { item: index }\n      });\n    }\n  }\n  return binaries;\n}).flat();"
                 },
                 "type": "n8n-nodes-base.code",
                 "typeVersion": 2,
@@ -1297,7 +1297,7 @@
             },
             {
                 "parameters": {
-                    "jsCode": "const output = [];\n\n// Usamos i para mantener el índice y no romper el vínculo (Paired Item)\nfor (let i = 0; i < items.length; i++) {\n  const item = items[i];\n  \n  for (const key of Object.keys(item.binary || {})) {\n    const bin = item.binary[key];\n    const fileName = bin.fileName?.toLowerCase() || '';\n\n    if (bin.mimeType === 'application/pdf' || fileName.endsWith('.pdf')) {\n      output.push({\n        // CLAVE: Usamos ...item.json para heredar TODO lo que venía de atrás\n        // (ID del correo, fechas, metadata del servidor, etc.)\n        json: { \n          ...item.json, \n          fileName: bin.fileName || 'archivo.pdf' \n        },\n        binary: { \n          data: bin \n        },\n        // CLAVE 2: Le decimos a n8n exactamente de qué ítem de entrada viene este\n        pairedItem: {\n          item: i\n        }\n      });\n    }\n  }\n}\n\nreturn output;\n"
+                    "jsCode": "const output = [];\n\n// Usamos i para mantener el índice y no romper el vínculo (Paired Item)\nconst timestamp = new Date().toISOString().replace(/[-:T.]/g, '').substring(0, 14);\nfor (let i = 0; i < items.length; i++) {\n  const item = items[i];\n  \n  for (const key of Object.keys(item.binary || {})) {\n    const bin = item.binary[key];\n    const fileName = bin.fileName?.toLowerCase() || '';\n\n    if (bin.mimeType === 'application/pdf' || fileName.endsWith('.pdf')) {\n      const uniqueId = Math.random().toString(36).substring(2, 6);\n      const originalName = bin.fileName || 'archivo.pdf';\n      const newFileName = `${timestamp}_${uniqueId}_${originalName}`;\n      \n      bin.fileName = newFileName;\n\n      output.push({\n        // CLAVE: Usamos ...item.json para heredar TODO lo que venía de atrás\n        // (ID del correo, fechas, metadata del servidor, etc.)\n        json: { \n          ...item.json, \n          fileName: newFileName \n        },\n        binary: { \n          data: bin \n        },\n        // CLAVE 2: Le decimos a n8n exactamente de qué ítem de entrada viene este\n        pairedItem: {\n          item: i\n        }\n      });\n    }\n  }\n}\n\nreturn output;\n"
                 },
                 "type": "n8n-nodes-base.code",
                 "typeVersion": 2,
@@ -1313,7 +1313,7 @@
             {
                 "parameters": {
                     "operation": "upload",
-                    "path": "=/Facturas/temp/{{$binary.data.fileName }}.pdf",
+                    "path": "=/Facturas/temp/{{ $binary.data.fileName }}",
                     "options": {}
                 },
                 "type": "n8n-nodes-base.ftp",
