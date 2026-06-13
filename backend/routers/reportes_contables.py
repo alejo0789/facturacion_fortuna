@@ -47,7 +47,7 @@ def _pdf_response(data: bytes, filename: str) -> Response:
 async def balance_general(
     fecha: date = Query(..., description="Fecha de corte (YYYY-MM-DD)"),
     centro_costo: Optional[str] = Query(None, description="Filtrar por centro de costo (cod_oficina)"),
-    formato: str = Query("json", regex="^(json|csv|pdf)$"),
+    formato: str = Query("json", pattern="^(json|csv|pdf)$"),
     empresa=Depends(get_current_empresa),
     _=Depends(require_role("ADMIN", "CONTADOR", "AUDITOR", "CONTABILIDAD", "SOLO_LECTURA")),
     db: AsyncSession = Depends(get_db),
@@ -67,7 +67,7 @@ async def estado_resultados(
     desde: date = Query(..., description="Fecha inicio (YYYY-MM-DD)"),
     hasta: date = Query(..., description="Fecha fin (YYYY-MM-DD)"),
     centro_costo: Optional[str] = Query(None),
-    formato: str = Query("json", regex="^(json|csv|pdf)$"),
+    formato: str = Query("json", pattern="^(json|csv|pdf)$"),
     empresa=Depends(get_current_empresa),
     _=Depends(require_role("ADMIN", "CONTADOR", "AUDITOR", "CONTABILIDAD", "SOLO_LECTURA")),
     db: AsyncSession = Depends(get_db),
@@ -89,7 +89,7 @@ async def estado_resultados(
 @router.get("/retenciones")
 async def retenciones(
     anio: int = Query(..., ge=2000, le=2100),
-    formato: str = Query("json", regex="^(json|csv|pdf)$"),
+    formato: str = Query("json", pattern="^(json|csv|pdf)$"),
     empresa=Depends(get_current_empresa),
     _=Depends(require_role("ADMIN", "CONTADOR", "AUDITOR", "CONTABILIDAD", "SOLO_LECTURA")),
     db: AsyncSession = Depends(get_db),

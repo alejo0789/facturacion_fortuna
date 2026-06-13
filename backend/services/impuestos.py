@@ -92,8 +92,11 @@ async def get_retefuente_rate(
         if override:
             return override.tarifa_especial_pct
 
-    # 2. Tarifa por concepto DIAN (matchea por prefijo para tolerar
-    #    "5001" o "5001 Honorarios" indistintamente)
+    # 2. Tarifa por concepto DIAN. Matchea por prefijo para tolerar
+    #    "5001" o "5001-A Honorarios" indistintamente. Como puede haber
+    #    múltiples tarifas (5001-A, 5001-B, 5001-C…), ordenamos por
+    #    concepto y tomamos la primera (la "A" típicamente es la más
+    #    común: declarante, persona jurídica, etc.).
     if concepto:
         codigo = concepto.strip().split()[0]
         result = await db.execute(
@@ -106,12 +109,15 @@ async def get_retefuente_rate(
         config = result.scalar_one_or_none()
         if config:
             result = await db.execute(
-                select(TarifaImpuesto).where(
+                select(TarifaImpuesto)
+                .where(
                     TarifaImpuesto.configuracion_id == config.id,
                     TarifaImpuesto.concepto.like(f"{codigo}%"),
                 )
+                .order_by(TarifaImpuesto.concepto)
+                .limit(1)
             )
-            tarifa = result.scalar_one_or_none()
+            tarifa = result.scalars().first()
             if tarifa:
                 # Si la base aplicable es menor a la base mínima UVT, no retener
                 if (
