@@ -1,0 +1,161 @@
+{
+  "name": "Procesar Adjunto Seleccionado — Multi-tenant",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "procesar-adjunto",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "Webhook — Recibir Adjunto",
+      "type": "n8n-nodes-base.webhook",
+      "position": [180, 380],
+      "typeVersion": 1,
+      "notes": "Recibe del backend cuando el usuario selecciona uno o más adjuntos del resultado de búsqueda. Campos:\n  - apiKey, empresaId\n  - file_path (ruta donde el backend ya copió el PDF)\n  - file_url, filename, original_filename\n  - openai_credential_id\n  - event = 'invoice_uploaded_via_search'"
+    },
+    {
+      "parameters": {
+        "functionCode": "// Extrae el contexto tenant del payload\nconst d = $input.item.json;\nreturn { json: {\n  apiKey: d.apiKey || '',\n  empresaId: d.empresaId || null,\n  openai_credential_id: d.openai_credential_id || '',\n  file_path: d.file_path || '',\n  file_url: d.file_url || '',\n  filename: d.filename || '',\n  original_filename: d.original_filename || d.filename || '',\n  uploaded_at: d.uploaded_at || new Date().toISOString()\n}};"
+      },
+      "name": "Extraer Contexto Tenant",
+      "type": "n8n-nodes-base.code",
+      "position": [400, 380],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "resource": "chat",
+        "model": "gpt-4",
+        "messages": {
+          "values": [
+            {
+              "content": "Eres un experto en extracción de datos de facturas colombianas. Analiza el contenido del documento y extrae la siguiente información en formato JSON estricto:\n\n{\n  \"proveedor_nit\": \"NIT del proveedor (solo números y dígito de verificación)\",\n  \"proveedor_nombre\": \"Razón social del proveedor\",\n  \"numero_factura\": \"Número de la factura\",\n  \"cufe\": \"Código CUFE si está disponible, null si no\",\n  \"fecha_factura\": \"Fecha de emisión en formato YYYY-MM-DD\",\n  \"fecha_vencimiento\": \"Fecha de vencimiento en formato YYYY-MM-DD, null si no aparece\",\n  \"valor\": \"Valor total de la factura como número decimal (sin puntos de miles ni símbolo de moneda)\",\n  \"observaciones\": \"Cualquier nota relevante sobre la factura\"\n}\n\nReglas:\n- El NIT debe incluir el dígito de verificación si está disponible (ej: 900238454-8)\n- Si no encuentras un campo, usa null\n- Responde SOLO con el JSON, sin texto adicional ni bloques markdown",
+              "role": "system"
+            },
+            {
+              "content": "Analiza esta factura (capturada por correo) y extrae los datos:\n\nArchivo: {{$json.original_filename}}\nRuta: {{$json.file_path}}",
+              "role": "user"
+            }
+          ]
+        },
+        "options": { "temperature": 0.1 }
+      },
+      "name": "GPT-4 — Extraer Datos",
+      "type": "n8n-nodes-base.openAi",
+      "position": [620, 380],
+      "typeVersion": 1,
+      "credentials": {
+        "openAiApi": {
+          "id": "={{ $('Extraer Contexto Tenant').item.json.openai_credential_id }}",
+          "name": "OpenAI · {tenant}"
+        }
+      },
+      "notes": "credentialId dinámico desde el payload — multi-tenant sin clonar workflow"
+    },
+    {
+      "parameters": {
+        "functionCode": "// Parsea respuesta GPT-4 y mezcla con el contexto tenant\nconst ctx = $('Extraer Contexto Tenant').item.json;\nconst gptResponse = $input.item.json.message?.content || $input.item.json.text || '';\n\ntry {\n  let jsonStr = gptResponse;\n  const m = gptResponse.match(/```(?:json)?\\s*([\\s\\S]*?)```/);\n  if (m) jsonStr = m[1].trim();\n  const datos = JSON.parse(jsonStr);\n\n  return { json: {\n    ...datos,\n    url_factura: ctx.file_url || ctx.file_path || '',\n    apiKey: ctx.apiKey,\n    empresaId: ctx.empresaId,\n    source_filename: ctx.original_filename,\n    extraction_success: true\n  }};\n} catch (error) {\n  return { json: {\n    error: 'No se pudo parsear la respuesta de GPT-4: ' + error.message,\n    raw_response: gptResponse.slice(0, 1000),\n    extraction_success: false,\n    apiKey: ctx.apiKey,\n    empresaId: ctx.empresaId\n  }};\n}"
+      },
+      "name": "Parsear IA",
+      "type": "n8n-nodes-base.code",
+      "position": [840, 380],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            { "value1": "={{$json.extraction_success}}", "value2": true }
+          ]
+        }
+      },
+      "name": "Extracción exitosa?",
+      "type": "n8n-nodes-base.if",
+      "position": [1060, 380],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.FACTURACION_API_URL || 'http://localhost:8000' }}/api/facturas/crear-con-oficina",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-API-Key", "value": "={{$json.apiKey}}" },
+            { "name": "X-Empresa-Id", "value": "={{$json.empresaId}}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"proveedor_nit\": \"{{$json.proveedor_nit}}\",\n  \"proveedor_nombre\": \"{{$json.proveedor_nombre}}\",\n  \"numero_factura\": \"{{$json.numero_factura}}\",\n  \"cufe\": {{$json.cufe ? '\"' + $json.cufe + '\"' : 'null'}},\n  \"fecha_factura\": \"{{$json.fecha_factura}}\",\n  \"fecha_vencimiento\": {{$json.fecha_vencimiento ? '\"' + $json.fecha_vencimiento + '\"' : 'null'}},\n  \"valor\": {{$json.valor}},\n  \"url_factura\": \"{{$json.url_factura}}\",\n  \"observaciones\": \"{{$json.observaciones || 'Procesada automáticamente vía buscador de correo'}}\"\n}",
+        "options": {}
+      },
+      "name": "API — Crear Factura",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [1280, 280],
+      "typeVersion": 4
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            { "name": "success", "value": "true" },
+            { "name": "message", "value": "Factura creada exitosamente desde buscador de correo" }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Respuesta OK",
+      "type": "n8n-nodes-base.set",
+      "position": [1500, 280],
+      "typeVersion": 3
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            { "name": "success", "value": "false" },
+            { "name": "error", "value": "={{$json.error || 'Error al extraer datos'}}" }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Respuesta Error",
+      "type": "n8n-nodes-base.set",
+      "position": [1280, 500],
+      "typeVersion": 3
+    },
+    {
+      "parameters": { "respondWith": "allIncomingItems", "options": {} },
+      "name": "Respond OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "position": [1700, 280],
+      "typeVersion": 1
+    },
+    {
+      "parameters": { "respondWith": "allIncomingItems", "options": { "responseCode": 422 } },
+      "name": "Respond Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "position": [1500, 500],
+      "typeVersion": 1
+    }
+  ],
+  "connections": {
+    "Webhook — Recibir Adjunto": { "main": [[{ "node": "Extraer Contexto Tenant", "type": "main", "index": 0 }]] },
+    "Extraer Contexto Tenant": { "main": [[{ "node": "GPT-4 — Extraer Datos", "type": "main", "index": 0 }]] },
+    "GPT-4 — Extraer Datos": { "main": [[{ "node": "Parsear IA", "type": "main", "index": 0 }]] },
+    "Parsear IA": { "main": [[{ "node": "Extracción exitosa?", "type": "main", "index": 0 }]] },
+    "Extracción exitosa?": {
+      "main": [
+        [{ "node": "API — Crear Factura", "type": "main", "index": 0 }],
+        [{ "node": "Respuesta Error", "type": "main", "index": 0 }]
+      ]
+    },
+    "API — Crear Factura": { "main": [[{ "node": "Respuesta OK", "type": "main", "index": 0 }]] },
+    "Respuesta OK": { "main": [[{ "node": "Respond OK", "type": "main", "index": 0 }]] },
+    "Respuesta Error": { "main": [[{ "node": "Respond Error", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "tags": [{ "name": "facturacion-saas" }, { "name": "multi-tenant" }, { "name": "procesar-adjunto" }]
+}
