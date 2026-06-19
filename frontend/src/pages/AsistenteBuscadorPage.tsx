@@ -1,14 +1,16 @@
-
 import { useState, useRef, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 
-import { apiFetch } from '../utils/apiClient';
+import { apiFetch, apiGet } from '../utils/apiClient';
+
+interface IntegracionesMin {
+    n8n_credential_email_id: string | null;
+    n8n_email_provider: 'outlook' | 'gmail' | 'yahoo' | 'imap' | null;
+    effective_search_url: string | null;
+}
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
-/**
- * Drop-in replacement de window.fetch para este archivo.
- * Convierte `${API_URL}/x` -> apiFetch('/x') que inyecta auth desde authStorage.
- */
 const authFetch = (url: string, options?: RequestInit): Promise<Response> => {
     const endpoint = url.startsWith(API_URL) ? url.slice(API_URL.length) : url;
     return apiFetch(endpoint, options as never);
@@ -36,36 +38,43 @@ export default function AsistenteBuscadorPage() {
     const [successMsg, setSuccessMsg] = useState<string | null>(null);
     const [previewFile, setPreviewFile] = useState<string | null>(null);
 
-    // Polling ref
     const pollingRef = useRef<number | null>(null);
-
-    // Request ID ref for cleanup
     const currentRequestIdRef = useRef<string | null>(null);
 
-    // Clean up polling and temporary files on unmount
+    // Verificar config de integraciones para mostrar banner
+    const [integ, setInteg] = useState<IntegracionesMin | null>(null);
+    useEffect(() => {
+        apiGet<IntegracionesMin>('/empresas/me/integraciones')
+            .then((cfg) => setInteg({
+                n8n_credential_email_id: cfg.n8n_credential_email_id,
+                n8n_email_provider: cfg.n8n_email_provider,
+                effective_search_url: cfg.effective_search_url,
+            }))
+            .catch(() => setInteg(null));
+    }, []);
+    const configIncomplete = !!integ && (
+        !integ.n8n_email_provider ||
+        !integ.n8n_credential_email_id ||
+        !integ.effective_search_url
+    );
+
     useEffect(() => {
         return () => {
             if (pollingRef.current) clearTimeout(pollingRef.current);
-
-            // Clean up temporary files if a search was performed
             const reqId = currentRequestIdRef.current;
             if (reqId) {
-                // Use fetch with keepalive to ensure request is sent even if page closes
                 authFetch(`${API_URL}/asistente/cleanup/${reqId}`, {
                     method: 'DELETE',
-                    keepalive: true
-                }).catch(err => console.error("Error cleaning up temp files:", err));
+                    keepalive: true,
+                }).catch((err) => console.error('Error cleaning up temp files:', err));
             }
         };
     }, []);
 
     const pollStatus = async (requestId: string) => {
         try {
-            // Auth: JWT vía authFetch (Opción A). El X-API-Key legacy queda en
-            // el AuthDualMiddleware del backend para compatibilidad con n8n.
             const res = await authFetch(`${API_URL}/asistente/search/${requestId}`);
             if (!res.ok) {
-                // If 404, maybe not ready yet or error
                 if (res.status !== 404) throw new Error('Error consultando estado');
             } else {
                 const data = await res.json();
@@ -73,52 +82,47 @@ export default function AsistenteBuscadorPage() {
                     if (Array.isArray(data.data)) {
                         setResults(data.data);
                     } else {
-                        console.warn("Received non-array data:", data.data);
+                        console.warn('Received non-array data:', data.data);
                         setResults([]);
                     }
                     setLoading(false);
                     setStatusMsg('');
-                    return; // Stop polling
+                    return;
                 } else if (data.status === 'error') {
                     setError(data.error || 'Error desconocido en el proceso remoto');
                     setLoading(false);
                     setStatusMsg('');
-                    return; // Stop polling
+                    return;
                 }
             }
-        } catch (err: any) {
+        } catch (err) {
             console.error('Polling error', err);
         }
-
-        // Continue polling
         pollingRef.current = setTimeout(() => pollStatus(requestId), 2000);
     };
 
     const handleSearch = async (e: React.FormEvent) => {
         e.preventDefault();
         setLoading(true);
-        setStatusMsg('Iniciando búsqueda...');
+        setStatusMsg('Iniciando búsqueda…');
         setError(null);
         setResults([]);
         setSelected(new Set());
         if (pollingRef.current) clearTimeout(pollingRef.current);
 
-        // Clean up previous search if exists before starting new one
         if (currentRequestIdRef.current) {
             const prevReqId = currentRequestIdRef.current;
-            authFetch(`${API_URL}/asistente/cleanup/${prevReqId}`, { method: 'DELETE' })
-                .catch(console.error);
+            authFetch(`${API_URL}/asistente/cleanup/${prevReqId}`, { method: 'DELETE' }).catch(console.error);
         }
 
         try {
-            // Auth: JWT vía authFetch (Opción A)
             const res = await authFetch(`${API_URL}/asistente/search`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     email: email || undefined,
                     start_date: startDate,
-                    end_date: endDate
+                    end_date: endDate,
                 }),
             });
 
@@ -131,11 +135,10 @@ export default function AsistenteBuscadorPage() {
             const requestId = data.requestId;
             currentRequestIdRef.current = requestId;
 
-            setStatusMsg('Buscando correos y archivos (esto puede tomar un momento)...');
+            setStatusMsg('Buscando correos y archivos (esto puede tomar un momento)…');
             pollStatus(requestId);
-
-        } catch (err: any) {
-            setError(err.message);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Error');
             setLoading(false);
             setStatusMsg('');
         }
@@ -146,15 +149,12 @@ export default function AsistenteBuscadorPage() {
             if (selected.size === results.length) {
                 setSelected(new Set());
             } else {
-                setSelected(new Set(results.map(r => r.sourceId + r.filename)));
+                setSelected(new Set(results.map((r) => r.sourceId + r.filename)));
             }
         } else {
             const newSelected = new Set(selected);
-            if (newSelected.has(id)) {
-                newSelected.delete(id);
-            } else {
-                newSelected.add(id);
-            }
+            if (newSelected.has(id)) newSelected.delete(id);
+            else newSelected.add(id);
             setSelected(newSelected);
         }
     };
@@ -164,199 +164,235 @@ export default function AsistenteBuscadorPage() {
         setProcessing(true);
         setSuccessMsg(null);
         setError(null);
-
         try {
-            // Auth: JWT vía authFetch (Opción A)
-            const filesToProcess = results.filter(r => selected.has(r.sourceId + r.filename));
-
+            const filesToProcess = results.filter((r) => selected.has(r.sourceId + r.filename));
             const res = await authFetch(`${API_URL}/asistente/process`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ files: filesToProcess }),
             });
-
-            if (!res.ok) {
-                throw new Error('Error al iniciar procesamiento');
-            }
-
+            if (!res.ok) throw new Error('Error al iniciar procesamiento');
             setSuccessMsg(`Se enviaron ${filesToProcess.length} archivos a procesar.`);
             setSelected(new Set());
-        } catch (err: any) {
-            setError(err.message);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Error');
         } finally {
             setProcessing(false);
         }
     };
 
     return (
-        <div className="space-y-6">
-            <header className="flex items-center justify-between">
-                <div>
-                    <h1 className="text-2xl font-bold text-slate-800">Asistente Buscador</h1>
-                    <p className="text-slate-500">Buscar correos y procesar documentos adjuntos</p>
+        <div className="space-y-8 max-w-[1480px] mx-auto">
+            <div className="anim-fade-up">
+                <div className="eyebrow mb-4">Operación · Captura de adjuntos</div>
+                <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6">
+                    <h1 className="editorial-title text-[3rem] lg:text-[3.5rem]">
+                        Asistente <em>buscador</em>.
+                    </h1>
+                    <p className="text-[13px] max-w-md" style={{ color: 'var(--ink-soft)' }}>
+                        Busca correos por rango y filtra adjuntos para procesar facturas en lote.
+                    </p>
                 </div>
-            </header>
-
-            {/* Search Form */}
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-                <form onSubmit={handleSearch} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-                    <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Fecha Inicial</label>
-                        <input
-                            type="date"
-                            required
-                            className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-                            value={startDate}
-                            onChange={(e) => setStartDate(e.target.value)}
-                        />
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Fecha Final</label>
-                        <input
-                            type="date"
-                            required
-                            className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-                            value={endDate}
-                            onChange={(e) => setEndDate(e.target.value)}
-                        />
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Correo (Opcional)</label>
-                        <input
-                            type="email"
-                            placeholder="ejemplo@proveedor.com"
-                            className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-                            value={email}
-                            onChange={(e) => setEmail(e.target.value)}
-                        />
-                    </div>
-                    <div>
-                        <button
-                            type="submit"
-                            disabled={loading}
-                            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                            {loading ? (
-                                <>
-                                    <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                    </svg>
-                                    Buscando
-                                </>
-                            ) : (
-                                <>
-                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                                    </svg>
-                                    Buscar
-                                </>
-                            )}
-                        </button>
-                    </div>
-                </form>
             </div>
 
-            {/* Messages */}
+            {/* Banner config incompleta — captura por correo (fase 2) */}
+            {configIncomplete && (
+                <div
+                    className="rounded-md p-5 flex items-start gap-4"
+                    style={{ background: 'var(--gold-soft)', border: '1px solid var(--gold)' }}
+                >
+                    <span
+                        className="font-display-wonk text-[1.75rem] leading-none mt-1"
+                        style={{ color: 'var(--gold)' }}
+                    >
+                        !
+                    </span>
+                    <div className="flex-1">
+                        <div className="kicker-accent" style={{ color: 'var(--gold)' }}>
+                            Configuración incompleta
+                        </div>
+                        <div
+                            className="font-display text-[1.15rem] tracking-tight mt-0.5"
+                            style={{ fontVariationSettings: "'SOFT' 30" }}
+                        >
+                            Falta conectar tu cuenta de correo a n8n
+                        </div>
+                        <p className="text-[12px] mt-2 max-w-2xl" style={{ color: 'var(--ink-soft)' }}>
+                            Para que la búsqueda funcione necesitas:{' '}
+                            <strong>proveedor de correo</strong> seleccionado y{' '}
+                            <strong>Credential ID</strong> de tu cuenta pegado en el panel de
+                            Integraciones. El SaaS soporta Outlook, Gmail, Yahoo e IMAP genérico.
+                        </p>
+                    </div>
+                    <Link to="/app/integraciones" className="btn-accent text-[12px] flex-shrink-0">
+                        Ir a Integraciones →
+                    </Link>
+                </div>
+            )}
+
+            {!configIncomplete && integ?.n8n_email_provider && (
+                <div className="text-[12px]" style={{ color: 'var(--ink-faint)' }}>
+                    <span className="kicker mr-2">Conectado vía</span>
+                    <span className="font-mono" style={{ color: 'var(--accent)' }}>
+                        {integ.n8n_email_provider.toUpperCase()}
+                    </span>
+                </div>
+            )}
+
+            <form onSubmit={handleSearch} className="surface p-5 grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+                <div>
+                    <label className="kicker block mb-1.5">Fecha inicial</label>
+                    <input type="date" required className="input-field" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+                </div>
+                <div>
+                    <label className="kicker block mb-1.5">Fecha final</label>
+                    <input type="date" required className="input-field" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+                </div>
+                <div>
+                    <label className="kicker block mb-1.5">Correo (opcional)</label>
+                    <input type="email" placeholder="ejemplo@proveedor.com" className="input-field" value={email} onChange={(e) => setEmail(e.target.value)} />
+                </div>
+                <button type="submit" disabled={loading} className="btn-accent disabled:opacity-50">
+                    {loading ? (
+                        <>
+                            <div
+                                className="h-3.5 w-3.5 rounded-full border-2 border-t-transparent"
+                                style={{
+                                    borderColor: 'var(--paper)',
+                                    borderTopColor: 'transparent',
+                                    animation: 'spin-soft 800ms linear infinite',
+                                }}
+                            />
+                            Buscando
+                        </>
+                    ) : (
+                        <>
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                            </svg>
+                            Buscar
+                        </>
+                    )}
+                </button>
+            </form>
+
             {loading && statusMsg && (
-                <div className="bg-blue-50 text-blue-600 p-4 rounded-lg border border-blue-200 flex items-center gap-2">
-                    <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
+                <div
+                    className="px-5 py-4 rounded-lg text-[13px] flex items-center gap-3"
+                    style={{ background: 'var(--accent-soft)', border: '1px solid var(--accent)', color: 'var(--accent)' }}
+                >
+                    <div
+                        className="h-4 w-4 rounded-full border-2 border-t-transparent flex-shrink-0"
+                        style={{
+                            borderColor: 'var(--accent)',
+                            borderTopColor: 'transparent',
+                            animation: 'spin-soft 800ms linear infinite',
+                        }}
+                    />
                     {statusMsg}
                 </div>
             )}
             {error && (
-                <div className="bg-red-50 text-red-600 p-4 rounded-lg border border-red-200">
+                <div
+                    className="px-5 py-4 rounded-lg text-[13px]"
+                    style={{ background: 'var(--negative-soft)', border: '1px solid var(--negative)', color: 'var(--negative)' }}
+                >
                     {error}
                 </div>
             )}
             {successMsg && (
-                <div className="bg-green-50 text-green-600 p-4 rounded-lg border border-green-200">
-                    {successMsg}
+                <div
+                    className="px-5 py-4 rounded-lg text-[13px]"
+                    style={{ background: 'var(--positive-soft)', border: '1px solid var(--positive)', color: 'var(--positive)' }}
+                >
+                    ✓ {successMsg}
                 </div>
             )}
 
-            {/* Empty Results State */}
             {!loading && !statusMsg && !error && results.length === 0 && (
-                <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-8 text-center">
-                    <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                        <svg className="w-8 h-8 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-                        </svg>
+                <div className="surface p-16 text-center">
+                    <div
+                        className="font-display text-[3rem]"
+                        style={{ color: 'var(--ink-mute)', fontVariationSettings: "'SOFT' 100, 'WONK' 1" }}
+                    >
+                        —
                     </div>
-                    <h3 className="text-lg font-medium text-slate-800 mb-2">No se encontraron archivos</h3>
-                    <p className="text-slate-500">Intenta ajustar los filtros de búsqueda</p>
+                    <div className="kicker mt-2">Sin resultados</div>
+                    <p className="text-[13px] mt-2" style={{ color: 'var(--ink-faint)' }}>
+                        Ajusta los filtros y vuelve a buscar.
+                    </p>
                 </div>
             )}
 
-            {/* Results */}
             {results.length > 0 && (
-                <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                    <div className="p-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
-                        <h2 className="font-semibold text-slate-700">Resultados ({results.length})</h2>
-                        <button
-                            onClick={handleProcess}
-                            disabled={selected.size === 0 || processing}
-                            className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-1.5 px-4 rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
-                        >
-                            {processing ? (
-                                <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                </svg>
-                            ) : (
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                </svg>
-                            )}
-                            Procesar Seleccionados ({selected.size})
+                <div className="surface-raised overflow-hidden">
+                    <div
+                        className="p-5 flex items-baseline justify-between"
+                        style={{ borderBottom: '1px solid var(--rule)', background: 'var(--paper-tinted)' }}
+                    >
+                        <div>
+                            <div className="kicker-accent">Resultados</div>
+                            <h2 className="font-display text-[1.2rem] tracking-tight mt-1">
+                                {results.length} archivo{results.length !== 1 ? 's' : ''}
+                            </h2>
+                        </div>
+                        <button onClick={handleProcess} disabled={selected.size === 0 || processing} className="btn-accent text-[12px] disabled:opacity-50">
+                            {processing ? 'Enviando…' : `Procesar seleccionados (${selected.size})`}
                         </button>
                     </div>
                     <div className="overflow-x-auto">
-                        <table className="w-full text-sm text-left">
-                            <thead className="bg-slate-50 text-slate-600 font-medium border-b border-slate-200">
+                        <table className="w-full text-[14px] text-left">
+                            <thead style={{ background: 'var(--paper-tinted)' }}>
                                 <tr>
-                                    <th className="p-4 w-10">
+                                    <th className="p-4 w-10" style={{ background: 'var(--paper-tinted)' }}>
                                         <input
                                             type="checkbox"
                                             checked={results.length > 0 && selected.size === results.length}
                                             onChange={() => toggleSelect('', true)}
-                                            className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                            className="h-4 w-4 rounded"
+                                            style={{ accentColor: 'var(--accent)' }}
                                         />
                                     </th>
-                                    <th className="p-4">Archivo</th>
-                                    <th className="p-4 w-10"></th>
-                                    <th className="p-4">Tamaño</th>
-                                    <th className="p-4">Tipo</th>
-                                    <th className="p-4">Remitente</th>
-                                    <th className="p-4">Fecha</th>
+                                    <th className="kicker p-4" style={{ background: 'var(--paper-tinted)' }}>Archivo</th>
+                                    <th className="p-4 w-10" style={{ background: 'var(--paper-tinted)' }}></th>
+                                    <th className="kicker p-4" style={{ background: 'var(--paper-tinted)' }}>Tamaño</th>
+                                    <th className="kicker p-4" style={{ background: 'var(--paper-tinted)' }}>Tipo</th>
+                                    <th className="kicker p-4" style={{ background: 'var(--paper-tinted)' }}>Remitente</th>
+                                    <th className="kicker p-4" style={{ background: 'var(--paper-tinted)' }}>Fecha</th>
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-slate-100">
+                            <tbody>
                                 {results.map((file, idx) => {
                                     const key = file.sourceId + file.filename;
                                     return (
-                                        <tr key={idx} className="hover:bg-slate-50 transition-colors">
+                                        <tr
+                                            key={idx}
+                                            style={{ borderTop: idx > 0 ? '1px solid var(--rule-soft)' : 'none' }}
+                                            className="transition-colors"
+                                            onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--paper-tinted)')}
+                                            onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                                        >
                                             <td className="p-4">
                                                 <input
                                                     type="checkbox"
                                                     checked={selected.has(key)}
                                                     onChange={() => toggleSelect(key)}
-                                                    className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                                    className="h-4 w-4 rounded"
+                                                    style={{ accentColor: 'var(--accent)' }}
                                                 />
                                             </td>
-                                            <td className="p-4 font-medium text-slate-800">
+                                            <td className="p-4 font-medium">
                                                 <div className="flex items-center gap-2">
-                                                    <svg className="w-4 h-4 text-red-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <svg className="w-4 h-4 shrink-0" style={{ color: 'var(--negative)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
                                                     </svg>
                                                     {file.storage_path ? (
                                                         <button
                                                             onClick={() => setPreviewFile(`${API_URL}/asistente/preview/${encodeURIComponent(file.storage_path!.split('\\').pop() || '')}`)}
-                                                            className="hover:text-blue-600 hover:underline text-left truncate"
+                                                            className="hover:underline text-left truncate transition-colors"
+                                                            style={{ color: 'var(--ink)' }}
+                                                            onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--accent)')}
+                                                            onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--ink)')}
                                                             title="Ver PDF"
                                                         >
                                                             {file.filename}
@@ -370,7 +406,10 @@ export default function AsistenteBuscadorPage() {
                                                 {file.storage_path ? (
                                                     <button
                                                         onClick={() => setPreviewFile(`${API_URL}/asistente/preview/${encodeURIComponent(file.storage_path!.split('\\').pop() || '')}`)}
-                                                        className="text-slate-400 hover:text-blue-600 transition-colors"
+                                                        className="transition-colors"
+                                                        style={{ color: 'var(--ink-faint)' }}
+                                                        onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--accent)')}
+                                                        onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--ink-faint)')}
                                                         title="Ver PDF"
                                                     >
                                                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -378,12 +417,14 @@ export default function AsistenteBuscadorPage() {
                                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                                                         </svg>
                                                     </button>
-                                                ) : <span className="text-slate-200">-</span>}
+                                                ) : <span style={{ color: 'var(--ink-mute)' }}>—</span>}
                                             </td>
-                                            <td className="p-4 text-slate-500">{(file.size / 1024).toFixed(1)} KB</td>
-                                            <td className="p-4 text-slate-500">{file.type}</td>
-                                            <td className="p-4 text-slate-500 text-xs">{(file as any).sender}</td>
-                                            <td className="p-4 text-slate-500 text-xs">{file.date ? new Date(file.date).toLocaleDateString() : '-'}</td>
+                                            <td className="p-4 text-[12px] font-mono" style={{ color: 'var(--ink-soft)' }}>{(file.size / 1024).toFixed(1)} KB</td>
+                                            <td className="p-4 text-[12px]" style={{ color: 'var(--ink-soft)' }}>{file.type}</td>
+                                            <td className="p-4 text-[12px]" style={{ color: 'var(--ink-faint)' }}>{(file as { sender?: string }).sender ?? '—'}</td>
+                                            <td className="p-4 text-[12px] font-mono" style={{ color: 'var(--ink-faint)' }}>
+                                                {file.date ? new Date(file.date).toLocaleDateString() : '—'}
+                                            </td>
                                         </tr>
                                     );
                                 })}
@@ -392,26 +433,37 @@ export default function AsistenteBuscadorPage() {
                     </div>
                 </div>
             )}
-            {/* Preview Modal */}
+
             {previewFile && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={() => setPreviewFile(null)}>
-                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl h-[90vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
-                        <div className="flex justify-between items-center p-4 border-b border-slate-200">
-                            <h3 className="font-semibold text-slate-800">Vista Previa</h3>
+                <div
+                    className="fixed inset-0 z-50 flex items-center justify-center p-4 anim-fade-in"
+                    style={{ background: 'rgba(11, 15, 25, 0.55)', backdropFilter: 'blur(4px)' }}
+                    onClick={() => setPreviewFile(null)}
+                >
+                    <div className="surface-raised w-full max-w-5xl h-[90vh] flex flex-col overflow-hidden anim-fade-up" onClick={(e) => e.stopPropagation()}>
+                        <div
+                            className="flex justify-between items-center p-4"
+                            style={{ borderBottom: '1px solid var(--rule)' }}
+                        >
+                            <h3 className="font-display text-[1.2rem]" style={{ fontVariationSettings: "'SOFT' 30" }}>
+                                Vista previa
+                            </h3>
                             <button
                                 onClick={() => setPreviewFile(null)}
-                                className="text-slate-400 hover:text-slate-600 transition-colors p-1 rounded-full hover:bg-slate-100"
+                                className="text-2xl transition-colors"
+                                style={{ color: 'var(--ink-mute)' }}
+                                onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--ink)')}
+                                onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--ink-mute)')}
                             >
-                                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                </svg>
+                                ×
                             </button>
                         </div>
-                        <div className="flex-1 bg-slate-100 p-4">
+                        <div className="flex-1 p-4" style={{ background: 'var(--canvas-2)' }}>
                             <iframe
                                 src={previewFile}
-                                className="w-full h-full rounded-lg border border-slate-200 shadow-sm bg-white"
-                                title="Vista Previa de PDF"
+                                className="w-full h-full rounded-lg shadow-sm"
+                                style={{ background: 'var(--paper)', border: '1px solid var(--rule)' }}
+                                title="Vista previa de PDF"
                             />
                         </div>
                     </div>

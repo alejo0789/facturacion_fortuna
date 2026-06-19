@@ -392,80 +392,115 @@ export default function UploadFacturaModal({ isOpen, onClose, onSuccess }: Uploa
 
                 {/* Error message */}
                 {error && (
-                    <div className="p-4 bg-red-900/50 border border-red-700 rounded-lg flex items-center gap-3">
-                        <svg className="w-6 h-6 text-red-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <div
+                        className="px-4 py-3 rounded-md flex items-start gap-3 text-[13px]"
+                        style={{ background: 'var(--negative-soft)', border: '1px solid var(--negative)', color: 'var(--negative)' }}
+                    >
+                        <svg className="w-5 h-5 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                         </svg>
-                        <span className="text-white">{error}</span>
+                        <span>{error}</span>
                     </div>
                 )}
 
-                {/* Beautiful Loading indicator */}
+                {/* Loading editorial — spinner serif + estados secuenciales */}
                 {uploading && (
-                    <div className="flex flex-col items-center justify-center py-12">
-                        {/* Animated circles */}
+                    <div className="flex flex-col items-center justify-center py-12 anim-fade-up">
                         <div className="relative w-20 h-20">
-                            <div className="absolute inset-0 rounded-full border-4 border-slate-700"></div>
-                            <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-red-500 animate-spin"></div>
-                            <div className="absolute inset-2 rounded-full border-4 border-transparent border-t-red-400 animate-spin" style={{ animationDirection: 'reverse', animationDuration: '0.8s' }}></div>
-                            <div className="absolute inset-4 rounded-full border-4 border-transparent border-t-red-300 animate-spin" style={{ animationDuration: '1.5s' }}></div>
+                            <div
+                                className="absolute inset-0 rounded-full border-2"
+                                style={{ borderColor: 'var(--rule)' }}
+                            />
+                            <div
+                                className="absolute inset-0 rounded-full border-2 border-t-transparent"
+                                style={{
+                                    borderColor: 'var(--accent)',
+                                    borderTopColor: 'transparent',
+                                    animation: 'spin-soft 900ms linear infinite',
+                                }}
+                            />
+                            <div
+                                className="absolute inset-0 flex items-center justify-center font-display-wonk text-[1.8rem]"
+                                style={{ color: 'var(--accent)' }}
+                            >
+                                ƒ
+                            </div>
                         </div>
-                        <p className="mt-6 text-lg font-medium text-white">
-                            {mode === 'pdf' ? 'Procesando factura...' : 'Creando factura...'}
+                        <div className="kicker-accent mt-6">Procesando</div>
+                        <p
+                            className="mt-1 font-display text-[1.4rem] tracking-tight"
+                            style={{ fontVariationSettings: "'SOFT' 30" }}
+                        >
+                            {mode === 'pdf' ? 'Extrayendo datos con IA…' : 'Creando factura…'}
                         </p>
                         {mode === 'pdf' && (
-                            <p className="mt-2 text-sm text-slate-400">
-                                Extrayendo información con OCR
+                            <p className="mt-2 text-[12px] max-w-sm text-center" style={{ color: 'var(--ink-faint)' }}>
+                                El workflow n8n está leyendo el PDF y devolverá los datos extraídos en
+                                unos segundos.
                             </p>
                         )}
-                        {/* Animated dots */}
-                        <div className="flex gap-1 mt-3">
-                            <div className="w-2 h-2 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                            <div className="w-2 h-2 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                            <div className="w-2 h-2 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
-                        </div>
                     </div>
                 )}
 
-                {/* Success Result */}
+                {/* Success — confirmación editorial con datos extraídos */}
                 {result?.ok && (
-                    <div className="flex flex-col items-center justify-center py-8">
-                        {/* Animated checkmark */}
-                        <div className="w-16 h-16 rounded-full bg-emerald-500 flex items-center justify-center mb-4 animate-pulse">
-                            <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                    <div className="flex flex-col items-center justify-center py-8 anim-fade-up">
+                        <div
+                            className="w-16 h-16 rounded-full flex items-center justify-center mb-5"
+                            style={{
+                                background: 'var(--positive-soft)',
+                                border: '1.5px solid var(--positive)',
+                            }}
+                        >
+                            <svg
+                                className="w-8 h-8"
+                                style={{ color: 'var(--positive)' }}
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                            >
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
                             </svg>
                         </div>
-                        <p className="text-xl font-semibold text-white mb-2">¡Listo!</p>
-                        <p className="text-slate-300">{result.message}</p>
+                        <div className="kicker-accent" style={{ color: 'var(--positive)' }}>
+                            Factura procesada
+                        </div>
+                        <p
+                            className="font-display text-[1.6rem] tracking-tight mt-1 text-center"
+                            style={{ fontVariationSettings: "'SOFT' 30" }}
+                        >
+                            {result.message}
+                        </p>
 
-                        {/* Factura details card */}
                         {result.factura && (
-                            <div className="mt-6 w-full bg-slate-700/50 rounded-lg p-4 border border-slate-600">
-                                <div className="grid grid-cols-2 gap-4 text-sm">
+                            <div className="mt-6 w-full ledger paper-grain p-5">
+                                <div className="grid grid-cols-2 gap-5">
                                     <div>
-                                        <span className="text-slate-400 block mb-1">Proveedor</span>
-                                        <p className="text-white font-medium">
-                                            {result.factura.proveedor_nombre || '-'}
-                                        </p>
+                                        <div className="kicker mb-1">Proveedor</div>
+                                        <div className="font-display text-[1rem]" style={{ fontVariationSettings: "'SOFT' 30" }}>
+                                            {result.factura.proveedor_nombre || '—'}
+                                        </div>
+                                        {result.factura.proveedor_nit && (
+                                            <div className="font-mono text-[11px] mt-0.5" style={{ color: 'var(--accent)' }}>
+                                                NIT {result.factura.proveedor_nit}
+                                            </div>
+                                        )}
                                     </div>
                                     <div>
-                                        <span className="text-slate-400 block mb-1">N° Factura</span>
-                                        <p className="text-white font-medium">
-                                            {result.factura.numero_factura || '-'}
-                                        </p>
+                                        <div className="kicker mb-1">N° Factura</div>
+                                        <div className="font-mono text-[14px]">
+                                            {result.factura.numero_factura || '—'}
+                                        </div>
                                     </div>
                                     <div>
-                                        <span className="text-slate-400 block mb-1">Valor</span>
-                                        <p className="text-emerald-400 font-bold text-lg">
+                                        <div className="kicker mb-1">Valor</div>
+                                        <div className="numeral text-[1.5rem] leading-none" style={{ color: 'var(--positive)' }}>
                                             {formatCurrency(result.factura.valor)}
-                                        </p>
+                                        </div>
                                     </div>
                                     <div>
-                                        <span className="text-slate-400 block mb-1">Estado</span>
-                                        <span className="inline-block px-2 py-1 bg-blue-500/20 text-blue-300 rounded text-xs font-medium">
-                                            {result.factura.estado || '-'}
-                                        </span>
+                                        <div className="kicker mb-1">Estado</div>
+                                        <span className="tag tag-accent">{result.factura.estado || '—'}</span>
                                     </div>
                                 </div>
                             </div>
@@ -473,16 +508,35 @@ export default function UploadFacturaModal({ isOpen, onClose, onSuccess }: Uploa
                     </div>
                 )}
 
-                {/* Error Result */}
+                {/* Error — feedback editorial */}
                 {result && !result.ok && (
-                    <div className="flex flex-col items-center justify-center py-8">
-                        <div className="w-16 h-16 rounded-full bg-red-500/20 border-2 border-red-500 flex items-center justify-center mb-4">
-                            <svg className="w-10 h-10 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <div className="flex flex-col items-center justify-center py-8 anim-fade-up">
+                        <div
+                            className="w-16 h-16 rounded-full flex items-center justify-center mb-5"
+                            style={{
+                                background: 'var(--negative-soft)',
+                                border: '1.5px solid var(--negative)',
+                            }}
+                        >
+                            <svg
+                                className="w-8 h-8"
+                                style={{ color: 'var(--negative)' }}
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                            >
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                             </svg>
                         </div>
-                        <p className="text-xl font-semibold text-white mb-2">Error</p>
-                        <p className="text-slate-300 text-center">{result.message}</p>
+                        <div className="kicker-accent" style={{ color: 'var(--negative)' }}>
+                            Falló el procesamiento
+                        </div>
+                        <p
+                            className="font-display text-[1.3rem] tracking-tight mt-1 text-center max-w-md"
+                            style={{ fontVariationSettings: "'SOFT' 30" }}
+                        >
+                            {result.message}
+                        </p>
                     </div>
                 )}
 
