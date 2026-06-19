@@ -1,9 +1,5 @@
 /**
- * Selector de empresa activa.
- *
- * Muestra la empresa seleccionada y un dropdown con todas las empresas a las
- * que el usuario tiene acceso. Al cambiar, actualiza el `X-Empresa-Id` global
- * que el fetchInterceptor inyecta en cada request.
+ * Selector de empresa activa — Ledger Modern.
  */
 import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../auth/AuthContext';
@@ -23,18 +19,27 @@ export default function EmpresaSelector({ collapsed = false }: { collapsed?: boo
 
     if (empresas.length === 0) {
         return (
-            <div className="px-3 py-2 text-xs text-slate-400 italic">
+            <div
+                className="px-3 py-2 text-[11px] italic"
+                style={{ color: 'var(--sidebar-ink-mute)' }}
+            >
                 {collapsed ? '—' : 'Sin empresas'}
             </div>
         );
     }
 
     if (collapsed) {
-        // Colapsado: muestra sólo iniciales con tooltip
         const initials = (empresaActiva?.nombre ?? '?').slice(0, 2).toUpperCase();
         return (
             <div
-                className="w-10 h-10 rounded-lg bg-indigo-500/20 border border-indigo-400/40 flex items-center justify-center text-xs font-bold text-indigo-200"
+                className="w-10 h-10 rounded-md flex items-center justify-center text-[11px] font-display"
+                style={{
+                    background: 'rgba(127, 169, 224, 0.12)',
+                    border: '1px solid rgba(127, 169, 224, 0.28)',
+                    color: 'var(--sidebar-accent)',
+                    fontVariationSettings: "'SOFT' 100, 'WONK' 1",
+                    fontWeight: 600,
+                }}
                 title={empresaActiva?.nombre ?? ''}
             >
                 {initials}
@@ -46,50 +51,125 @@ export default function EmpresaSelector({ collapsed = false }: { collapsed?: boo
         <div ref={ref} className="relative">
             <button
                 onClick={() => setOpen((o) => !o)}
-                className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800/60 border border-slate-700 hover:bg-slate-800 text-left"
+                className="w-full flex items-center gap-2 px-2.5 py-2 rounded-md text-left transition-colors"
+                style={{
+                    background: 'rgba(232, 229, 220, 0.05)',
+                    border: '1px solid var(--sidebar-rule)',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(232, 229, 220, 0.09)')}
+                onMouseLeave={(e) => (e.currentTarget.style.background = 'rgba(232, 229, 220, 0.05)')}
             >
-                <div className="w-8 h-8 rounded-md bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-xs font-bold text-white flex-shrink-0">
+                <div
+                    className="w-8 h-8 rounded-md flex items-center justify-center text-[11px] font-display flex-shrink-0"
+                    style={{
+                        background: 'var(--paper)',
+                        color: 'var(--accent-deep)',
+                        fontVariationSettings: "'SOFT' 100, 'WONK' 1",
+                        fontWeight: 600,
+                    }}
+                >
                     {(empresaActiva?.nombre ?? '?').slice(0, 2).toUpperCase()}
                 </div>
                 <div className="flex-1 min-w-0">
-                    <div className="text-xs font-semibold text-white truncate">
+                    <div
+                        className="text-[12px] font-medium truncate"
+                        style={{ color: 'var(--sidebar-ink)' }}
+                    >
                         {empresaActiva?.nombre ?? 'Sin empresa'}
                     </div>
-                    <div className="text-[10px] text-indigo-300 truncate">
+                    <div
+                        className="text-[9px] uppercase tracking-[0.18em] truncate"
+                        style={{ color: 'var(--sidebar-accent)' }}
+                    >
                         {empresaActiva?.rol ?? ''}
                     </div>
                 </div>
                 <svg
-                    className={`w-4 h-4 text-slate-400 transition ${open ? 'rotate-180' : ''}`}
-                    fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                    className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-180' : ''}`}
+                    style={{ color: 'var(--sidebar-ink-soft)' }}
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
                 >
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                 </svg>
             </button>
 
             {open && (
-                <div className="absolute bottom-full mb-2 left-0 right-0 bg-slate-900 border border-slate-700 rounded-lg shadow-2xl overflow-hidden max-h-64 overflow-y-auto z-50">
-                    {empresas.map((e) => (
-                        <button
-                            key={e.id}
-                            onClick={() => { switchEmpresa(e.id); setOpen(false); }}
-                            className={`w-full text-left px-3 py-2 flex items-center gap-2 hover:bg-slate-800 transition ${e.id === empresaActiva?.id ? 'bg-slate-800/60' : ''
-                                }`}
-                        >
-                            <div className="w-7 h-7 rounded bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-[10px] font-bold text-white">
-                                {e.nombre.slice(0, 2).toUpperCase()}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                                <div className="text-xs font-medium text-white truncate">{e.nombre}</div>
-                                <div className="text-[10px] text-slate-400 truncate">{e.nit} · {e.rol}</div>
-                            </div>
-                            {e.id === empresaActiva?.id && (
-                                <svg className="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                </svg>
-                            )}
-                        </button>
-                    ))}
+                <div
+                    className="absolute bottom-full mb-2 left-0 right-0 rounded-md overflow-hidden max-h-64 overflow-y-auto z-50 sidebar-scroll"
+                    style={{
+                        background: 'var(--sidebar-bg-2)',
+                        border: '1px solid var(--sidebar-rule)',
+                        boxShadow: '0 20px 40px -10px rgba(0,0,0,0.5)',
+                    }}
+                >
+                    <div
+                        className="px-3 py-2 text-[9px] font-semibold uppercase tracking-[0.22em]"
+                        style={{
+                            color: 'var(--sidebar-ink-mute)',
+                            borderBottom: '1px solid var(--sidebar-rule)',
+                        }}
+                    >
+                        Cambiar empresa
+                    </div>
+                    {empresas.map((e) => {
+                        const active = e.id === empresaActiva?.id;
+                        return (
+                            <button
+                                key={e.id}
+                                onClick={() => { switchEmpresa(e.id); setOpen(false); }}
+                                className="w-full text-left px-3 py-2.5 flex items-center gap-2.5 transition-colors"
+                                style={{
+                                    background: active ? 'rgba(127, 169, 224, 0.10)' : 'transparent',
+                                    borderBottom: '1px solid rgba(232, 229, 220, 0.04)',
+                                }}
+                                onMouseEnter={(ev) => {
+                                    if (!active) ev.currentTarget.style.background = 'rgba(232, 229, 220, 0.05)';
+                                }}
+                                onMouseLeave={(ev) => {
+                                    if (!active) ev.currentTarget.style.background = 'transparent';
+                                }}
+                            >
+                                <div
+                                    className="w-7 h-7 rounded flex items-center justify-center text-[10px] font-display flex-shrink-0"
+                                    style={{
+                                        background: 'var(--paper)',
+                                        color: 'var(--accent-deep)',
+                                        fontVariationSettings: "'SOFT' 100, 'WONK' 1",
+                                        fontWeight: 600,
+                                    }}
+                                >
+                                    {e.nombre.slice(0, 2).toUpperCase()}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <div
+                                        className="text-[12px] font-medium truncate"
+                                        style={{ color: 'var(--sidebar-ink)' }}
+                                    >
+                                        {e.nombre}
+                                    </div>
+                                    <div
+                                        className="text-[10px] truncate font-mono"
+                                        style={{ color: 'var(--sidebar-ink-mute)' }}
+                                    >
+                                        {e.nit} · {e.rol}
+                                    </div>
+                                </div>
+                                {active && (
+                                    <svg
+                                        className="w-3.5 h-3.5"
+                                        style={{ color: 'var(--sidebar-accent)' }}
+                                        fill="none"
+                                        stroke="currentColor"
+                                        viewBox="0 0 24 24"
+                                    >
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                                    </svg>
+                                )}
+                            </button>
+                        );
+                    })}
                 </div>
             )}
         </div>

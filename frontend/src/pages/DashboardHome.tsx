@@ -20,10 +20,6 @@ import { apiFetch } from '../utils/apiClient';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
-/**
- * Drop-in replacement de window.fetch para este archivo.
- * Convierte `${API_URL}/x` -> apiFetch('/x') que inyecta auth desde authStorage.
- */
 const authFetch = (url: string, options?: RequestInit): Promise<Response> => {
     const endpoint = url.startsWith(API_URL) ? url.slice(API_URL.length) : url;
     return apiFetch(endpoint, options as never);
@@ -58,73 +54,24 @@ interface RecentInvoice {
     estado: string;
 }
 
-const COLORS = {
-    primary: '#6366f1',
-    secondary: '#8b5cf6',
-    success: '#10b981',
-    warning: '#f59e0b',
-};
-
 const MESES = ['', 'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+const MESES_LARGO = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
 const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('es-CO', {
         style: 'currency',
         currency: 'COP',
         minimumFractionDigits: 0,
-        maximumFractionDigits: 0
+        maximumFractionDigits: 0,
     }).format(value);
 };
 
-// formatCompact (B/M/K) removido — no se usa hoy. Si vuelve a necesitarse,
-// recuperarlo desde el commit anterior del tag backup/pre-merge-main-2026-05-10.
-
-interface StatCardProps {
-    title: string;
-    value: string | number;
-    subtitle?: string;
-    icon: React.ReactNode;
-    gradient: string;
-    trend?: { value: number; isPositive: boolean };
-}
-
-function StatCard({ title, value, subtitle, icon, gradient, trend }: StatCardProps) {
-    return (
-        <div className={`relative overflow-hidden rounded-xl p-3 lg:p-4 ${gradient} text-white shadow-lg transition-all duration-300 hover:shadow-xl hover:scale-[1.01]`}>
-            <div className="absolute -right-4 -top-4 h-20 w-20 rounded-full bg-white/10"></div>
-            <div className="relative z-10">
-                <div className="flex items-start justify-between gap-2">
-                    <div className="flex-1 min-w-0">
-                        <p className="text-[10px] lg:text-xs font-medium text-white/80 truncate">{title}</p>
-                        <p className="mt-0.5 lg:mt-1 text-lg lg:text-xl font-bold tracking-tight">{value}</p>
-                        {subtitle && <p className="text-[10px] lg:text-xs text-white/70">{subtitle}</p>}
-                        {trend && (
-                            <div className={`mt-1 inline-flex items-center text-[10px] lg:text-xs ${trend.isPositive ? 'text-emerald-200' : 'text-red-200'}`}>
-                                <span className="mr-0.5">{trend.isPositive ? '↑' : '↓'}</span>
-                                {Math.abs(trend.value).toFixed(0)}%
-                            </div>
-                        )}
-                    </div>
-                    <div className="rounded-lg bg-white/20 p-1.5 lg:p-2 flex-shrink-0">
-                        <div className="h-4 w-4 lg:h-5 lg:w-5 [&>svg]:h-full [&>svg]:w-full">{icon}</div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
-}
-
-function CustomTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ value: number }>; label?: string }) {
-    if (active && payload && payload.length) {
-        return (
-            <div className="rounded-xl bg-slate-900/95 p-4 shadow-xl border border-slate-700">
-                <p className="text-sm font-medium text-slate-300">{label}</p>
-                <p className="mt-1 text-lg font-bold text-white">{formatCurrency(payload[0].value)}</p>
-            </div>
-        );
-    }
-    return null;
-}
+const formatCompact = (value: number) => {
+    if (Math.abs(value) >= 1_000_000_000) return `$${(value / 1_000_000_000).toFixed(2)}B`;
+    if (Math.abs(value) >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`;
+    if (Math.abs(value) >= 1_000) return `$${(value / 1_000).toFixed(0)}K`;
+    return `$${value.toFixed(0)}`;
+};
 
 interface UtilidadMes {
     mes: number;
@@ -132,6 +79,87 @@ interface UtilidadMes {
     utilidad: number;
     ingresos: number;
     gastos: number;
+}
+
+/* ──────────────────────────────────────────────────────────
+   Editorial KPI — number as pull-quote
+   ────────────────────────────────────────────────────────── */
+function EditorialKPI({
+    label,
+    sublabel,
+    value,
+    secondary,
+    tone = 'ink',
+    trend,
+}: {
+    label: string;
+    sublabel?: string;
+    value: string;
+    secondary?: string;
+    tone?: 'ink' | 'positive' | 'negative' | 'accent';
+    trend?: { value: number; isPositive: boolean };
+}) {
+    const toneColor =
+        tone === 'positive' ? 'var(--positive)' :
+        tone === 'negative' ? 'var(--negative)' :
+        tone === 'accent' ? 'var(--accent)' :
+        'var(--ink)';
+
+    return (
+        <div className="surface p-6 transition-all duration-200 hover:-translate-y-px"
+            style={{ minHeight: '160px' }}
+        >
+            <div className="flex items-start justify-between mb-4">
+                <div>
+                    <div className="kicker">{label}</div>
+                    {sublabel && (
+                        <div className="text-[11px] mt-1" style={{ color: 'var(--ink-faint)' }}>
+                            {sublabel}
+                        </div>
+                    )}
+                </div>
+                {trend && (
+                    <span
+                        className="font-mono text-[11px] font-semibold"
+                        style={{ color: trend.isPositive ? 'var(--positive)' : 'var(--negative)' }}
+                    >
+                        {trend.isPositive ? '↑' : '↓'} {Math.abs(trend.value).toFixed(0)}%
+                    </span>
+                )}
+            </div>
+            <div className="numeral text-[2.4rem] leading-none" style={{ color: toneColor }}>
+                {value}
+            </div>
+            {secondary && (
+                <div className="kicker mt-3" style={{ color: 'var(--ink-faint)' }}>
+                    {secondary}
+                </div>
+            )}
+        </div>
+    );
+}
+
+function CustomTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ value: number }>; label?: string }) {
+    if (active && payload && payload.length) {
+        return (
+            <div
+                className="rounded-lg px-4 py-3 shadow-2xl"
+                style={{
+                    background: 'var(--ink)',
+                    border: '1px solid var(--ink)',
+                    color: 'var(--paper)',
+                }}
+            >
+                <div className="text-[10px] uppercase tracking-[0.2em]" style={{ color: 'rgba(255,255,255,0.55)' }}>
+                    {label}
+                </div>
+                <div className="numeral text-[1.4rem] mt-1" style={{ color: 'var(--paper)' }}>
+                    {formatCurrency(payload[0].value)}
+                </div>
+            </div>
+        );
+    }
+    return null;
 }
 
 export default function DashboardHome() {
@@ -145,12 +173,10 @@ export default function DashboardHome() {
     const [oficinaSearch, setOficinaSearch] = useState('');
     const [showOficinaDropdown, setShowOficinaDropdown] = useState(false);
 
-    // --- Contabilidad ---
     const [balanceActual, setBalanceActual] = useState<Balance | null>(null);
     const [utilidadAnual, setUtilidadAnual] = useState<UtilidadMes[]>([]);
     const [contableLoaded, setContableLoaded] = useState(false);
 
-    // Agregados YTD calculados desde utilidadAnual
     const ytdIngresos = utilidadAnual.reduce((s, m) => s + m.ingresos, 0);
     const ytdGastos = utilidadAnual.reduce((s, m) => s + m.gastos, 0);
     const ytdUtilidad = ytdIngresos - ytdGastos;
@@ -160,13 +186,11 @@ export default function DashboardHome() {
         ? parseFloat(balanceActual.total_gastos || '0') + parseFloat(balanceActual.total_costos || '0')
         : 0;
 
-    // ¿Hay algo útil para mostrar? Si todo está en cero, escondemos la sección.
     const hayDatosContables = contableLoaded && (
         utilidadAnual.some(m => m.ingresos > 0 || m.gastos > 0) ||
         ingresosMesActual > 0 || gastosMesActual > 0
     );
 
-    // Calcular métricas mensuales
     const getCurrentMonthData = () => {
         if (!estadisticas?.facturacion_mensual) return { current: 0, previous: 0, trend: 0 };
         const current = estadisticas.facturacion_mensual.find(m => m.mes === selectedMonth)?.valor || 0;
@@ -175,7 +199,6 @@ export default function DashboardHome() {
         return { current, previous, trend };
     };
 
-    // Datos para gráfico comparativo de últimos 3 meses
     const getLast3MonthsData = () => {
         if (!estadisticas?.facturacion_mensual) return [];
         const months = [];
@@ -183,16 +206,12 @@ export default function DashboardHome() {
             const mes = selectedMonth - i;
             if (mes > 0) {
                 const data = estadisticas.facturacion_mensual.find(m => m.mes === mes);
-                months.push({
-                    mes: MESES[mes],
-                    valor: data?.valor || 0,
-                });
+                months.push({ mes: MESES[mes], valor: data?.valor || 0 });
             }
         }
         return months;
     };
 
-    // Load oficinas once on mount
     useEffect(() => {
         authFetch(`${API_URL}/reportes/filtros`)
             .then(r => r.json())
@@ -202,19 +221,16 @@ export default function DashboardHome() {
             .catch(err => console.error('Error loading oficinas:', err));
     }, []);
 
-    // Carga balance contable del mes seleccionado + evolución anual en paralelo
     useEffect(() => {
         let cancelled = false;
         async function loadContable() {
             setContableLoaded(false);
             try {
-                // Balance del mes seleccionado (para KPIs)
                 const balancePromise = apiGet<Balance>('/contabilidad/balance', {
                     anio: selectedYear,
                     mes: selectedMonth,
                 }).catch(() => null);
 
-                // 12 balances del año (para chart de evolución)
                 const anualPromises = Array.from({ length: 12 }, (_, i) =>
                     apiGet<Balance>('/contabilidad/balance', {
                         anio: selectedYear,
@@ -252,9 +268,7 @@ export default function DashboardHome() {
             }
         }
         loadContable();
-        return () => {
-            cancelled = true;
-        };
+        return () => { cancelled = true; };
     }, [selectedYear, selectedMonth]);
 
     useEffect(() => {
@@ -262,13 +276,9 @@ export default function DashboardHome() {
             setLoading(true);
             try {
                 let statsUrl = `${API_URL}/reportes/estadisticas?año=${selectedYear}`;
-                if (selectedOficina) {
-                    statsUrl += `&oficina_id=${selectedOficina}`;
-                }
+                if (selectedOficina) statsUrl += `&oficina_id=${selectedOficina}`;
                 const statsRes = await fetch(statsUrl);
-                if (statsRes.ok) {
-                    setEstadisticas(await statsRes.json());
-                }
+                if (statsRes.ok) setEstadisticas(await statsRes.json());
 
                 const invoicesRes = await authFetch(`${API_URL}/facturas/?limit=5&skip=0`);
                 if (invoicesRes.ok) {
@@ -287,7 +297,7 @@ export default function DashboardHome() {
                         proveedor_nombre: inv.proveedor?.nombre || 'Sin proveedor',
                         valor: inv.valor || 0,
                         fecha: inv.fecha_factura || inv.created_at || '',
-                        estado: inv.estado || 'PENDIENTE'
+                        estado: inv.estado || 'PENDIENTE',
                     })));
                 }
             } catch (error) {
@@ -302,376 +312,524 @@ export default function DashboardHome() {
     if (loading) {
         return (
             <div className="flex h-96 items-center justify-center">
-                <div className="h-16 w-16 animate-spin rounded-full border-4 border-indigo-200 border-t-indigo-600"></div>
+                <div className="text-center">
+                    <div
+                        className="h-12 w-12 mx-auto rounded-full border-2 border-t-transparent"
+                        style={{
+                            borderColor: 'var(--accent)',
+                            borderTopColor: 'transparent',
+                            animation: 'spin-soft 800ms linear infinite',
+                        }}
+                    />
+                    <div className="kicker mt-4">Cargando libros</div>
+                </div>
             </div>
         );
     }
 
     const monthData = getCurrentMonthData();
     const last3Months = getLast3MonthsData();
+    const heroValue = monthData.current;
 
     return (
-        <div className="space-y-4 lg:space-y-6 xl:space-y-8">
-            {/* Header */}
-            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                <div>
-                    <h1 className="text-4xl font-bold bg-gradient-to-r from-slate-900 via-indigo-800 to-purple-900 bg-clip-text text-transparent">
-                        Dashboard
-                    </h1>
-                    <p className="mt-2 text-lg text-slate-500">Resumen de facturación - {MESES[selectedMonth]} {selectedYear}</p>
-                </div>
-                <div className="flex flex-wrap items-center gap-3">
-                    {/* Oficina filter */}
-                    <div className="relative">
-                        <input
-                            type="text"
-                            className="rounded-xl border-0 bg-white px-4 py-3 text-sm font-medium text-slate-700 shadow-lg ring-1 ring-slate-200 focus:ring-2 focus:ring-indigo-500 w-48"
-                            placeholder="Filtrar por oficina..."
-                            value={selectedOficina
-                                ? oficinas.find(o => o.id === selectedOficina)?.nombre || ''
-                                : oficinaSearch
-                            }
-                            onChange={(e) => {
-                                setOficinaSearch(e.target.value);
-                                if (selectedOficina) setSelectedOficina(null);
-                            }}
-                            onFocus={() => setShowOficinaDropdown(true)}
-                            onBlur={() => setTimeout(() => setShowOficinaDropdown(false), 200)}
-                        />
-                        {selectedOficina && (
-                            <button
-                                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                                onClick={() => { setSelectedOficina(null); setOficinaSearch(''); }}
-                            >
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                            </button>
-                        )}
-                        {showOficinaDropdown && !selectedOficina && (
-                            <div className="absolute z-10 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
-                                <button
-                                    className="w-full px-3 py-2 text-left text-sm text-gray-500 hover:bg-gray-50"
-                                    onClick={() => { setSelectedOficina(null); setShowOficinaDropdown(false); setOficinaSearch(''); }}
-                                >
-                                    Todas las oficinas
-                                </button>
-                                {oficinas
-                                    .filter(o => {
-                                        const search = oficinaSearch.toLowerCase();
-                                        return !search ||
-                                            (o.nombre || '').toLowerCase().includes(search) ||
-                                            (o.cod_oficina || '').toLowerCase().includes(search) ||
-                                            (o.ciudad || '').toLowerCase().includes(search);
-                                    })
-                                    .slice(0, 10)
-                                    .map(o => (
-                                        <button
-                                            key={o.id}
-                                            className="w-full px-3 py-2 text-left text-sm hover:bg-blue-50"
-                                            onClick={() => { setSelectedOficina(o.id); setShowOficinaDropdown(false); setOficinaSearch(''); }}
-                                        >
-                                            <span className="font-medium">{o.cod_oficina}</span>
-                                            <span className="text-gray-700 ml-2">{o.nombre}</span>
-                                            {o.ciudad && <span className="text-gray-500 ml-1">- {o.ciudad}</span>}
-                                        </button>
-                                    ))
-                                }
-                            </div>
-                        )}
+        <div className="space-y-12 max-w-[1480px] mx-auto">
+            {/* ═══════════════════════════════════════════════════════
+                HERO — Editorial masthead
+                ═══════════════════════════════════════════════════════ */}
+            <div className="anim-fade-up">
+                <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6 mb-8">
+                    <div>
+                        <div className="eyebrow mb-4">
+                            Estado del libro · {MESES_LARGO[selectedMonth]} {selectedYear}
+                        </div>
+                        <h1 className="editorial-title text-[3.5rem] lg:text-[4.5rem]">
+                            Tablero <em>contable</em>.
+                        </h1>
                     </div>
-                    <select
-                        value={selectedMonth}
-                        onChange={(e) => setSelectedMonth(Number(e.target.value))}
-                        className="rounded-xl border-0 bg-white px-4 py-3 text-sm font-medium text-slate-700 shadow-lg ring-1 ring-slate-200 focus:ring-2 focus:ring-indigo-500"
-                    >
-                        {MESES.slice(1).map((mes, i) => (
-                            <option key={i + 1} value={i + 1}>{mes}</option>
-                        ))}
-                    </select>
-                    <select
-                        value={selectedYear}
-                        onChange={(e) => setSelectedYear(Number(e.target.value))}
-                        className="rounded-xl border-0 bg-white px-4 py-3 text-sm font-medium text-slate-700 shadow-lg ring-1 ring-slate-200 focus:ring-2 focus:ring-indigo-500"
-                    >
-                        {[2024, 2025, 2026].map(year => (
-                            <option key={year} value={year}>{year}</option>
-                        ))}
-                    </select>
+
+                    {/* Compact toolbar */}
+                    <div className="flex flex-wrap items-center gap-2">
+                        <div className="relative">
+                            <input
+                                type="text"
+                                className="input-field text-[13px] w-52"
+                                placeholder="Filtrar por oficina…"
+                                value={selectedOficina
+                                    ? oficinas.find(o => o.id === selectedOficina)?.nombre || ''
+                                    : oficinaSearch
+                                }
+                                onChange={(e) => {
+                                    setOficinaSearch(e.target.value);
+                                    if (selectedOficina) setSelectedOficina(null);
+                                }}
+                                onFocus={() => setShowOficinaDropdown(true)}
+                                onBlur={() => setTimeout(() => setShowOficinaDropdown(false), 200)}
+                            />
+                            {selectedOficina && (
+                                <button
+                                    className="absolute right-2 top-1/2 -translate-y-1/2"
+                                    style={{ color: 'var(--ink-faint)' }}
+                                    onClick={() => { setSelectedOficina(null); setOficinaSearch(''); }}
+                                >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                </button>
+                            )}
+                            {showOficinaDropdown && !selectedOficina && (
+                                <div className="absolute z-20 mt-1 w-full surface-raised max-h-48 overflow-y-auto py-1">
+                                    <button
+                                        className="w-full px-3 py-2 text-left text-[13px] hover:bg-canvas-2 transition-colors"
+                                        style={{ color: 'var(--ink-faint)' }}
+                                        onClick={() => { setSelectedOficina(null); setShowOficinaDropdown(false); setOficinaSearch(''); }}
+                                    >
+                                        Todas las oficinas
+                                    </button>
+                                    {oficinas
+                                        .filter(o => {
+                                            const search = oficinaSearch.toLowerCase();
+                                            return !search ||
+                                                (o.nombre || '').toLowerCase().includes(search) ||
+                                                (o.cod_oficina || '').toLowerCase().includes(search) ||
+                                                (o.ciudad || '').toLowerCase().includes(search);
+                                        })
+                                        .slice(0, 10)
+                                        .map(o => (
+                                            <button
+                                                key={o.id}
+                                                className="w-full px-3 py-2 text-left text-[13px] transition-colors"
+                                                onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--accent-soft)')}
+                                                onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                                                onClick={() => { setSelectedOficina(o.id); setShowOficinaDropdown(false); setOficinaSearch(''); }}
+                                            >
+                                                <span className="font-mono text-[11px] mr-2" style={{ color: 'var(--accent)' }}>
+                                                    {o.cod_oficina}
+                                                </span>
+                                                <span>{o.nombre}</span>
+                                                {o.ciudad && (
+                                                    <span className="ml-1 text-[11px]" style={{ color: 'var(--ink-faint)' }}>
+                                                        — {o.ciudad}
+                                                    </span>
+                                                )}
+                                            </button>
+                                        ))}
+                                </div>
+                            )}
+                        </div>
+                        <select
+                            value={selectedMonth}
+                            onChange={(e) => setSelectedMonth(Number(e.target.value))}
+                            className="input-field text-[13px] w-32"
+                        >
+                            {MESES.slice(1).map((mes, i) => (
+                                <option key={i + 1} value={i + 1}>{mes}</option>
+                            ))}
+                        </select>
+                        <select
+                            value={selectedYear}
+                            onChange={(e) => setSelectedYear(Number(e.target.value))}
+                            className="input-field text-[13px] w-24"
+                        >
+                            {[2024, 2025, 2026].map(year => (
+                                <option key={year} value={year}>{year}</option>
+                            ))}
+                        </select>
+                    </div>
+                </div>
+
+                {/* HERO PULL-QUOTE — facturación mensual */}
+                <div className="ledger paper-grain p-8 lg:p-12 relative">
+                    <div className="grid lg:grid-cols-12 gap-8 lg:gap-12 items-end">
+                        <div className="lg:col-span-7">
+                            <div className="kicker-accent mb-3">Facturación de {MESES_LARGO[selectedMonth]}</div>
+                            <div
+                                className="numeral leading-none"
+                                style={{ fontSize: 'clamp(3.5rem, 7vw, 6.5rem)' }}
+                            >
+                                {formatCurrency(heroValue)}
+                            </div>
+                            <div className="flex items-center gap-6 mt-6">
+                                {monthData.previous > 0 && (
+                                    <div className="flex items-center gap-2">
+                                        <span
+                                            className="font-mono text-[14px] font-semibold"
+                                            style={{ color: monthData.trend >= 0 ? 'var(--positive)' : 'var(--negative)' }}
+                                        >
+                                            {monthData.trend >= 0 ? '↑' : '↓'} {Math.abs(monthData.trend).toFixed(1)}%
+                                        </span>
+                                        <span className="kicker">vs. mes anterior</span>
+                                    </div>
+                                )}
+                                <div className="kicker">
+                                    Mes en curso · {selectedYear}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="lg:col-span-5 lg:border-l lg:pl-8" style={{ borderColor: 'var(--rule)' }}>
+                            <div className="grid grid-cols-3 gap-6">
+                                <div>
+                                    <div className="kicker mb-1">Año</div>
+                                    <div className="numeral text-[1.6rem] numeral-mute">
+                                        {formatCompact(estadisticas?.resumen.total_facturado || 0)}
+                                    </div>
+                                </div>
+                                <div>
+                                    <div className="kicker mb-1">Facturas</div>
+                                    <div className="numeral text-[1.6rem] numeral-mute">
+                                        {estadisticas?.resumen.total_facturas || 0}
+                                    </div>
+                                </div>
+                                <div>
+                                    <div className="kicker mb-1">Contratos</div>
+                                    <div className="numeral text-[1.6rem] numeral-mute">
+                                        {estadisticas?.resumen.contratos_activos || 0}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
-            {/* Stat Cards - Información del MES actual */}
-            <div className="grid gap-3 md:gap-4 lg:gap-5 grid-cols-2 lg:grid-cols-4">
-                <StatCard
-                    title={`Facturado ${MESES[selectedMonth]}`}
-                    value={formatCurrency(monthData.current)}
-                    subtitle="Mes actual"
-                    gradient="bg-gradient-to-br from-indigo-500 to-purple-600"
-                    trend={monthData.previous > 0 ? { value: monthData.trend, isPositive: monthData.trend >= 0 } : undefined}
-                    icon={<svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
-                />
-                <StatCard
-                    title="Acumulado Año"
-                    value={formatCurrency(estadisticas?.resumen.total_facturado || 0)}
-                    subtitle={`${selectedYear}`}
-                    gradient="bg-gradient-to-br from-emerald-500 to-teal-600"
-                    icon={<svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>}
-                />
-                <StatCard
-                    title="Facturas"
-                    value={estadisticas?.resumen.total_facturas || 0}
-                    subtitle="Procesadas"
-                    gradient="bg-gradient-to-br from-amber-500 to-orange-600"
-                    icon={<svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>}
-                />
-                <StatCard
-                    title="Contratos"
-                    value={estadisticas?.resumen.contratos_activos || 0}
-                    subtitle="Activos"
-                    gradient="bg-gradient-to-br from-pink-500 to-rose-600"
-                    icon={<svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>}
-                />
-            </div>
-
-            {/* Resumen Contable — solo si hay datos */}
+            {/* ═══════════════════════════════════════════════════════
+                CONTABLE — Sólo si hay datos
+                ═══════════════════════════════════════════════════════ */}
             {hayDatosContables && (
-                <div className="space-y-3 lg:space-y-4">
-                    <div className="flex items-end justify-between">
+                <section>
+                    <div className="flex items-end justify-between mb-6">
                         <div>
-                            <h2 className="text-xl lg:text-2xl font-bold text-slate-800">Resumen Contable</h2>
-                            <p className="text-xs lg:text-sm text-slate-500">
-                                Basado en asientos registrados (causación y pagos) — {MESES[selectedMonth]} {selectedYear}
+                            <div className="eyebrow mb-3">Resumen contable</div>
+                            <h2 className="editorial-title text-[2rem]">
+                                Movimientos <em>aprobados</em>.
+                            </h2>
+                            <p className="text-[13px] mt-2" style={{ color: 'var(--ink-faint)' }}>
+                                Causación y pagos del periodo — {MESES_LARGO[selectedMonth]} {selectedYear}
                             </p>
                         </div>
-                        <a href="/app/balance" className="text-xs lg:text-sm font-medium text-indigo-600 hover:text-indigo-700">
-                            Ver balance completo →
+                        <a
+                            href="/app/balance"
+                            className="kicker-accent hover:underline whitespace-nowrap"
+                        >
+                            Balance completo →
                         </a>
                     </div>
 
-                    {/* KPI Cards contables */}
-                    <div className="grid gap-3 md:gap-4 lg:gap-5 grid-cols-2 lg:grid-cols-4">
-                        <StatCard
-                            title={`Utilidad ${MESES[selectedMonth]}`}
-                            value={formatCurrency(utilidadMesActual)}
-                            subtitle={utilidadMesActual >= 0 ? 'Ganancia del mes' : 'Pérdida del mes'}
-                            gradient={
-                                utilidadMesActual >= 0
-                                    ? 'bg-gradient-to-br from-emerald-600 to-green-700'
-                                    : 'bg-gradient-to-br from-red-500 to-rose-600'
-                            }
-                            icon={
-                                <svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                                </svg>
-                            }
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 anim-stagger">
+                        <EditorialKPI
+                            label={`Utilidad ${MESES[selectedMonth]}`}
+                            sublabel={utilidadMesActual >= 0 ? 'Ganancia' : 'Pérdida'}
+                            value={formatCompact(utilidadMesActual)}
+                            secondary={formatCurrency(utilidadMesActual)}
+                            tone={utilidadMesActual >= 0 ? 'positive' : 'negative'}
                         />
-                        <StatCard
-                            title="Ingresos del mes"
-                            value={formatCurrency(ingresosMesActual)}
-                            subtitle="Clase 4"
-                            gradient="bg-gradient-to-br from-sky-500 to-blue-600"
-                            icon={
-                                <svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1" />
-                                </svg>
-                            }
+                        <EditorialKPI
+                            label="Ingresos del mes"
+                            sublabel="Clase 4"
+                            value={formatCompact(ingresosMesActual)}
+                            secondary={formatCurrency(ingresosMesActual)}
+                            tone="accent"
                         />
-                        <StatCard
-                            title="Gastos + Costos"
-                            value={formatCurrency(gastosMesActual)}
-                            subtitle="Clases 5 y 6"
-                            gradient="bg-gradient-to-br from-orange-500 to-red-600"
-                            icon={
-                                <svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 13l-5 5m0 0l-5-5m5 5V6" />
-                                </svg>
-                            }
+                        <EditorialKPI
+                            label="Gastos + costos"
+                            sublabel="Clases 5 y 6"
+                            value={formatCompact(gastosMesActual)}
+                            secondary={formatCurrency(gastosMesActual)}
                         />
-                        <StatCard
-                            title={`Utilidad YTD ${selectedYear}`}
-                            value={formatCurrency(ytdUtilidad)}
-                            subtitle={`Acum. ${ytdIngresos > 0 ? `${((ytdUtilidad / ytdIngresos) * 100).toFixed(1)}% margen` : ''}`}
-                            gradient={
-                                ytdUtilidad >= 0
-                                    ? 'bg-gradient-to-br from-violet-600 to-indigo-700'
-                                    : 'bg-gradient-to-br from-slate-600 to-gray-700'
+                        <EditorialKPI
+                            label={`Utilidad YTD ${selectedYear}`}
+                            sublabel="Acumulado del año"
+                            value={formatCompact(ytdUtilidad)}
+                            secondary={
+                                ytdIngresos > 0
+                                    ? `Margen ${((ytdUtilidad / ytdIngresos) * 100).toFixed(1)}%`
+                                    : undefined
                             }
-                            icon={
-                                <svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2" />
-                                </svg>
-                            }
+                            tone={ytdUtilidad >= 0 ? 'positive' : 'negative'}
                         />
                     </div>
 
-                    {/* Chart de evolución mensual */}
-                    <div className="rounded-xl lg:rounded-2xl bg-white p-4 lg:p-5 xl:p-6 shadow-lg ring-1 ring-slate-100">
-                        <div className="mb-3 lg:mb-4">
-                            <h3 className="text-base lg:text-lg font-bold text-slate-800">
-                                Evolución Mensual de Utilidad {selectedYear}
-                            </h3>
-                            <p className="text-xs lg:text-sm text-slate-500">
-                                Ingresos, gastos y utilidad neta por mes
-                            </p>
+                    {/* Evolución mensual — large chart */}
+                    <div className="surface-raised p-6 lg:p-8 mt-6">
+                        <div className="flex items-baseline justify-between mb-6">
+                            <div>
+                                <div className="eyebrow mb-2">Evolución mensual</div>
+                                <h3 className="font-display text-[1.4rem] tracking-tight">
+                                    Ingresos, gastos y utilidad — {selectedYear}
+                                </h3>
+                            </div>
+                            <div className="flex items-center gap-4 text-[11px]">
+                                <span className="flex items-center gap-2">
+                                    <span className="w-3 h-px" style={{ background: 'var(--accent-vivid)' }} />
+                                    <span className="kicker">Ingresos</span>
+                                </span>
+                                <span className="flex items-center gap-2">
+                                    <span className="w-3 h-px" style={{ background: 'var(--negative)' }} />
+                                    <span className="kicker">Gastos</span>
+                                </span>
+                                <span className="flex items-center gap-2">
+                                    <span className="w-3 h-[2px]" style={{ background: 'var(--positive)' }} />
+                                    <span className="kicker">Utilidad</span>
+                                </span>
+                            </div>
                         </div>
-                        <div className="h-52 lg:h-64 xl:h-72">
+                        <div className="h-72">
                             <ResponsiveContainer width="100%" height="100%">
-                                <LineChart data={utilidadAnual}>
-                                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
-                                    <XAxis dataKey="nombre" tick={{ fontSize: 12, fill: '#64748b' }} tickLine={false} axisLine={{ stroke: '#e2e8f0' }} />
+                                <LineChart data={utilidadAnual} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                                    <CartesianGrid strokeDasharray="2 4" stroke="var(--rule)" vertical={false} />
+                                    <XAxis
+                                        dataKey="nombre"
+                                        tick={{ fontSize: 11, fill: 'var(--ink-faint)', fontFamily: 'var(--font-body)' }}
+                                        tickLine={false}
+                                        axisLine={{ stroke: 'var(--rule)' }}
+                                    />
                                     <YAxis
-                                        tick={{ fontSize: 12, fill: '#64748b' }}
-                                        tickFormatter={(v) => `${(v / 1000000).toFixed(0)}M`}
+                                        tick={{ fontSize: 11, fill: 'var(--ink-faint)', fontFamily: 'var(--font-mono)' }}
+                                        tickFormatter={(v) => `${(v / 1_000_000).toFixed(0)}M`}
                                         tickLine={false}
                                         axisLine={false}
                                     />
-                                    <Tooltip
-                                        formatter={(value) => formatCurrency(Number(value ?? 0))}
-                                        contentStyle={{
-                                            backgroundColor: '#0f172a',
-                                            border: 'none',
-                                            borderRadius: '12px',
-                                            color: '#fff',
-                                        }}
-                                    />
-                                    <Legend wrapperStyle={{ fontSize: 12 }} />
-                                    <Line type="monotone" dataKey="ingresos" name="Ingresos" stroke="#0ea5e9" strokeWidth={2} dot={{ r: 3 }} />
-                                    <Line type="monotone" dataKey="gastos" name="Gastos + Costos" stroke="#ef4444" strokeWidth={2} dot={{ r: 3 }} />
-                                    <Line type="monotone" dataKey="utilidad" name="Utilidad" stroke="#10b981" strokeWidth={3} dot={{ r: 4 }} />
+                                    <Tooltip content={<CustomTooltip />} />
+                                    <Legend wrapperStyle={{ display: 'none' }} />
+                                    <Line type="monotone" dataKey="ingresos" name="Ingresos" stroke="var(--accent-vivid)" strokeWidth={1.5} dot={{ r: 2, fill: 'var(--accent-vivid)' }} />
+                                    <Line type="monotone" dataKey="gastos" name="Gastos" stroke="var(--negative)" strokeWidth={1.5} dot={{ r: 2, fill: 'var(--negative)' }} />
+                                    <Line type="monotone" dataKey="utilidad" name="Utilidad" stroke="var(--positive)" strokeWidth={2.5} dot={{ r: 3, fill: 'var(--positive)' }} />
                                 </LineChart>
                             </ResponsiveContainer>
                         </div>
                     </div>
-                </div>
+                </section>
             )}
 
-            {/* Charts Row */}
-            <div className="grid gap-4 lg:gap-5 xl:gap-6 lg:grid-cols-3">
-                {/* Monthly Invoice Chart */}
-                <div className="lg:col-span-2 rounded-xl lg:rounded-2xl bg-white p-4 lg:p-5 xl:p-6 shadow-lg lg:shadow-xl ring-1 ring-slate-100">
-                    <div className="mb-3 lg:mb-4 xl:mb-6">
-                        <h2 className="text-base lg:text-lg xl:text-xl font-bold text-slate-800">Facturación Mensual {selectedYear}</h2>
-                        <p className="text-xs lg:text-sm text-slate-500">Evolución durante el año</p>
+            {/* ═══════════════════════════════════════════════════════
+                Charts — facturación
+                ═══════════════════════════════════════════════════════ */}
+            <section>
+                <div className="eyebrow mb-4">Análisis de facturación</div>
+                <div className="grid lg:grid-cols-3 gap-6">
+                    <div className="lg:col-span-2 surface-raised p-6 lg:p-8">
+                        <div className="mb-6">
+                            <div className="kicker-accent">Año {selectedYear}</div>
+                            <h3 className="font-display text-[1.4rem] tracking-tight mt-1">Facturación mensual</h3>
+                        </div>
+                        <div className="h-64">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <AreaChart data={estadisticas?.facturacion_mensual || []}>
+                                    <defs>
+                                        <linearGradient id="colorValor" x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="0%" stopColor="var(--accent-vivid)" stopOpacity={0.28} />
+                                            <stop offset="100%" stopColor="var(--accent-vivid)" stopOpacity={0} />
+                                        </linearGradient>
+                                    </defs>
+                                    <CartesianGrid strokeDasharray="2 4" stroke="var(--rule)" vertical={false} />
+                                    <XAxis dataKey="nombre" tick={{ fontSize: 11, fill: 'var(--ink-faint)' }} tickLine={false} axisLine={{ stroke: 'var(--rule)' }} />
+                                    <YAxis tick={{ fontSize: 11, fill: 'var(--ink-faint)', fontFamily: 'var(--font-mono)' }} tickFormatter={(v) => `${(v / 1_000_000).toFixed(0)}M`} tickLine={false} axisLine={false} />
+                                    <Tooltip content={<CustomTooltip />} />
+                                    <Area type="monotone" dataKey="valor" stroke="var(--accent-vivid)" strokeWidth={2} fillOpacity={1} fill="url(#colorValor)" />
+                                </AreaChart>
+                            </ResponsiveContainer>
+                        </div>
                     </div>
-                    <div className="h-48 lg:h-60 xl:h-80">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <AreaChart data={estadisticas?.facturacion_mensual || []}>
-                                <defs>
-                                    <linearGradient id="colorValor" x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="5%" stopColor={COLORS.primary} stopOpacity={0.3} />
-                                        <stop offset="95%" stopColor={COLORS.primary} stopOpacity={0} />
-                                    </linearGradient>
-                                </defs>
-                                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
-                                <XAxis dataKey="nombre" tick={{ fontSize: 12, fill: '#64748b' }} tickLine={false} axisLine={{ stroke: '#e2e8f0' }} />
-                                <YAxis tick={{ fontSize: 12, fill: '#64748b' }} tickFormatter={(v) => `${(v / 1000000).toFixed(0)}M`} tickLine={false} axisLine={false} />
-                                <Tooltip content={<CustomTooltip />} />
-                                <Area type="monotone" dataKey="valor" stroke={COLORS.primary} strokeWidth={3} fillOpacity={1} fill="url(#colorValor)" />
-                            </AreaChart>
-                        </ResponsiveContainer>
+
+                    <div className="surface-raised p-6 lg:p-8">
+                        <div className="mb-6">
+                            <div className="kicker-accent">Trimestre activo</div>
+                            <h3 className="font-display text-[1.4rem] tracking-tight mt-1">Últimos 3 meses</h3>
+                        </div>
+                        <div className="h-64">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={last3Months}>
+                                    <CartesianGrid strokeDasharray="2 4" stroke="var(--rule)" vertical={false} />
+                                    <XAxis dataKey="mes" tick={{ fontSize: 11, fill: 'var(--ink-faint)' }} tickLine={false} />
+                                    <YAxis tick={{ fontSize: 11, fill: 'var(--ink-faint)', fontFamily: 'var(--font-mono)' }} tickFormatter={(v) => `${(v / 1_000_000).toFixed(0)}M`} tickLine={false} axisLine={false} />
+                                    <Tooltip content={<CustomTooltip />} />
+                                    <Bar dataKey="valor" name="Facturado" fill="var(--ink)" radius={[4, 4, 0, 0]} />
+                                </BarChart>
+                            </ResponsiveContainer>
+                        </div>
                     </div>
                 </div>
+            </section>
 
-                {/* Comparativo últimos 3 meses */}
-                <div className="rounded-xl lg:rounded-2xl bg-white p-4 lg:p-5 xl:p-6 shadow-lg lg:shadow-xl ring-1 ring-slate-100">
-                    <div className="mb-3 lg:mb-4">
-                        <h2 className="text-base lg:text-lg xl:text-xl font-bold text-slate-800">Últimos 3 Meses</h2>
-                        <p className="text-xs lg:text-sm text-slate-500">Comparación de facturación</p>
+            {/* ═══════════════════════════════════════════════════════
+                Bottom row — Top proveedores + facturas recientes
+                ═══════════════════════════════════════════════════════ */}
+            <section className="grid lg:grid-cols-2 gap-6">
+                {/* Top proveedores */}
+                <div className="surface-raised p-6 lg:p-8">
+                    <div className="mb-6 flex items-baseline justify-between">
+                        <div>
+                            <div className="kicker-accent">Volumen contractado</div>
+                            <h3 className="font-display text-[1.4rem] tracking-tight mt-1">Top 5 proveedores</h3>
+                        </div>
                     </div>
-                    <div className="h-44 lg:h-56 xl:h-72">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={last3Months}>
-                                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
-                                <XAxis dataKey="mes" tick={{ fontSize: 12, fill: '#64748b' }} tickLine={false} />
-                                <YAxis tick={{ fontSize: 12, fill: '#64748b' }} tickFormatter={(v) => `${(v / 1000000).toFixed(0)}M`} tickLine={false} axisLine={false} />
-                                <Tooltip formatter={(value) => formatCurrency(Number(value ?? 0))} contentStyle={{ backgroundColor: '#0f172a', border: 'none', borderRadius: '12px', color: '#fff' }} />
-                                <Legend />
-                                <Bar dataKey="valor" name="Facturado" fill={COLORS.primary} radius={[8, 8, 0, 0]} />
-                            </BarChart>
-                        </ResponsiveContainer>
-                    </div>
-                </div>
-            </div>
-
-            {/* Bottom Row */}
-            <div className="grid gap-4 lg:gap-5 xl:gap-6 lg:grid-cols-2">
-                {/* Top Providers */}
-                <div className="rounded-xl lg:rounded-2xl bg-white p-4 lg:p-5 xl:p-6 shadow-lg lg:shadow-xl ring-1 ring-slate-100">
-                    <h2 className="text-base lg:text-lg xl:text-xl font-bold text-slate-800 mb-3 lg:mb-4 xl:mb-6">Top 5 Proveedores</h2>
-                    <div className="h-52 lg:h-60 xl:h-72">
+                    <div className="h-64">
                         <ResponsiveContainer width="100%" height="100%">
                             <BarChart data={estadisticas?.top_proveedores || []} layout="vertical">
-                                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={true} vertical={false} />
-                                <XAxis type="number" tick={{ fontSize: 11, fill: '#64748b' }} tickFormatter={(v) => `${(v / 1000000).toFixed(0)}M`} axisLine={false} tickLine={false} />
-                                <YAxis type="category" dataKey="nombre" tick={{ fontSize: 11, fill: '#64748b' }} width={120} axisLine={false} tickLine={false} />
-                                <Tooltip formatter={(value) => formatCurrency(Number(value ?? 0))} contentStyle={{ backgroundColor: '#0f172a', border: 'none', borderRadius: '12px', color: '#fff' }} />
-                                <Bar dataKey="total" fill={COLORS.primary} radius={[0, 8, 8, 0]} />
+                                <CartesianGrid strokeDasharray="2 4" stroke="var(--rule)" horizontal={true} vertical={false} />
+                                <XAxis type="number" tick={{ fontSize: 11, fill: 'var(--ink-faint)', fontFamily: 'var(--font-mono)' }} tickFormatter={(v) => `${(v / 1_000_000).toFixed(0)}M`} axisLine={false} tickLine={false} />
+                                <YAxis type="category" dataKey="nombre" tick={{ fontSize: 11, fill: 'var(--ink)' }} width={140} axisLine={false} tickLine={false} />
+                                <Tooltip content={<CustomTooltip />} />
+                                <Bar dataKey="total" fill="var(--accent)" radius={[0, 4, 4, 0]} />
                             </BarChart>
                         </ResponsiveContainer>
                     </div>
                 </div>
 
-                {/* Recent Invoices */}
-                <div className="rounded-xl lg:rounded-2xl bg-white p-4 lg:p-5 xl:p-6 shadow-lg lg:shadow-xl ring-1 ring-slate-100">
-                    <div className="mb-3 lg:mb-4 xl:mb-6 flex items-center justify-between">
-                        <h2 className="text-base lg:text-lg xl:text-xl font-bold text-slate-800">Facturas Recientes</h2>
-                        <a href="/app/facturas" className="text-xs lg:text-sm font-medium text-indigo-600 hover:text-indigo-700">Ver todas →</a>
+                {/* Facturas recientes — ledger-style list */}
+                <div className="surface-raised p-6 lg:p-8">
+                    <div className="mb-6 flex items-baseline justify-between">
+                        <div>
+                            <div className="kicker-accent">Últimas causaciones</div>
+                            <h3 className="font-display text-[1.4rem] tracking-tight mt-1">Facturas recientes</h3>
+                        </div>
+                        <a href="/app/facturas" className="kicker-accent hover:underline">
+                            Ver todas →
+                        </a>
                     </div>
-                    <div className="space-y-4">
+                    <div>
                         {recentInvoices.length === 0 ? (
-                            <div className="flex h-48 items-center justify-center text-slate-400">No hay facturas recientes</div>
-                        ) : (
-                            recentInvoices.map((invoice) => (
-                                <div key={invoice.id} className="flex items-center justify-between rounded-lg lg:rounded-xl border border-slate-100 p-2.5 lg:p-3 xl:p-4 hover:border-indigo-200 hover:shadow-md transition-all">
-                                    <div className="flex items-center gap-2 lg:gap-3 xl:gap-4">
-                                        <div className="flex h-9 w-9 lg:h-10 lg:w-10 xl:h-12 xl:w-12 items-center justify-center rounded-lg xl:rounded-xl bg-slate-100">
-                                            <svg className="h-6 w-6 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                                            </svg>
-                                        </div>
-                                        <div>
-                                            <p className="font-semibold text-slate-800">{invoice.numero_factura}</p>
-                                            <p className="text-sm text-slate-500">{invoice.proveedor_nombre}</p>
-                                        </div>
-                                    </div>
-                                    <div className="text-right">
-                                        <p className="font-bold text-slate-900">{formatCurrency(invoice.valor)}</p>
-                                        <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${invoice.estado === 'PAGADA' ? 'bg-emerald-100 text-emerald-700'
-                                            : invoice.estado === 'ASIGNADA' ? 'bg-blue-100 text-blue-700'
-                                                : 'bg-amber-100 text-amber-700'
-                                            }`}>
-                                            {invoice.estado}
-                                        </span>
-                                    </div>
+                            <div className="text-center py-16">
+                                <div className="font-display text-[2rem]" style={{ color: 'var(--ink-mute)' }}>
+                                    —
                                 </div>
-                            ))
+                                <div className="kicker mt-2">Sin facturas registradas</div>
+                            </div>
+                        ) : (
+                            <div className="-mx-2">
+                                {recentInvoices.map((invoice, idx) => (
+                                    <div key={invoice.id}>
+                                        {idx > 0 && <hr className="hr-ledger mx-2" />}
+                                        <div
+                                            className="flex items-center justify-between px-2 py-4 rounded-md transition-colors"
+                                            onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--paper-tinted)')}
+                                            onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                                        >
+                                            <div className="flex items-center gap-4 min-w-0">
+                                                <div
+                                                    className="font-display text-[1.5rem] flex-shrink-0 w-8 text-center"
+                                                    style={{ color: 'var(--ink-mute)', fontVariationSettings: "'SOFT' 100, 'WONK' 1" }}
+                                                >
+                                                    №
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <div className="font-mono text-[13px] font-medium truncate">
+                                                        {invoice.numero_factura}
+                                                    </div>
+                                                    <div className="text-[12px] truncate" style={{ color: 'var(--ink-faint)' }}>
+                                                        {invoice.proveedor_nombre}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div className="text-right flex-shrink-0 ml-4">
+                                                <div className="numeral text-[1.1rem]">
+                                                    {formatCompact(invoice.valor)}
+                                                </div>
+                                                <span
+                                                    className={`tag ${
+                                                        invoice.estado === 'PAGADA' ? 'tag-positive' :
+                                                        invoice.estado === 'ASIGNADA' ? 'tag-accent' :
+                                                        'tag-gold'
+                                                    } mt-1`}
+                                                >
+                                                    {invoice.estado}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
                         )}
                     </div>
                 </div>
-            </div>
+            </section>
 
-            {/* Quick Actions */}
-            <div className="rounded-xl lg:rounded-2xl bg-gradient-to-r from-slate-900 via-indigo-900 to-purple-900 p-4 lg:p-6 xl:p-8 shadow-lg lg:shadow-xl">
-                <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
-                    <div>
-                        <h2 className="text-2xl font-bold text-white">Acciones Rápidas</h2>
-                        <p className="mt-2 text-slate-300">Accede rápidamente a las secciones más utilizadas.</p>
+            {/* ═══════════════════════════════════════════════════════
+                Quick actions — dark editorial banner
+                ═══════════════════════════════════════════════════════ */}
+            <section
+                className="relative overflow-hidden rounded-2xl p-10 lg:p-14"
+                style={{
+                    background: 'linear-gradient(135deg, var(--ink) 0%, #1a2238 60%, #0d2f5e 100%)',
+                    color: 'var(--paper)',
+                }}
+            >
+                {/* Decorative serif glyph */}
+                <div
+                    aria-hidden
+                    className="absolute font-display-wonk select-none pointer-events-none"
+                    style={{
+                        top: '-3rem',
+                        right: '-3rem',
+                        fontSize: '20rem',
+                        lineHeight: 1,
+                        color: 'rgba(255, 255, 255, 0.04)',
+                        fontWeight: 300,
+                    }}
+                >
+                    ƒ
+                </div>
+
+                <div className="relative z-10 flex flex-col lg:flex-row lg:items-end lg:justify-between gap-8">
+                    <div className="max-w-xl">
+                        <div
+                            className="eyebrow mb-4"
+                            style={{ color: 'rgba(255, 255, 255, 0.6)' }}
+                        >
+                            Accesos rápidos
+                        </div>
+                        <h2
+                            className="font-display text-[2.25rem] leading-tight tracking-tight"
+                            style={{ fontVariationSettings: "'SOFT' 30" }}
+                        >
+                            Lo siguiente,
+                            <em
+                                style={{
+                                    fontStyle: 'italic',
+                                    color: 'var(--sidebar-accent)',
+                                    fontVariationSettings: "'SOFT' 100, 'WONK' 1",
+                                }}
+                            >
+                                {' '}al alcance.
+                            </em>
+                        </h2>
                     </div>
                     <div className="flex flex-wrap gap-3">
-                        <a href="/app/facturas" className="inline-flex items-center gap-2 rounded-xl bg-white px-5 py-3 text-sm font-semibold text-slate-900 shadow-lg hover:scale-105 transition-all">
-                            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
-                            Nueva Factura
+                        <a
+                            href="/app/facturas"
+                            className="inline-flex items-center gap-2 px-6 py-3 rounded-md text-[14px] font-medium transition-transform hover:-translate-y-px"
+                            style={{ background: 'var(--paper)', color: 'var(--ink)' }}
+                        >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                            </svg>
+                            Nueva factura
                         </a>
-                        <a href="/app/reportes" className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-5 py-3 text-sm font-semibold text-white hover:bg-white/20 transition-all">
-                            Ver Reportes
+                        <a
+                            href="/app/reportes"
+                            className="inline-flex items-center gap-2 px-6 py-3 rounded-md text-[14px] font-medium transition-colors"
+                            style={{
+                                background: 'rgba(255, 255, 255, 0.08)',
+                                color: 'var(--paper)',
+                                border: '1px solid rgba(255, 255, 255, 0.15)',
+                            }}
+                        >
+                            Ver reportes
                         </a>
-                        <a href="/app/contratos" className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-5 py-3 text-sm font-semibold text-white hover:bg-white/20 transition-all">
+                        <a
+                            href="/app/contratos"
+                            className="inline-flex items-center gap-2 px-6 py-3 rounded-md text-[14px] font-medium transition-colors"
+                            style={{
+                                background: 'rgba(255, 255, 255, 0.08)',
+                                color: 'var(--paper)',
+                                border: '1px solid rgba(255, 255, 255, 0.15)',
+                            }}
+                        >
                             Contratos
                         </a>
                     </div>
                 </div>
-            </div>
+            </section>
         </div>
     );
 }

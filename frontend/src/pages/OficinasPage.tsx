@@ -15,55 +15,44 @@ export default function OficinasPage() {
     const [hasMore, setHasMore] = useState(true);
     const ITEMS_PER_PAGE = 20;
 
-    // Server-side search with debouncing
     const fetchOficinas = useCallback(async (searchQuery: string, pageNum: number) => {
         setLoading(true);
         try {
             const skip = (pageNum - 1) * ITEMS_PER_PAGE;
-            const params: Record<string, string | number> = {
-                skip,
-                limit: ITEMS_PER_PAGE,
-            };
+            const params: Record<string, string | number> = { skip, limit: ITEMS_PER_PAGE };
             if (searchQuery.trim()) params.search = searchQuery.trim();
 
             const data = await apiGet<Oficina[]>('/oficinas/', params);
             setOficinas(data);
             setHasMore(data.length === ITEMS_PER_PAGE);
         } catch (error) {
-            console.error("Failed to fetch offices", error);
+            console.error('Failed to fetch offices', error);
         } finally {
             setLoading(false);
         }
     }, []);
 
-    // Debounced search effect - only when search changes
     useEffect(() => {
         const timer = setTimeout(() => {
-            setPage(1); // Reset to page 1 when search changes
+            setPage(1);
             fetchOficinas(search, 1);
-        }, 300); // Wait 300ms after user stops typing
-
+        }, 300);
         return () => clearTimeout(timer);
-    }, [search]); // Only depend on search, not fetchOficinas
+    }, [search]);
 
-    // Fetch when page changes (but not on initial mount or search change)
     const [isInitialMount, setIsInitialMount] = useState(true);
-
     useEffect(() => {
         if (isInitialMount) {
             setIsInitialMount(false);
             return;
         }
         fetchOficinas(search, page);
-    }, [page]); // Only depend on page
+    }, [page]);
 
     const handleSave = async () => {
         try {
-            if (editingItem) {
-                await apiPut(`/oficinas/${editingItem.id}`, formData);
-            } else {
-                await apiPost('/oficinas/', formData);
-            }
+            if (editingItem) await apiPut(`/oficinas/${editingItem.id}`, formData);
+            else await apiPost('/oficinas/', formData);
             setIsModalOpen(false);
             setEditingItem(null);
             setFormData({});
@@ -105,32 +94,46 @@ export default function OficinasPage() {
     ];
 
     return (
-        <div className="space-y-6">
-            <div className="flex justify-between items-center">
-                <div>
-                    <h1 className="text-3xl font-bold text-gray-900">Oficinas</h1>
-                    <p className="text-gray-500 mt-1">Gestiona las oficinas y puntos de venta.</p>
+        <div className="space-y-8 max-w-[1480px] mx-auto">
+            <div className="anim-fade-up">
+                <div className="eyebrow mb-4">Maestros · Sedes y puntos</div>
+                <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6">
+                    <h1 className="editorial-title text-[3rem] lg:text-[3.5rem]">
+                        Oficinas <em>activas</em>.
+                    </h1>
+                    <button onClick={openNewModal} className="btn-accent">
+                        + Nueva oficina
+                    </button>
                 </div>
-                <button onClick={openNewModal} className="btn-primary">
-                    + Nueva Oficina
-                </button>
             </div>
 
-            {/* Search Bar - Server-side */}
-            <div className="relative">
+            <div className="surface p-4 relative">
                 <input
                     type="text"
-                    placeholder="Buscar por código, nombre, ciudad, zona, dirección... (búsqueda en servidor)"
-                    className="w-full px-4 py-3 pl-11 bg-white border border-gray-200 rounded-xl shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                    placeholder="Buscar por código, nombre, ciudad, zona, dirección…"
+                    className="input-field pl-10"
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                 />
-                <svg className="absolute left-4 top-3.5 h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg
+                    className="absolute left-7 top-7 h-4 w-4"
+                    style={{ color: 'var(--ink-faint)' }}
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                >
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                 </svg>
                 {loading && (
-                    <div className="absolute right-4 top-3.5">
-                        <div className="animate-spin h-5 w-5 border-2 border-blue-500 border-t-transparent rounded-full"></div>
+                    <div className="absolute right-7 top-7">
+                        <div
+                            className="h-4 w-4 rounded-full border-2 border-t-transparent"
+                            style={{
+                                borderColor: 'var(--accent)',
+                                borderTopColor: 'transparent',
+                                animation: 'spin-soft 800ms linear infinite',
+                            }}
+                        />
                     </div>
                 )}
             </div>
@@ -143,24 +146,21 @@ export default function OficinasPage() {
                 onDelete={handleDelete}
             />
 
-            {/* Pagination Controls */}
-            <div className="flex justify-center items-center gap-4 py-4">
+            <div className="flex justify-center items-center gap-4 py-2">
                 <button
-                    onClick={() => setPage(p => Math.max(1, p - 1))}
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
                     disabled={page === 1 || loading}
-                    className="px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                     ← Anterior
                 </button>
-
-                <span className="text-sm text-gray-600">
-                    Página {page}
+                <span className="kicker">
+                    Página <span className="font-mono text-[13px]" style={{ color: 'var(--ink)' }}>{page}</span>
                 </span>
-
                 <button
-                    onClick={() => setPage(p => p + 1)}
+                    onClick={() => setPage((p) => p + 1)}
                     disabled={!hasMore || loading}
-                    className="px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                     Siguiente →
                 </button>
@@ -169,16 +169,16 @@ export default function OficinasPage() {
             <Modal
                 isOpen={isModalOpen}
                 onClose={() => setIsModalOpen(false)}
-                title={editingItem ? 'Editar Oficina' : 'Nueva Oficina'}
+                title={editingItem ? 'Editar oficina' : 'Nueva oficina'}
                 onSubmit={handleSave}
             >
                 <div className="grid grid-cols-2 gap-4">
-                    <FormField label="Código Oficina">
+                    <FormField label="Código oficina">
                         <input
                             className={inputClassName}
                             placeholder="Ej: 177007"
                             value={formData.cod_oficina || ''}
-                            onChange={e => setFormData({ ...formData, cod_oficina: e.target.value })}
+                            onChange={(e) => setFormData({ ...formData, cod_oficina: e.target.value })}
                         />
                     </FormField>
                     <FormField label="Nombre" required>
@@ -186,7 +186,7 @@ export default function OficinasPage() {
                             className={inputClassName}
                             placeholder="Ej: PIAMONTE"
                             value={formData.nombre || ''}
-                            onChange={e => setFormData({ ...formData, nombre: e.target.value })}
+                            onChange={(e) => setFormData({ ...formData, nombre: e.target.value })}
                         />
                     </FormField>
                     <FormField label="Ciudad">
@@ -194,7 +194,7 @@ export default function OficinasPage() {
                             className={inputClassName}
                             placeholder="Ej: POPAYAN"
                             value={formData.ciudad || ''}
-                            onChange={e => setFormData({ ...formData, ciudad: e.target.value })}
+                            onChange={(e) => setFormData({ ...formData, ciudad: e.target.value })}
                         />
                     </FormField>
                     <FormField label="Zona">
@@ -202,7 +202,7 @@ export default function OficinasPage() {
                             className={inputClassName}
                             placeholder="Ej: CENTRO SUR"
                             value={formData.zona || ''}
-                            onChange={e => setFormData({ ...formData, zona: e.target.value })}
+                            onChange={(e) => setFormData({ ...formData, zona: e.target.value })}
                         />
                     </FormField>
                     <div className="col-span-2">
@@ -211,27 +211,27 @@ export default function OficinasPage() {
                                 className={inputClassName}
                                 placeholder="Ej: Barrio Villa los Prados"
                                 value={formData.direccion || ''}
-                                onChange={e => setFormData({ ...formData, direccion: e.target.value })}
+                                onChange={(e) => setFormData({ ...formData, direccion: e.target.value })}
                             />
                         </FormField>
                     </div>
-                    <FormField label="Tipo de Sitio">
+                    <FormField label="Tipo de sitio">
                         <select
                             className={inputClassName}
                             value={formData.tipo_sitio || ''}
-                            onChange={e => setFormData({ ...formData, tipo_sitio: e.target.value })}
+                            onChange={(e) => setFormData({ ...formData, tipo_sitio: e.target.value })}
                         >
-                            <option value="">Seleccionar...</option>
+                            <option value="">Seleccionar…</option>
                             <option value="OFICINA">Oficina</option>
-                            <option value="PUNTO DE VENTA">Punto de Venta</option>
-                            <option value="SEDE ADMINISTRATIVA">Sede Administrativa</option>
+                            <option value="PUNTO DE VENTA">Punto de venta</option>
+                            <option value="SEDE ADMINISTRATIVA">Sede administrativa</option>
                         </select>
                     </FormField>
                     <FormField label="DUDE">
                         <select
                             className={inputClassName}
                             value={formData.dude || ''}
-                            onChange={e => setFormData({ ...formData, dude: e.target.value })}
+                            onChange={(e) => setFormData({ ...formData, dude: e.target.value })}
                         >
                             <option value="">No</option>
                             <option value="si">Sí</option>

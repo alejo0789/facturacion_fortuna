@@ -1,9 +1,6 @@
 /**
  * Plan Único de Cuentas (PUC) — árbol jerárquico de la empresa activa.
- *
- * Consume GET /api/contabilidad/puc y construye el árbol en cliente
- * usando padre_codigo. Soporta búsqueda por código o nombre y filtro
- * por cuentas que permiten movimiento.
+ * Estética "Ledger Modern" — refinada con tipografía editorial.
  */
 import { useEffect, useMemo, useState } from 'react';
 import { apiGet, apiPost, ApiError } from '../utils/apiClient';
@@ -30,14 +27,6 @@ const NIVEL_LABEL: Record<NivelCuenta, string> = {
     CUENTA: 'Cuenta',
     SUBCUENTA: 'Subcuenta',
     AUXILIAR: 'Auxiliar',
-};
-
-const NIVEL_COLOR: Record<NivelCuenta, string> = {
-    CLASE: 'bg-indigo-100 text-indigo-700',
-    GRUPO: 'bg-blue-100 text-blue-700',
-    CUENTA: 'bg-emerald-100 text-emerald-700',
-    SUBCUENTA: 'bg-amber-100 text-amber-700',
-    AUXILIAR: 'bg-slate-100 text-slate-700',
 };
 
 function buildTree(cuentas: CuentaPUC[]): CuentaNode[] {
@@ -89,14 +78,20 @@ function NodoCuenta({ node, depth, defaultExpanded }: NodoProps) {
     return (
         <div>
             <div
-                className="flex items-center gap-2 py-2 px-2 hover:bg-slate-50 rounded-md border-b border-slate-100"
-                style={{ paddingLeft: `${depth * 20 + 8}px` }}
+                className="group flex items-center gap-3 py-2.5 px-3 transition-colors"
+                style={{
+                    paddingLeft: `${depth * 24 + 12}px`,
+                    borderBottom: '1px solid var(--rule-soft)',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--paper-tinted)')}
+                onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
             >
                 <button
                     onClick={() => setExpanded((v) => !v)}
-                    className={`w-5 h-5 flex items-center justify-center rounded text-slate-400 hover:text-slate-700 ${
+                    className={`w-5 h-5 flex items-center justify-center rounded transition-colors ${
                         hasChildren ? '' : 'invisible'
                     }`}
+                    style={{ color: 'var(--ink-faint)' }}
                     aria-label={expanded ? 'Colapsar' : 'Expandir'}
                 >
                     <svg
@@ -108,38 +103,37 @@ function NodoCuenta({ node, depth, defaultExpanded }: NodoProps) {
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                     </svg>
                 </button>
-                <span className="font-mono text-sm font-semibold text-slate-700 min-w-[80px]">
+                <span
+                    className="font-mono text-[12px] font-semibold min-w-[72px]"
+                    style={{ color: depth === 0 ? 'var(--accent)' : 'var(--ink-soft)' }}
+                >
                     {node.codigo}
                 </span>
-                <span className="flex-1 text-sm text-slate-800 truncate">{node.nombre}</span>
                 <span
-                    className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${NIVEL_COLOR[node.nivel]}`}
+                    className={`flex-1 truncate ${depth === 0 ? 'font-display text-[15px]' : 'text-[13.5px]'}`}
+                    style={{
+                        color: 'var(--ink)',
+                        fontVariationSettings: depth === 0 ? "'SOFT' 30" : undefined,
+                    }}
                 >
+                    {node.nombre}
+                </span>
+                <span className="tag tag-accent text-[9px] py-[1px] hidden md:inline-flex">
                     {NIVEL_LABEL[node.nivel]}
                 </span>
                 <span
-                    className={`text-[10px] font-medium px-2 py-0.5 rounded ${
-                        node.naturaleza === 'DEBITO'
-                            ? 'bg-sky-50 text-sky-700'
-                            : 'bg-rose-50 text-rose-700'
+                    className={`tag text-[9px] py-[1px] ${
+                        node.naturaleza === 'DEBITO' ? 'tag-accent' : 'tag-negative'
                     }`}
                 >
                     {node.naturaleza}
                 </span>
                 {node.permite_movimiento ? (
-                    <span className="text-[10px] font-medium px-2 py-0.5 rounded bg-emerald-50 text-emerald-700">
-                        MOV
-                    </span>
+                    <span className="tag tag-positive text-[9px] py-[1px]">MOV</span>
                 ) : (
-                    <span className="text-[10px] font-medium px-2 py-0.5 rounded bg-slate-100 text-slate-500">
-                        —
-                    </span>
+                    <span className="tag text-[9px] py-[1px]" style={{ color: 'var(--ink-mute)' }}>—</span>
                 )}
-                {node.requiere_tercero && (
-                    <span className="text-[10px] font-medium px-2 py-0.5 rounded bg-amber-50 text-amber-700">
-                        NIT
-                    </span>
-                )}
+                {node.requiere_tercero && <span className="tag tag-gold text-[9px] py-[1px]">NIT</span>}
             </div>
             {expanded && hasChildren && (
                 <div>
@@ -213,7 +207,6 @@ export default function PUCPage() {
             setAddingCuenta(null);
             setRequiereTercero(false);
             await cargar();
-            // cerrar el modal después de 800ms para que el usuario vea el feedback
             setTimeout(() => {
                 setShowAddModal(false);
                 setAddSuccess(null);
@@ -233,105 +226,129 @@ export default function PUCPage() {
 
     const totalCuentas = cuentas.length;
     const totalMovimiento = cuentas.filter((c) => c.permite_movimiento).length;
+    const filtradas = arbolFiltrado.reduce(function count(sum, n): number {
+        return sum + 1 + n.hijos.reduce(count, 0);
+    }, 0);
 
     return (
-        <div className="space-y-6">
-            <div>
-                <h1 className="text-3xl font-bold text-gray-900">Plan Único de Cuentas</h1>
-                <p className="text-gray-500 mt-1">
-                    Árbol del PUC de la empresa activa según Decreto 2649.
-                </p>
+        <div className="space-y-8 max-w-[1480px] mx-auto">
+            {/* Masthead */}
+            <div className="anim-fade-up">
+                <div className="eyebrow mb-4">Plan Único de Cuentas · Decreto 2650</div>
+                <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6">
+                    <h1 className="editorial-title text-[3rem] lg:text-[3.5rem]">
+                        Catálogo <em>contable</em>.
+                    </h1>
+                    <p className="text-[14px] max-w-md" style={{ color: 'var(--ink-soft)' }}>
+                        Árbol jerárquico de cuentas de la empresa activa. Añade nuevas cuentas
+                        desde el catálogo oficial — los padres se siembran en cascada.
+                    </p>
+                </div>
             </div>
 
-            <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col md:flex-row md:items-center gap-3">
+            {/* Toolbar */}
+            <div className="surface p-4 flex flex-col md:flex-row md:items-center gap-3">
                 <div className="relative flex-1">
                     <input
                         type="text"
-                        placeholder="Buscar por código o nombre..."
-                        className="w-full px-4 py-2.5 pl-10 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+                        placeholder="Buscar por código o nombre…"
+                        className="input-field pl-10 text-[14px]"
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
                     />
                     <svg
-                        className="absolute left-3 top-3 h-5 w-5 text-gray-400"
+                        className="absolute left-3 top-3 h-4 w-4"
+                        style={{ color: 'var(--ink-faint)' }}
                         fill="none"
                         stroke="currentColor"
                         viewBox="0 0 24 24"
                     >
-                        <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                        />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                     </svg>
                 </div>
-                <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none">
+                <label className="flex items-center gap-2 text-[13px] cursor-pointer select-none whitespace-nowrap" style={{ color: 'var(--ink-soft)' }}>
                     <input
                         type="checkbox"
                         checked={soloMovimiento}
                         onChange={(e) => setSoloMovimiento(e.target.checked)}
-                        className="h-4 w-4 text-indigo-600 rounded border-gray-300"
+                        className="h-4 w-4 rounded"
+                        style={{ accentColor: 'var(--accent)' }}
                     />
-                    Sólo cuentas de movimiento
+                    Sólo movimiento
                 </label>
                 <button
                     onClick={() => setExpandAll((v) => !v)}
-                    className="px-4 py-2 text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors"
+                    className="btn-secondary text-[13px]"
                 >
-                    {expandAll ? 'Colapsar todo' : 'Expandir todo'}
+                    {expandAll ? 'Colapsar' : 'Expandir'}
                 </button>
-                <button
-                    onClick={cargar}
-                    className="px-4 py-2 text-sm bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg transition-colors"
-                >
+                <button onClick={cargar} className="btn-ghost text-[13px]">
                     Recargar
                 </button>
                 <button
                     onClick={() => setShowAddModal(true)}
-                    className="px-4 py-2 text-sm bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors font-medium"
+                    className="btn-accent text-[13px]"
                 >
                     + Añadir cuenta
                 </button>
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
-                    <div className="text-xs text-gray-500">Total cuentas</div>
-                    <div className="text-2xl font-bold text-slate-800">{totalCuentas}</div>
-                </div>
-                <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
-                    <div className="text-xs text-gray-500">Permiten movimiento</div>
-                    <div className="text-2xl font-bold text-emerald-600">{totalMovimiento}</div>
-                </div>
-                <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
-                    <div className="text-xs text-gray-500">Clases raíz</div>
-                    <div className="text-2xl font-bold text-indigo-600">{arbol.length}</div>
-                </div>
-                <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
-                    <div className="text-xs text-gray-500">Filtrados</div>
-                    <div className="text-2xl font-bold text-slate-800">
-                        {arbolFiltrado.reduce(function count(sum, n): number {
-                            return sum + 1 + n.hijos.reduce(count, 0);
-                        }, 0)}
+            {/* Stats — editorial KPIs */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 anim-stagger">
+                {[
+                    { label: 'Total cuentas', value: totalCuentas, tone: 'var(--ink)' },
+                    { label: 'Permiten mov.', value: totalMovimiento, tone: 'var(--positive)' },
+                    { label: 'Clases raíz', value: arbol.length, tone: 'var(--accent)' },
+                    { label: 'Resultados filtro', value: filtradas, tone: 'var(--ink-soft)' },
+                ].map((k) => (
+                    <div key={k.label} className="surface p-5">
+                        <div className="kicker mb-2">{k.label}</div>
+                        <div className="numeral text-[2.4rem] leading-none" style={{ color: k.tone }}>
+                            {k.value}
+                        </div>
                     </div>
-                </div>
+                ))}
             </div>
 
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+            {/* Árbol */}
+            <div className="surface-raised overflow-hidden">
+                <div
+                    className="px-6 py-4 flex items-baseline justify-between"
+                    style={{ borderBottom: '1px solid var(--rule)', background: 'var(--paper-tinted)' }}
+                >
+                    <div>
+                        <div className="kicker-accent">Árbol</div>
+                        <h2 className="font-display text-[1.2rem] tracking-tight mt-1">
+                            Jerarquía Decreto 2650
+                        </h2>
+                    </div>
+                </div>
                 {loading ? (
-                    <div className="p-10 text-center">
-                        <div className="inline-block animate-spin h-8 w-8 border-4 border-indigo-500 border-t-transparent rounded-full" />
-                        <div className="mt-2 text-gray-500">Cargando PUC...</div>
+                    <div className="p-16 text-center">
+                        <div
+                            className="h-10 w-10 mx-auto rounded-full border-2 border-t-transparent"
+                            style={{
+                                borderColor: 'var(--accent)',
+                                borderTopColor: 'transparent',
+                                animation: 'spin-soft 800ms linear infinite',
+                            }}
+                        />
+                        <div className="kicker mt-4">Cargando catálogo</div>
                     </div>
                 ) : error ? (
-                    <div className="p-10 text-center text-rose-600">{error}</div>
+                    <div className="p-10 text-center" style={{ color: 'var(--negative)' }}>{error}</div>
                 ) : arbolFiltrado.length === 0 ? (
-                    <div className="p-10 text-center text-gray-500 italic">
-                        No hay cuentas que coincidan con los filtros.
+                    <div className="p-16 text-center">
+                        <div
+                            className="font-display text-[3rem]"
+                            style={{ color: 'var(--ink-mute)', fontVariationSettings: "'SOFT' 100, 'WONK' 1" }}
+                        >
+                            —
+                        </div>
+                        <div className="kicker mt-2">Sin coincidencias</div>
                     </div>
                 ) : (
-                    <div className="py-2">
+                    <div>
                         {arbolFiltrado.map((n) => (
                             <NodoCuenta
                                 key={`${n.codigo}-${expandAll}`}
@@ -344,43 +361,45 @@ export default function PUCPage() {
                 )}
             </div>
 
-            {/* ========================================================== */}
-            {/* Modal: añadir cuenta desde el catálogo Decreto 2650        */}
-            {/* ========================================================== */}
+            {/* Modal — añadir cuenta */}
             {showAddModal && (
                 <div
-                    className="fixed inset-0 z-40 bg-black/50 flex items-center justify-center p-4"
+                    className="fixed inset-0 z-40 flex items-center justify-center p-4 anim-fade-in"
+                    style={{ background: 'rgba(11, 15, 25, 0.55)', backdropFilter: 'blur(4px)' }}
                     onClick={() => !adding && setShowAddModal(false)}
                 >
                     <div
-                        className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl p-6 max-h-[90vh] overflow-y-auto"
+                        className="surface-raised w-full max-w-2xl p-7 max-h-[90vh] overflow-y-auto anim-fade-up"
                         onClick={(e) => e.stopPropagation()}
                     >
-                        <div className="flex items-start justify-between mb-4">
+                        <div className="flex items-start justify-between mb-6">
                             <div>
-                                <h2 className="text-xl font-bold text-slate-900">
-                                    Añadir cuenta desde el catálogo
+                                <div className="kicker-accent mb-2">Catálogo Decreto 2650</div>
+                                <h2 className="font-display text-[1.6rem] tracking-tight">
+                                    Añadir cuenta al PUC
                                 </h2>
-                                <p className="text-sm text-gray-500 mt-1">
-                                    Catálogo oficial Decreto 2650 (Colombia). Buscá por código o
-                                    nombre y elegí la cuenta a sumar a tu PUC. Los padres faltantes
+                                <p className="text-[13px] mt-2" style={{ color: 'var(--ink-faint)' }}>
+                                    Catálogo oficial. Busca por código o nombre. Los padres faltantes
                                     se siembran automáticamente.
                                 </p>
                             </div>
                             <button
                                 onClick={() => !adding && setShowAddModal(false)}
-                                className="text-gray-400 hover:text-gray-600 text-2xl leading-none"
+                                className="text-2xl leading-none transition-colors"
+                                style={{ color: 'var(--ink-mute)' }}
+                                onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--ink)')}
+                                onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--ink-mute)')}
                                 disabled={adding}
                             >
                                 ×
                             </button>
                         </div>
 
-                        <div className="space-y-4">
+                        <hr className="hr-ledger mb-6" />
+
+                        <div className="space-y-5">
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">
-                                    Buscar cuenta
-                                </label>
+                                <label className="kicker block mb-2">Buscar cuenta</label>
                                 <Autocomplete<CuentaCatalogo>
                                     fetcher={fetchCatalogo}
                                     onSelect={setAddingCuenta}
@@ -390,19 +409,14 @@ export default function PUCPage() {
                                     minChars={1}
                                     renderOption={(opt, hi) => (
                                         <div className="flex items-center gap-2">
-                                            <span className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded text-slate-700">
+                                            <span
+                                                className="font-mono text-[11px] px-1.5 py-0.5 rounded"
+                                                style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}
+                                            >
                                                 {opt.codigo}
                                             </span>
-                                            <span className={hi ? 'font-medium' : ''}>
-                                                {opt.nombre}
-                                            </span>
-                                            <span
-                                                className={`ml-auto text-[10px] px-1.5 py-0.5 rounded ${
-                                                    opt.naturaleza === 'DEBITO'
-                                                        ? 'bg-sky-100 text-sky-700'
-                                                        : 'bg-rose-100 text-rose-700'
-                                                }`}
-                                            >
+                                            <span className={hi ? 'font-medium' : ''}>{opt.nombre}</span>
+                                            <span className={`ml-auto tag text-[9px] ${opt.naturaleza === 'DEBITO' ? 'tag-accent' : 'tag-negative'}`}>
                                                 {opt.naturaleza}
                                             </span>
                                         </div>
@@ -411,74 +425,94 @@ export default function PUCPage() {
                             </div>
 
                             {addingCuenta && (
-                                <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 space-y-2">
-                                    <div className="text-xs uppercase tracking-wide text-emerald-700 font-semibold">
+                                <div
+                                    className="rounded-lg p-5 space-y-3 anim-fade-up"
+                                    style={{
+                                        background: 'var(--positive-soft)',
+                                        border: '1px solid var(--positive)',
+                                    }}
+                                >
+                                    <div className="kicker-accent" style={{ color: 'var(--positive)' }}>
                                         Cuenta seleccionada
                                     </div>
                                     <div className="flex items-baseline gap-3">
-                                        <span className="font-mono text-lg font-bold text-slate-900">
+                                        <span className="font-mono text-[1.1rem] font-semibold">
                                             {addingCuenta.codigo}
                                         </span>
-                                        <span className="text-slate-700">
+                                        <span className="font-display text-[1.1rem]" style={{ fontVariationSettings: "'SOFT' 30" }}>
                                             {addingCuenta.nombre}
                                         </span>
                                     </div>
-                                    <div className="flex gap-2 text-xs">
-                                        <span className="px-2 py-0.5 rounded bg-white border border-emerald-200">
-                                            Clase {addingCuenta.clase}
+                                    <div className="flex flex-wrap gap-2">
+                                        <span className="tag">Clase {addingCuenta.clase}</span>
+                                        <span className={`tag ${addingCuenta.naturaleza === 'DEBITO' ? 'tag-accent' : 'tag-negative'}`}>
+                                            {addingCuenta.naturaleza}
                                         </span>
-                                        <span className="px-2 py-0.5 rounded bg-white border border-emerald-200">
-                                            Naturaleza {addingCuenta.naturaleza}
-                                        </span>
-                                        <span className="px-2 py-0.5 rounded bg-white border border-emerald-200">
-                                            {addingCuenta.permite_movimiento
-                                                ? 'Permite movimiento'
-                                                : 'Solo agrupadora'}
+                                        <span className="tag">
+                                            {addingCuenta.permite_movimiento ? 'Permite movimiento' : 'Solo agrupadora'}
                                         </span>
                                     </div>
                                     {addingCuenta.permite_movimiento && (
-                                        <label className="flex items-center gap-2 mt-3 text-sm text-slate-700">
+                                        <label className="flex items-start gap-2 mt-3 text-[13px]" style={{ color: 'var(--ink-soft)' }}>
                                             <input
                                                 type="checkbox"
                                                 checked={requiereTercero}
-                                                onChange={(e) =>
-                                                    setRequiereTercero(e.target.checked)
-                                                }
-                                                className="h-4 w-4"
+                                                onChange={(e) => setRequiereTercero(e.target.checked)}
+                                                className="h-4 w-4 mt-0.5"
+                                                style={{ accentColor: 'var(--accent)' }}
                                             />
-                                            Requiere NIT de tercero al usarse en asientos (típico
-                                            de 22xx Proveedores, 13xx Clientes, 23xx CxP, 236x
-                                            Retenciones)
+                                            <span>
+                                                Requiere NIT al usarse en asientos
+                                                <span className="block text-[11px] mt-0.5" style={{ color: 'var(--ink-faint)' }}>
+                                                    Típico de 22xx Proveedores, 13xx Clientes, 23xx CxP, 236x Retenciones
+                                                </span>
+                                            </span>
                                         </label>
                                     )}
                                 </div>
                             )}
 
                             {addError && (
-                                <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
+                                <div
+                                    className="rounded-lg px-4 py-3 text-[13px]"
+                                    style={{
+                                        background: 'var(--negative-soft)',
+                                        border: '1px solid var(--negative)',
+                                        color: 'var(--negative)',
+                                    }}
+                                >
                                     {addError}
                                 </div>
                             )}
                             {addSuccess && (
-                                <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                                <div
+                                    className="rounded-lg px-4 py-3 text-[13px]"
+                                    style={{
+                                        background: 'var(--positive-soft)',
+                                        border: '1px solid var(--positive)',
+                                        color: 'var(--positive)',
+                                    }}
+                                >
                                     ✓ {addSuccess}
                                 </div>
                             )}
 
-                            <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
+                            <hr className="hr-ledger" />
+
+                            <div className="flex justify-end gap-2">
                                 <button
                                     onClick={() => { setShowAddModal(false); setAddError(null); setAddSuccess(null); }}
                                     disabled={adding}
-                                    className="px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg disabled:opacity-50"
+                                    className="btn-ghost disabled:opacity-50"
                                 >
                                     Cancelar
                                 </button>
                                 <button
                                     onClick={agregarCuenta}
                                     disabled={!addingCuenta || adding}
-                                    className="px-4 py-2 text-sm bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                                    className="btn-accent disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
-                                    {adding ? 'Añadiendo...' : 'Añadir al PUC'}
+                                    {adding ? 'Añadiendo…' : 'Añadir al PUC'}
                                 </button>
                             </div>
                         </div>

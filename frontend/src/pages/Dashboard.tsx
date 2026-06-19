@@ -7,10 +7,6 @@ import { apiFetch } from '../utils/apiClient';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
-/**
- * Drop-in replacement de window.fetch para este archivo.
- * Convierte `${API_URL}/x` -> apiFetch('/x') que inyecta auth desde authStorage.
- */
 const authFetch = (url: string, options?: RequestInit): Promise<Response> => {
     const endpoint = url.startsWith(API_URL) ? url.slice(API_URL.length) : url;
     return apiFetch(endpoint, options as never);
@@ -26,7 +22,6 @@ export default function Dashboard() {
     const [hasMore, setHasMore] = useState(true);
     const ITEMS_PER_PAGE = 20;
 
-    // Server-side search with debouncing
     const fetchContratos = useCallback(async (searchQuery: string, pageNum: number) => {
         setLoading(true);
         try {
@@ -35,10 +30,7 @@ export default function Dashboard() {
                 skip: skip.toString(),
                 limit: ITEMS_PER_PAGE.toString(),
             });
-
-            if (searchQuery.trim()) {
-                params.append('search', searchQuery.trim());
-            }
+            if (searchQuery.trim()) params.append('search', searchQuery.trim());
 
             const res = await authFetch(`${API_URL}/contratos/?${params}`);
             if (res.ok) {
@@ -47,40 +39,35 @@ export default function Dashboard() {
                 setHasMore(data.length === ITEMS_PER_PAGE);
             }
         } catch (error) {
-            console.error("Failed to fetch contracts", error);
+            console.error('Failed to fetch contracts', error);
         } finally {
             setLoading(false);
         }
     }, []);
 
-    // Debounced search effect - only when search changes
     useEffect(() => {
         const timer = setTimeout(() => {
-            setPage(1); // Reset to page 1 when search changes
+            setPage(1);
             fetchContratos(search, 1);
-        }, 300); // Wait 300ms after user stops typing
-
+        }, 300);
         return () => clearTimeout(timer);
-    }, [search]); // Only depend on search, not fetchContratos
+    }, [search]);
 
-    // Fetch when page changes (but not on initial mount or search change)
     const [isInitialMount, setIsInitialMount] = useState(true);
-
     useEffect(() => {
         if (isInitialMount) {
             setIsInitialMount(false);
             return;
         }
         fetchContratos(search, page);
-    }, [page]); // Only depend on page
+    }, [page]);
 
-    // Toggle contract status
     const toggleStatus = async (contract: Contrato) => {
         const newStatus = contract.estado === 'ACTIVO' ? 'CANCELADO' : 'ACTIVO';
         await authFetch(`${API_URL}/contratos/${contract.id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...contract, estado: newStatus, proveedor: undefined, oficina: undefined })
+            body: JSON.stringify({ ...contract, estado: newStatus, proveedor: undefined, oficina: undefined }),
         });
         fetchContratos(search, page);
     };
@@ -101,7 +88,6 @@ export default function Dashboard() {
 
     const handleDelete = async (contract: Contrato) => {
         if (!confirm(`¿Está seguro de eliminar el contrato ${contract.num_contrato || contract.id}?\n\nEsta acción no se puede deshacer.`)) return;
-
         try {
             const res = await authFetch(`${API_URL}/contratos/${contract.id}`, { method: 'DELETE' });
             if (res.ok) {
@@ -111,39 +97,66 @@ export default function Dashboard() {
                 alert(error.detail || 'Error al eliminar el contrato');
             }
         } catch (error) {
-            console.error("Failed to delete contract", error);
+            console.error('Failed to delete contract', error);
             alert('Error de conexión al eliminar el contrato');
         }
     };
 
+    const estadoTag = (estado: string | undefined) => {
+        if (estado === 'ACTIVO') return 'tag-positive';
+        if (estado === 'EN TRAMITE') return 'tag-gold';
+        return 'tag-negative';
+    };
+
+    const tipoColor = (tipo: string | undefined): string => {
+        if (tipo === 'FIJO') return 'var(--accent)';
+        if (tipo === 'MOVIL') return 'var(--gold)';
+        if (tipo === 'COLABORACION') return 'var(--positive)';
+        if (tipo === 'LEASING') return 'var(--negative)';
+        return 'var(--ink-faint)';
+    };
+
     return (
-        <div className="space-y-6">
-            {/* Header */}
-            <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-                <div>
-                    <h1 className="text-3xl font-bold text-gray-900">Contratos</h1>
-                    <p className="text-gray-500 mt-1">Gestiona los contratos de servicios.</p>
+        <div className="space-y-8 max-w-[1480px] mx-auto">
+            <div className="anim-fade-up">
+                <div className="eyebrow mb-4">Operación · Acuerdos contractuales</div>
+                <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6">
+                    <h1 className="editorial-title text-[3rem] lg:text-[3.5rem]">
+                        Contratos <em>vigentes</em>.
+                    </h1>
+                    <button onClick={openNewModal} className="btn-accent">
+                        + Nuevo contrato
+                    </button>
                 </div>
-                <button onClick={openNewModal} className="btn-primary whitespace-nowrap">
-                    + Nuevo Contrato
-                </button>
             </div>
 
-            {/* Search Bar */}
-            <div className="relative">
+            <div className="surface p-4 relative">
                 <input
                     type="text"
-                    placeholder="Buscar por proveedor, oficina, ciudad, NIT, contrato... (búsqueda en servidor)"
-                    className="w-full px-4 py-3 pl-11 bg-white border border-gray-200 rounded-xl shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                    placeholder="Buscar por proveedor, oficina, ciudad, NIT, contrato…"
+                    className="input-field pl-10"
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                 />
-                <svg className="absolute left-4 top-3.5 h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg
+                    className="absolute left-7 top-7 h-4 w-4"
+                    style={{ color: 'var(--ink-faint)' }}
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                >
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                 </svg>
                 {loading && (
-                    <div className="absolute right-4 top-3.5">
-                        <div className="animate-spin h-5 w-5 border-2 border-blue-500 border-t-transparent rounded-full"></div>
+                    <div className="absolute right-7 top-7">
+                        <div
+                            className="h-4 w-4 rounded-full border-2 border-t-transparent"
+                            style={{
+                                borderColor: 'var(--accent)',
+                                borderTopColor: 'transparent',
+                                animation: 'spin-soft 800ms linear infinite',
+                            }}
+                        />
                     </div>
                 )}
             </div>
@@ -155,128 +168,132 @@ export default function Dashboard() {
                 contract={editingContract}
             />
 
-            {/* Contracts List */}
+            {/* Lista */}
             <div className="space-y-4">
                 {contratos.length === 0 && !loading ? (
-                    <div className="text-center py-10 text-gray-500 bg-white rounded-xl shadow-sm border border-gray-100">
-                        No se encontraron contratos.
+                    <div className="surface p-16 text-center">
+                        <div
+                            className="font-display text-[3rem]"
+                            style={{ color: 'var(--ink-mute)', fontVariationSettings: "'SOFT' 100, 'WONK' 1" }}
+                        >
+                            —
+                        </div>
+                        <div className="kicker mt-2">Sin contratos registrados</div>
                     </div>
                 ) : (
-                    contratos.map((c) => (
-                        <div
-                            key={c.id}
-                            className={`card hover:shadow-xl transition-shadow duration-300 border-l-4 ${c.estado === 'ACTIVO' ? 'border-green-500' : c.estado === 'EN TRAMITE' ? 'border-yellow-500' : 'border-red-400'
-                                }`}
-                        >
-                            <div className="flex flex-col md:flex-row justify-between gap-4">
-                                {/* Provider Info */}
-                                <div className="flex-1">
-                                    <h3 className="text-xl font-bold text-gray-800">{c.proveedor?.nombre || 'Sin Proveedor'}</h3>
-                                    <div className="text-sm text-gray-500 font-medium">NIT: {c.proveedor?.nit || '-'}</div>
-                                    <div className="mt-2 text-sm text-gray-600">
-                                        <span className="font-semibold text-gray-700">Oficina:</span> {c.oficina?.nombre || '-'} ({c.oficina?.ciudad || '-'})
-                                    </div>
-                                </div>
-
-                                {/* Contract Info */}
-                                <div className="flex-1 border-l border-gray-100 md:pl-6">
-                                    <div className="grid grid-cols-3 gap-2 text-sm">
-                                        <div>
-                                            <span className="block text-gray-400 text-xs uppercase">Contrato #</span>
-                                            <span className="font-mono text-gray-700">{c.num_contrato || '-'}</span>
+                    contratos.map((c) => {
+                        const borderColor = c.estado === 'ACTIVO' ? 'var(--positive)' :
+                            c.estado === 'EN TRAMITE' ? 'var(--gold)' : 'var(--negative)';
+                        return (
+                            <div
+                                key={c.id}
+                                className="surface p-6 transition-all hover:-translate-y-px"
+                                style={{ borderLeft: `3px solid ${borderColor}` }}
+                            >
+                                <div className="grid lg:grid-cols-12 gap-6">
+                                    {/* Proveedor */}
+                                    <div className="lg:col-span-4">
+                                        <div className="kicker mb-1">Proveedor</div>
+                                        <h3 className="font-display text-[1.3rem] tracking-tight" style={{ fontVariationSettings: "'SOFT' 30" }}>
+                                            {c.proveedor?.nombre || 'Sin proveedor'}
+                                        </h3>
+                                        <div className="font-mono text-[11px] mt-1" style={{ color: 'var(--accent)' }}>
+                                            NIT {c.proveedor?.nit || '—'}
                                         </div>
-                                        <div>
-                                            <span className="block text-gray-400 text-xs uppercase">Estado</span>
-                                            <button
-                                                onClick={() => toggleStatus(c)}
-                                                className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium cursor-pointer transition-all hover:scale-105 ${c.estado === 'ACTIVO'
-                                                    ? 'bg-green-100 text-green-800 hover:bg-green-200'
-                                                    : c.estado === 'EN TRAMITE'
-                                                        ? 'bg-yellow-100 text-yellow-800 hover:bg-yellow-200'
-                                                        : 'bg-red-100 text-red-800 hover:bg-red-200'
-                                                    }`}
-                                            >
-                                                {c.estado || 'Unknown'}
-                                                <span className="ml-1 text-xs opacity-60">↔</span>
-                                            </button>
-                                        </div>
-                                        <div>
-                                            <span className="block text-gray-400 text-xs uppercase">Tipo</span>
-                                            <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${c.tipo === 'FIJO' ? 'bg-blue-100 text-blue-800' :
-                                                c.tipo === 'MOVIL' ? 'bg-purple-100 text-purple-800' :
-                                                    c.tipo === 'COLABORACION' ? 'bg-yellow-100 text-yellow-800' :
-                                                        c.tipo === 'LEASING' ? 'bg-orange-100 text-orange-800' :
-                                                            'bg-gray-100 text-gray-600'
-                                                }`}>
-                                                {c.tipo || '-'}
-                                            </span>
-                                        </div>
-                                        <div>
-                                            <span className="block text-gray-400 text-xs uppercase">Plan</span>
-                                            <span className="text-gray-700">{c.tipo_plan || '-'}</span>
-                                        </div>
-                                        <div>
-                                            <span className="block text-gray-400 text-xs uppercase">Valor Mensual</span>
-                                            <span className="text-lg font-bold text-gray-900">
-                                                {formatCOP(c.valor_mensual)}
-                                            </span>
+                                        <div className="text-[12px] mt-3" style={{ color: 'var(--ink-soft)' }}>
+                                            <span className="kicker mr-2">Oficina</span>
+                                            {c.oficina?.nombre || '—'}{c.oficina?.ciudad && ` · ${c.oficina.ciudad}`}
                                         </div>
                                     </div>
-                                </div>
 
-                                {/* Actions */}
-                                <div className="flex flex-col justify-center gap-2 md:w-32">
-                                    <button
-                                        onClick={() => openEditModal(c)}
-                                        className="btn-secondary text-sm"
-                                    >
-                                        Editar
-                                    </button>
-                                    <button
-                                        onClick={() => handleDelete(c)}
-                                        className="flex items-center justify-center gap-1 px-3 py-2 text-sm bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors"
-                                    >
-                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                        </svg>
-                                        Eliminar
-                                    </button>
-                                    {c.archivo_contrato && (
-                                        <button
-                                            onClick={() => window.open(`${API_URL}/contratos/${c.id}/pdf`, '_blank')}
-                                            className="flex items-center justify-center gap-1 px-3 py-2 text-sm bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors"
-                                        >
-                                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                                                <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clipRule="evenodd" />
-                                            </svg>
-                                            Ver PDF
+                                    {/* Datos */}
+                                    <div className="lg:col-span-6 lg:border-l lg:pl-6" style={{ borderColor: 'var(--rule)' }}>
+                                        <div className="grid grid-cols-3 gap-4">
+                                            <div>
+                                                <div className="kicker mb-1">Contrato</div>
+                                                <div className="font-mono text-[13px]">{c.num_contrato || '—'}</div>
+                                            </div>
+                                            <div>
+                                                <div className="kicker mb-1">Estado</div>
+                                                <button
+                                                    onClick={() => toggleStatus(c)}
+                                                    className={`tag ${estadoTag(c.estado)} hover:opacity-80 cursor-pointer`}
+                                                >
+                                                    {c.estado || '—'} ↔
+                                                </button>
+                                            </div>
+                                            <div>
+                                                <div className="kicker mb-1">Tipo</div>
+                                                <span
+                                                    className="tag"
+                                                    style={{
+                                                        color: tipoColor(c.tipo),
+                                                        borderColor: tipoColor(c.tipo),
+                                                    }}
+                                                >
+                                                    {c.tipo || '—'}
+                                                </span>
+                                            </div>
+                                            <div>
+                                                <div className="kicker mb-1">Plan</div>
+                                                <div className="text-[13px]" style={{ color: 'var(--ink-soft)' }}>
+                                                    {c.tipo_plan || '—'}
+                                                </div>
+                                            </div>
+                                            <div className="col-span-2">
+                                                <div className="kicker mb-1">Valor mensual</div>
+                                                <div className="numeral text-[1.4rem] leading-none">
+                                                    {formatCOP(c.valor_mensual)}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Acciones */}
+                                    <div className="lg:col-span-2 flex flex-col justify-center gap-2">
+                                        <button onClick={() => openEditModal(c)} className="btn-secondary text-[12px]">
+                                            Editar
                                         </button>
-                                    )}
+                                        <button
+                                            onClick={() => handleDelete(c)}
+                                            className="btn-ghost text-[12px]"
+                                            style={{ color: 'var(--negative)' }}
+                                        >
+                                            Eliminar
+                                        </button>
+                                        {c.archivo_contrato && (
+                                            <button
+                                                onClick={() => window.open(`${API_URL}/contratos/${c.id}/pdf`, '_blank')}
+                                                className="btn-ghost text-[12px]"
+                                                style={{ color: 'var(--accent)' }}
+                                            >
+                                                Ver PDF
+                                            </button>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                    ))
+                        );
+                    })
                 )}
             </div>
 
-            {/* Pagination Controls */}
-            <div className="flex justify-center items-center gap-4 py-4">
+            {/* Paginación */}
+            <div className="flex justify-center items-center gap-4 py-2">
                 <button
-                    onClick={() => setPage(p => Math.max(1, p - 1))}
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
                     disabled={page === 1 || loading}
-                    className="px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                     ← Anterior
                 </button>
-
-                <span className="text-sm text-gray-600">
-                    Página {page}
+                <span className="kicker">
+                    Página <span className="font-mono text-[13px]" style={{ color: 'var(--ink)' }}>{page}</span>
                 </span>
-
                 <button
-                    onClick={() => setPage(p => p + 1)}
+                    onClick={() => setPage((p) => p + 1)}
                     disabled={!hasMore || loading}
-                    className="px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                     Siguiente →
                 </button>

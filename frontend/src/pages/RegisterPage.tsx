@@ -1,18 +1,13 @@
 /**
- * Wizard de registro self-service.
- *
- *  Paso 1: Datos de la Firma (nombre + NIT)
- *  Paso 2: Primer usuario ADMIN (email + nombre + password)
- *  Paso 3: Primera Empresa (opcional: nombre + NIT)
- *
- * Al terminar: POST /api/auth/register → crea Firma + Usuario + Empresa
- * + rol ADMIN en un solo request, devuelve JWT y redirige al dashboard.
+ * Wizard de registro self-service — Ledger Modern.
  */
 import { useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 
 type Step = 1 | 2 | 3;
+
+const ROMANS = ['', 'I', 'II', 'III'];
 
 export default function RegisterPage() {
     const { register } = useAuth();
@@ -22,17 +17,14 @@ export default function RegisterPage() {
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    // Paso 1 — Firma
     const [firmaNombre, setFirmaNombre] = useState('');
     const [firmaNit, setFirmaNit] = useState('');
 
-    // Paso 2 — Usuario admin
     const [nombre, setNombre] = useState('');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [passwordConfirm, setPasswordConfirm] = useState('');
 
-    // Paso 3 — Empresa (opcional)
     const [crearEmpresa, setCrearEmpresa] = useState(true);
     const [empresaNombre, setEmpresaNombre] = useState('');
     const [empresaNit, setEmpresaNit] = useState('');
@@ -90,75 +82,126 @@ export default function RegisterPage() {
     };
 
     const stepTitles = ['Tu firma', 'Tu usuario', 'Tu primera empresa'];
+    const stepDescs = [
+        'Registra la firma o empresa principal que usará el sistema.',
+        'Será la cuenta administradora principal con acceso completo.',
+        'Puedes registrar la primera empresa cliente ahora o hacerlo después.',
+    ];
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-100 via-indigo-50 to-purple-50 p-6">
-            <div className="w-full max-w-lg">
-                <div className="flex items-center justify-center gap-3 mb-6">
-                    <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg">
-                        <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                        </svg>
+        <div className="min-h-screen flex relative overflow-hidden" style={{ background: 'var(--canvas)' }}>
+            {/* Decorative watermark */}
+            <div
+                aria-hidden
+                className="absolute font-display-wonk select-none pointer-events-none"
+                style={{
+                    top: '12rem',
+                    right: '-6rem',
+                    fontSize: '34rem',
+                    lineHeight: 1,
+                    color: 'var(--rule-strong)',
+                    opacity: 0.16,
+                    fontWeight: 300,
+                }}
+            >
+                ƒ
+            </div>
+
+            <div className="w-full max-w-2xl mx-auto px-6 py-10 relative z-10 anim-fade-up">
+                {/* Brand */}
+                <Link to="/" className="flex items-center justify-center gap-3 mb-10">
+                    <div
+                        className="w-10 h-10 rounded-md flex items-center justify-center font-display-wonk text-2xl"
+                        style={{ background: 'var(--ink)', color: 'var(--paper)' }}
+                    >
+                        ƒ
                     </div>
                     <div>
-                        <h1 className="text-xl font-bold text-slate-800">Facturación SaaS</h1>
-                        <p className="text-xs text-slate-500">Registra tu empresa</p>
+                        <div className="font-display text-[15px] leading-none">Facturación SaaS</div>
+                        <div className="kicker mt-1">Registra tu empresa</div>
                     </div>
-                </div>
+                </Link>
 
-                <div className="bg-white rounded-2xl shadow-xl border border-slate-200 p-8">
-                    {/* Steps indicator */}
-                    <div className="flex items-center justify-between mb-8">
-                        {[1, 2, 3].map((s) => (
-                            <div key={s} className="flex-1 flex items-center">
-                                <div
-                                    className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-semibold transition ${step >= s
-                                            ? 'bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow'
-                                            : 'bg-slate-200 text-slate-500'
-                                        }`}
-                                >
-                                    {s}
+                <div className="ledger paper-grain p-8 lg:p-10">
+                    {/* Step indicator — editorial roman numerals */}
+                    <div className="flex items-center justify-between mb-10">
+                        {[1, 2, 3].map((s) => {
+                            const active = step >= s;
+                            const current = step === s;
+                            return (
+                                <div key={s} className="flex-1 flex items-center">
+                                    <div className="flex flex-col items-center">
+                                        <div
+                                            className="font-display-wonk text-[1.6rem] leading-none transition-colors"
+                                            style={{
+                                                color: active ? 'var(--accent)' : 'var(--ink-mute)',
+                                                opacity: current ? 1 : (active ? 0.8 : 0.5),
+                                            }}
+                                        >
+                                            {ROMANS[s]}
+                                        </div>
+                                        <div
+                                            className="mt-2 text-[10px] font-semibold uppercase tracking-[0.18em]"
+                                            style={{ color: current ? 'var(--accent)' : 'var(--ink-faint)' }}
+                                        >
+                                            {stepTitles[s - 1]}
+                                        </div>
+                                    </div>
+                                    {s < 3 && (
+                                        <div
+                                            className="flex-1 h-px mx-3 mt-[-1.25rem] transition-colors"
+                                            style={{ background: step > s ? 'var(--accent)' : 'var(--rule)' }}
+                                        />
+                                    )}
                                 </div>
-                                {s < 3 && <div className={`flex-1 h-0.5 mx-2 ${step > s ? 'bg-indigo-500' : 'bg-slate-200'}`} />}
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
 
-                    <h2 className="text-xl font-bold text-slate-800 mb-1">
-                        Paso {step} de 3: {stepTitles[step - 1]}
-                    </h2>
-                    <p className="text-sm text-slate-500 mb-6">
-                        {step === 1 && 'Registra la firma (empresa principal o firma contable que usará el sistema).'}
-                        {step === 2 && 'Será la cuenta administradora principal con acceso completo.'}
-                        {step === 3 && 'Puedes registrar tu primera empresa cliente ahora o saltarlo y hacerlo después.'}
+                    <div className="eyebrow mb-3">Paso {step} de 3</div>
+                    <h2 className="editorial-title text-[2rem] mb-2">{stepTitles[step - 1]}.</h2>
+                    <p className="text-[13px] mb-6" style={{ color: 'var(--ink-soft)' }}>
+                        {stepDescs[step - 1]}
                     </p>
 
+                    <hr className="hr-ledger mb-6" />
+
                     {error && (
-                        <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700">
+                        <div
+                            className="mb-5 px-4 py-3 rounded-md text-[13px]"
+                            style={{
+                                background: 'var(--negative-soft)',
+                                border: '1px solid var(--negative)',
+                                color: 'var(--negative)',
+                            }}
+                        >
+                            <div className="kicker-accent mb-1" style={{ color: 'var(--negative)' }}>
+                                Verifica
+                            </div>
                             {error}
                         </div>
                     )}
 
-                    <form onSubmit={handleSubmit} className="space-y-4">
+                    <form onSubmit={handleSubmit} className="space-y-5">
                         {step === 1 && (
                             <>
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">Nombre de la firma</label>
+                                    <label className="kicker block mb-2">Nombre de la firma</label>
                                     <input
                                         type="text"
                                         value={firmaNombre}
                                         onChange={(e) => setFirmaNombre(e.target.value)}
-                                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                        className="input-field"
                                         placeholder="Ej: Firma Contable XYZ S.A.S."
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">NIT de la firma</label>
+                                    <label className="kicker block mb-2">NIT de la firma</label>
                                     <input
                                         type="text"
                                         value={firmaNit}
                                         onChange={(e) => setFirmaNit(e.target.value)}
-                                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                        className="input-field font-mono"
                                         placeholder="900123456-7"
                                     />
                                 </div>
@@ -168,125 +211,154 @@ export default function RegisterPage() {
                         {step === 2 && (
                             <>
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">Tu nombre</label>
+                                    <label className="kicker block mb-2">Tu nombre</label>
                                     <input
                                         type="text"
                                         value={nombre}
                                         onChange={(e) => setNombre(e.target.value)}
-                                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                        className="input-field"
                                         placeholder="Juan Pérez"
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
+                                    <label className="kicker block mb-2">Correo electrónico</label>
                                     <input
                                         type="email"
                                         value={email}
                                         onChange={(e) => setEmail(e.target.value)}
                                         autoComplete="email"
-                                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                        className="input-field"
                                         placeholder="juan@empresa.com"
                                     />
                                 </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">Contraseña</label>
-                                    <input
-                                        type="password"
-                                        value={password}
-                                        onChange={(e) => setPassword(e.target.value)}
-                                        autoComplete="new-password"
-                                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                        placeholder="Mínimo 8 caracteres"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">Confirmar contraseña</label>
-                                    <input
-                                        type="password"
-                                        value={passwordConfirm}
-                                        onChange={(e) => setPasswordConfirm(e.target.value)}
-                                        autoComplete="new-password"
-                                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                    />
+                                <div className="grid md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="kicker block mb-2">Contraseña</label>
+                                        <input
+                                            type="password"
+                                            value={password}
+                                            onChange={(e) => setPassword(e.target.value)}
+                                            autoComplete="new-password"
+                                            className="input-field"
+                                            placeholder="Mínimo 8 caracteres"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="kicker block mb-2">Confirmar</label>
+                                        <input
+                                            type="password"
+                                            value={passwordConfirm}
+                                            onChange={(e) => setPasswordConfirm(e.target.value)}
+                                            autoComplete="new-password"
+                                            className="input-field"
+                                            placeholder="Repite la contraseña"
+                                        />
+                                    </div>
                                 </div>
                             </>
                         )}
 
                         {step === 3 && (
                             <>
-                                <label className="flex items-center gap-2 text-sm text-slate-700 mb-2">
+                                <label
+                                    className="flex items-start gap-3 p-4 rounded-md cursor-pointer transition-colors"
+                                    style={{
+                                        background: crearEmpresa ? 'var(--accent-soft)' : 'var(--paper-tinted)',
+                                        border: `1px solid ${crearEmpresa ? 'var(--accent)' : 'var(--rule)'}`,
+                                    }}
+                                >
                                     <input
                                         type="checkbox"
                                         checked={crearEmpresa}
                                         onChange={(e) => setCrearEmpresa(e.target.checked)}
+                                        className="h-4 w-4 mt-0.5"
+                                        style={{ accentColor: 'var(--accent)' }}
                                     />
-                                    Crear mi primera empresa ahora
+                                    <span>
+                                        <span className="text-[14px] font-medium" style={{ color: 'var(--ink)' }}>
+                                            Crear mi primera empresa ahora
+                                        </span>
+                                        <span className="block text-[12px] mt-0.5" style={{ color: 'var(--ink-faint)' }}>
+                                            Recomendado. Si lo prefieres, puedes hacerlo después desde el panel.
+                                        </span>
+                                    </span>
                                 </label>
                                 {crearEmpresa && (
                                     <>
                                         <div>
-                                            <label className="block text-sm font-medium text-slate-700 mb-1">Nombre de la empresa</label>
+                                            <label className="kicker block mb-2">Nombre de la empresa</label>
                                             <input
                                                 type="text"
                                                 value={empresaNombre}
                                                 onChange={(e) => setEmpresaNombre(e.target.value)}
-                                                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                                className="input-field"
                                                 placeholder="Mi Empresa S.A.S."
                                             />
                                         </div>
                                         <div>
-                                            <label className="block text-sm font-medium text-slate-700 mb-1">NIT de la empresa</label>
+                                            <label className="kicker block mb-2">NIT de la empresa</label>
                                             <input
                                                 type="text"
                                                 value={empresaNit}
                                                 onChange={(e) => setEmpresaNit(e.target.value)}
-                                                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                                className="input-field font-mono"
                                                 placeholder="900987654-3"
                                             />
                                         </div>
                                     </>
                                 )}
                                 {!crearEmpresa && (
-                                    <p className="text-sm text-slate-500 italic">
-                                        Podrás crear empresas luego desde el menú "Empresas".
-                                    </p>
+                                    <div
+                                        className="p-4 rounded-md text-[13px] italic"
+                                        style={{
+                                            background: 'var(--paper-tinted)',
+                                            border: '1px solid var(--rule-soft)',
+                                            color: 'var(--ink-faint)',
+                                        }}
+                                    >
+                                        Podrás crear empresas más adelante desde el panel "Empresas".
+                                    </div>
                                 )}
                             </>
                         )}
 
-                        <div className="flex items-center justify-between pt-4">
+                        <hr className="hr-ledger" />
+
+                        <div className="flex items-center justify-between">
                             <button
                                 type="button"
                                 onClick={prev}
                                 disabled={step === 1}
-                                className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+                                className="btn-ghost disabled:opacity-40"
                             >
                                 ← Atrás
                             </button>
                             {step < 3 ? (
-                                <button
-                                    type="button"
-                                    onClick={handleNext}
-                                    className="px-5 py-2 rounded-lg bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-medium shadow hover:opacity-95"
-                                >
-                                    Siguiente →
+                                <button type="button" onClick={handleNext} className="btn-accent">
+                                    Siguiente
+                                    <span style={{ fontFamily: 'var(--font-display)', fontStyle: 'italic' }}>→</span>
                                 </button>
                             ) : (
-                                <button
-                                    type="submit"
-                                    disabled={submitting}
-                                    className="px-5 py-2 rounded-lg bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-medium shadow hover:opacity-95 disabled:opacity-60"
-                                >
+                                <button type="submit" disabled={submitting} className="btn-primary disabled:opacity-60">
                                     {submitting ? 'Creando…' : 'Crear cuenta'}
+                                    {!submitting && (
+                                        <span style={{ fontFamily: 'var(--font-display)', fontStyle: 'italic' }}>→</span>
+                                    )}
                                 </button>
                             )}
                         </div>
                     </form>
+                </div>
 
-                    <div className="mt-6 text-center text-sm text-slate-600">
-                        ¿Ya tienes cuenta?{' '}
-                        <Link to="/login" className="text-indigo-600 hover:underline font-medium">Inicia sesión</Link>
-                    </div>
+                <div className="text-center mt-6 text-[13px]" style={{ color: 'var(--ink-soft)' }}>
+                    ¿Ya tienes cuenta?{' '}
+                    <Link
+                        to="/login"
+                        className="font-medium transition-colors"
+                        style={{ color: 'var(--accent)' }}
+                    >
+                        Inicia sesión
+                    </Link>
                 </div>
             </div>
         </div>

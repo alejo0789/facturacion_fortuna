@@ -523,64 +523,92 @@ export default function PagosPage() {
     // ── Render ────────────────────────────────────────────────────────────────
 
     return (
-        <div style={{ minHeight: '100vh', background: '#f0f4f8', padding: '0' }}>
+        <div style={{ minHeight: '100vh', background: 'var(--canvas)', padding: '0' }}>
 
-            {/* ── Header ── */}
-            <div style={{
-                background: 'linear-gradient(135deg, #1e3a5f 0%, #2563eb 60%, #1d4ed8 100%)',
-                padding: '28px 32px 24px',
-                position: 'relative',
-                overflow: 'hidden',
-            }}>
-                {/* Decorative circles */}
-                <div style={{
-                    position: 'absolute', top: -40, right: -40,
-                    width: 200, height: 200, borderRadius: '50%',
-                    background: 'rgba(255,255,255,0.05)',
-                }} />
-                <div style={{
-                    position: 'absolute', bottom: -60, right: 120,
-                    width: 150, height: 150, borderRadius: '50%',
-                    background: 'rgba(255,255,255,0.04)',
-                }} />
+            {/* ── Header — Ledger Modern editorial ── */}
+            <div
+                className="relative overflow-hidden anim-fade-up"
+                style={{
+                    background: 'linear-gradient(135deg, var(--ink) 0%, #1a2238 60%, var(--accent-deep) 100%)',
+                    padding: '36px 32px 32px',
+                    color: 'var(--paper)',
+                }}
+            >
+                {/* Oversized decorative ƒ */}
+                <div
+                    aria-hidden
+                    className="absolute font-display-wonk select-none pointer-events-none"
+                    style={{
+                        top: '-4rem',
+                        right: '-2rem',
+                        fontSize: '20rem',
+                        lineHeight: 1,
+                        color: 'rgba(255, 255, 255, 0.04)',
+                        fontWeight: 300,
+                    }}
+                >
+                    ƒ
+                </div>
 
                 <div style={{ position: 'relative', zIndex: 1 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
-                        <div style={{
-                            width: 42, height: 42, borderRadius: 12,
-                            background: 'rgba(255,255,255,0.15)',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            fontSize: 22,
-                        }}>💳</div>
-                        <div>
-                            <h1 style={{ margin: 0, fontSize: 24, fontWeight: 700, color: '#fff' }}>
-                                Módulo de Pagos
-                            </h1>
-                            <p style={{ margin: 0, fontSize: 13, color: 'rgba(255,255,255,0.72)' }}>
-                                Facturas enviadas a Manager · Programación de pagos
-                            </p>
-                        </div>
+                    <div className="eyebrow mb-3" style={{ color: 'rgba(255,255,255,0.6)' }}>
+                        Operación · Tesorería
                     </div>
+                    <h1
+                        className="font-display tracking-tight"
+                        style={{
+                            margin: 0,
+                            fontSize: 'clamp(2.5rem, 5vw, 3.5rem)',
+                            color: 'var(--paper)',
+                            fontVariationSettings: "'SOFT' 30",
+                            lineHeight: 1.05,
+                        }}
+                    >
+                        Pagos a <em style={{ fontStyle: 'italic', color: 'var(--sidebar-accent)', fontVariationSettings: "'SOFT' 100, 'WONK' 1" }}>proveedores</em>.
+                    </h1>
+                    <p style={{ margin: '10px 0 0', fontSize: 13, color: 'rgba(255,255,255,0.6)' }}>
+                        Facturas enviadas a Manager · Programación de pagos
+                    </p>
 
                     {/* Stats row */}
-                    <div style={{ display: 'flex', gap: 16, marginTop: 18, flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', gap: 12, marginTop: 24, flexWrap: 'wrap' }}>
                         {[
-                            { label: 'En Trámite', value: facturas.length, icon: '🔄' },
-                            { label: 'Seleccionadas', value: selectedIds.size, icon: '✅' },
-                            { label: 'Valor Seleccionado', value: formatCOP(totalValor), icon: '💰', wide: true },
-                        ].map(stat => (
-                            <div key={stat.label} style={{
-                                background: 'rgba(255,255,255,0.12)',
-                                backdropFilter: 'blur(10px)',
-                                borderRadius: 12,
-                                padding: '10px 18px',
-                                border: '1px solid rgba(255,255,255,0.2)',
-                                minWidth: stat.wide ? 180 : 120,
-                            }}>
-                                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)', fontWeight: 500, letterSpacing: 0.5 }}>
-                                    {stat.icon} {stat.label.toUpperCase()}
+                            { label: 'En trámite', value: facturas.length },
+                            { label: 'Seleccionadas', value: selectedIds.size },
+                            { label: 'Valor seleccionado', value: formatCOP(totalValor), wide: true },
+                        ].map((stat) => (
+                            <div
+                                key={stat.label}
+                                style={{
+                                    background: 'rgba(255,255,255,0.06)',
+                                    border: '1px solid rgba(255,255,255,0.12)',
+                                    borderRadius: 10,
+                                    padding: '12px 18px',
+                                    minWidth: stat.wide ? 220 : 140,
+                                }}
+                            >
+                                <div
+                                    style={{
+                                        fontSize: 10,
+                                        color: 'rgba(255,255,255,0.5)',
+                                        fontWeight: 600,
+                                        letterSpacing: '0.18em',
+                                        textTransform: 'uppercase',
+                                    }}
+                                >
+                                    {stat.label}
                                 </div>
-                                <div style={{ fontSize: 18, fontWeight: 700, color: '#fff', marginTop: 2 }}>
+                                <div
+                                    className="font-display"
+                                    style={{
+                                        fontSize: 24,
+                                        fontWeight: 400,
+                                        color: 'var(--paper)',
+                                        marginTop: 4,
+                                        letterSpacing: '-0.02em',
+                                        fontVariationSettings: "'SOFT' 30",
+                                    }}
+                                >
                                     {stat.value}
                                 </div>
                             </div>

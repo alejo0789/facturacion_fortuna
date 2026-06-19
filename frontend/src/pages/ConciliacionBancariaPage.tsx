@@ -1,11 +1,8 @@
 /**
- * Conciliación Bancaria — flujo completo.
- *
+ * Conciliación Bancaria — flujo completo:
  *   1. Subir extracto (CSV/XLSX de Bancolombia o Davivienda)
  *   2. Analizar (scoring) → produce SUGERIDO / CONCILIADO automáticos
  *   3. Aprobar/rechazar sugerencias manualmente
- *
- * Consume el router /api/bancario.
  */
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { apiGet, apiPost, apiFetch, ApiError } from '../utils/apiClient';
@@ -52,10 +49,10 @@ interface Sugerencia {
     detalle_match: string;
 }
 
-const BADGE: Record<Transaccion['estado_conciliacion'], string> = {
-    NO_CONCILIADO: 'bg-slate-100 text-slate-600',
-    SUGERIDO: 'bg-amber-100 text-amber-700',
-    CONCILIADO: 'bg-emerald-100 text-emerald-700',
+const TAG: Record<Transaccion['estado_conciliacion'], string> = {
+    NO_CONCILIADO: 'tag',
+    SUGERIDO: 'tag-gold',
+    CONCILIADO: 'tag-positive',
 };
 
 export default function ConciliacionBancariaPage() {
@@ -185,26 +182,57 @@ export default function ConciliacionBancariaPage() {
     };
 
     return (
-        <div className="max-w-7xl mx-auto space-y-6">
-            <div>
-                <h1 className="text-2xl font-bold text-slate-900">Conciliación Bancaria</h1>
-                <p className="text-sm text-slate-500 mt-1">
-                    Sube el extracto del banco (CSV/XLSX — Bancolombia o Davivienda) y el motor sugiere
-                    correspondencias con el libro mayor. Score ≥ 100 se concilia automáticamente; entre
-                    70 y 99 queda como sugerencia para aprobación manual.
-                </p>
+        <div className="max-w-[1480px] mx-auto space-y-8">
+            <div className="anim-fade-up">
+                <div className="eyebrow mb-4">Bancario · Importación + scoring</div>
+                <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6">
+                    <h1 className="editorial-title text-[3rem] lg:text-[3.5rem]">
+                        Conciliación <em>bancaria</em>.
+                    </h1>
+                    <p className="text-[13px] max-w-md" style={{ color: 'var(--ink-soft)' }}>
+                        Sube el extracto (CSV/XLSX — Bancolombia o Davivienda) y el motor sugiere
+                        correspondencias con el libro mayor. Score ≥ 100 concilia automáticamente;
+                        70–99 queda como sugerencia para aprobación manual.
+                    </p>
+                </div>
             </div>
 
-            {error && <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-rose-800 text-sm">{error}</div>}
-            {info && <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-emerald-800 text-sm">{info}</div>}
+            {error && (
+                <div
+                    className="px-5 py-4 rounded-lg text-[13px]"
+                    style={{
+                        background: 'var(--negative-soft)',
+                        border: '1px solid var(--negative)',
+                        color: 'var(--negative)',
+                    }}
+                >
+                    {error}
+                </div>
+            )}
+            {info && (
+                <div
+                    className="px-5 py-4 rounded-lg text-[13px]"
+                    style={{
+                        background: 'var(--positive-soft)',
+                        border: '1px solid var(--positive)',
+                        color: 'var(--positive)',
+                    }}
+                >
+                    ✓ {info}
+                </div>
+            )}
 
             {/* Selector + Upload */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <div className="bg-white rounded-xl border shadow-sm p-5">
-                    <h2 className="font-semibold text-slate-900 mb-3">Cuenta bancaria</h2>
-                    <select value={cuentaId ?? ''} onChange={(e) => setCuentaId(Number(e.target.value) || null)}
-                        className="w-full px-3 py-2 border rounded-lg text-sm">
-                        <option value="">Seleccionar...</option>
+                <div className="surface p-5">
+                    <div className="kicker-accent mb-1">Paso 1</div>
+                    <h2 className="font-display text-[1.3rem] tracking-tight mb-4">Cuenta bancaria</h2>
+                    <select
+                        value={cuentaId ?? ''}
+                        onChange={(e) => setCuentaId(Number(e.target.value) || null)}
+                        className="input-field"
+                    >
+                        <option value="">Seleccionar…</option>
                         {cuentas.map((c) => (
                             <option key={c.id} value={c.id}>
                                 {c.banco} — {c.numero_cuenta} (PUC {c.cuenta_puc_codigo})
@@ -212,146 +240,216 @@ export default function ConciliacionBancariaPage() {
                         ))}
                     </select>
                     {cuentas.length === 0 && (
-                        <p className="mt-3 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
-                            No tienes cuentas bancarias configuradas. Ve a <span className="font-mono">/app/cuentas-bancarias</span> primero.
-                        </p>
+                        <div
+                            className="mt-3 p-3 rounded-md text-[13px]"
+                            style={{ background: 'var(--gold-soft)', border: '1px solid var(--gold)', color: '#7a5e29' }}
+                        >
+                            No tienes cuentas bancarias configuradas. Ve a{' '}
+                            <span className="font-mono" style={{ color: 'var(--accent)' }}>/app/cuentas-bancarias</span>{' '}primero.
+                        </div>
                     )}
                 </div>
 
-                <form onSubmit={subirExtracto} className="bg-white rounded-xl border shadow-sm p-5">
-                    <h2 className="font-semibold text-slate-900 mb-3">Subir extracto</h2>
-                    <input type="file" accept=".csv,.xlsx,.xls" onChange={(e) => setArchivo(e.target.files?.[0] ?? null)}
-                        className="w-full text-sm mb-3" />
-                    <button type="submit" disabled={!cuentaId || !archivo || uploading}
-                        className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
-                        {uploading ? 'Subiendo...' : 'Subir e importar'}
+                <form onSubmit={subirExtracto} className="surface p-5">
+                    <div className="kicker-accent mb-1">Paso 2</div>
+                    <h2 className="font-display text-[1.3rem] tracking-tight mb-4">Subir extracto</h2>
+                    <input
+                        type="file"
+                        accept=".csv,.xlsx,.xls"
+                        onChange={(e) => setArchivo(e.target.files?.[0] ?? null)}
+                        className="block w-full text-[13px] mb-4"
+                        style={{ color: 'var(--ink-soft)' }}
+                    />
+                    <button type="submit" disabled={!cuentaId || !archivo || uploading} className="btn-accent disabled:opacity-50">
+                        {uploading ? 'Subiendo…' : 'Subir e importar'}
                     </button>
                 </form>
             </div>
 
             {/* Extractos */}
-            <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
-                <div className="px-5 py-3 border-b bg-slate-50 flex items-center justify-between">
-                    <h2 className="font-semibold text-slate-900">Extractos importados</h2>
+            <div className="surface-raised overflow-hidden">
+                <div
+                    className="px-6 py-4 flex items-baseline justify-between"
+                    style={{ borderBottom: '1px solid var(--rule)', background: 'var(--paper-tinted)' }}
+                >
+                    <div>
+                        <div className="kicker-accent">Paso 3</div>
+                        <h2 className="font-display text-[1.2rem] tracking-tight mt-1">Extractos importados</h2>
+                    </div>
                     {extractoSel && (
-                        <button onClick={analizar} disabled={analizando}
-                            className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-700 disabled:opacity-50">
-                            {analizando ? 'Analizando...' : 'Analizar extracto seleccionado'}
+                        <button onClick={analizar} disabled={analizando} className="btn-accent text-[12px] disabled:opacity-50">
+                            {analizando ? 'Analizando…' : 'Analizar extracto'}
                         </button>
                     )}
                 </div>
                 <div className="overflow-x-auto">
-                <table className="min-w-full text-sm">
-                    <thead className="bg-slate-50 border-b">
-                        <tr>
-                            <th className="px-4 py-2 text-left">#</th>
-                            <th className="px-4 py-2 text-left">Archivo</th>
-                            <th className="px-4 py-2 text-left">Rango</th>
-                            <th className="px-4 py-2 text-right">Transacciones</th>
-                            <th className="px-4 py-2 text-right">Conciliadas</th>
-                            <th className="px-4 py-2 text-left">Estado</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {extractos.length === 0 && (
-                            <tr><td colSpan={6} className="p-6 text-center text-slate-400">Sin extractos.</td></tr>
-                        )}
-                        {extractos.map((e) => (
-                            <tr key={e.id} onClick={() => setExtractoSel(e.id)}
-                                className={`border-b last:border-0 cursor-pointer hover:bg-slate-50 ${extractoSel === e.id ? 'bg-blue-50' : ''}`}>
-                                <td className="px-4 py-2 font-mono text-xs">{e.id}</td>
-                                <td className="px-4 py-2 truncate max-w-[260px]">{e.archivo_origen ?? '—'}</td>
-                                <td className="px-4 py-2 text-xs text-slate-600">{e.fecha_inicio} → {e.fecha_fin}</td>
-                                <td className="px-4 py-2 text-right">{e.total_transacciones}</td>
-                                <td className="px-4 py-2 text-right font-medium text-emerald-700">{e.conciliadas}</td>
-                                <td className="px-4 py-2 text-xs">{e.estado}</td>
+                    <table className="min-w-full text-[14px]">
+                        <thead style={{ background: 'var(--paper-tinted)' }}>
+                            <tr>
+                                <th className="kicker px-5 py-3 text-left" style={{ background: 'var(--paper-tinted)' }}>#</th>
+                                <th className="kicker px-5 py-3 text-left" style={{ background: 'var(--paper-tinted)' }}>Archivo</th>
+                                <th className="kicker px-5 py-3 text-left" style={{ background: 'var(--paper-tinted)' }}>Rango</th>
+                                <th className="kicker px-5 py-3 text-right" style={{ background: 'var(--paper-tinted)' }}>Transacciones</th>
+                                <th className="kicker px-5 py-3 text-right" style={{ background: 'var(--paper-tinted)' }}>Conciliadas</th>
+                                <th className="kicker px-5 py-3 text-left" style={{ background: 'var(--paper-tinted)' }}>Estado</th>
                             </tr>
-                        ))}
-                    </tbody>
-                </table>
+                        </thead>
+                        <tbody>
+                            {extractos.length === 0 && (
+                                <tr>
+                                    <td colSpan={6} className="p-16 text-center">
+                                        <div
+                                            className="font-display text-[2.5rem]"
+                                            style={{ color: 'var(--ink-mute)', fontVariationSettings: "'SOFT' 100, 'WONK' 1" }}
+                                        >
+                                            —
+                                        </div>
+                                        <div className="kicker mt-2">Sin extractos importados</div>
+                                    </td>
+                                </tr>
+                            )}
+                            {extractos.map((e, idx) => (
+                                <tr
+                                    key={e.id}
+                                    onClick={() => setExtractoSel(e.id)}
+                                    style={{
+                                        borderTop: idx > 0 ? '1px solid var(--rule-soft)' : 'none',
+                                        background: extractoSel === e.id ? 'var(--accent-soft)' : 'transparent',
+                                        cursor: 'pointer',
+                                    }}
+                                    onMouseEnter={(ev) => {
+                                        if (extractoSel !== e.id) ev.currentTarget.style.background = 'var(--paper-tinted)';
+                                    }}
+                                    onMouseLeave={(ev) => {
+                                        if (extractoSel !== e.id) ev.currentTarget.style.background = 'transparent';
+                                    }}
+                                >
+                                    <td className="px-5 py-3 font-mono text-[12px]" style={{ color: 'var(--accent)' }}>{e.id}</td>
+                                    <td className="px-5 py-3 truncate max-w-[260px]">{e.archivo_origen ?? '—'}</td>
+                                    <td className="px-5 py-3 font-mono text-[11px]" style={{ color: 'var(--ink-soft)' }}>
+                                        {e.fecha_inicio} → {e.fecha_fin}
+                                    </td>
+                                    <td className="px-5 py-3 text-right font-mono text-[13px]">{e.total_transacciones}</td>
+                                    <td className="px-5 py-3 text-right font-mono text-[13px]" style={{ color: 'var(--positive)' }}>
+                                        {e.conciliadas}
+                                    </td>
+                                    <td className="px-5 py-3"><span className="tag">{e.estado}</span></td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
                 </div>
             </div>
 
             {/* Sugerencias */}
             {sugerencias.length > 0 && (
-                <div className="bg-white rounded-xl border-2 border-amber-300 shadow-sm overflow-hidden">
-                    <div className="px-5 py-3 border-b bg-amber-50">
-                        <h2 className="font-semibold text-amber-900">Sugerencias pendientes ({sugerencias.length})</h2>
+                <div
+                    className="surface-raised overflow-hidden"
+                    style={{ borderColor: 'var(--gold)', borderWidth: '2px' }}
+                >
+                    <div className="px-5 py-3" style={{ background: 'var(--gold-soft)', borderBottom: '1px solid var(--gold)' }}>
+                        <div className="kicker-accent" style={{ color: 'var(--gold)' }}>Acción requerida</div>
+                        <h2 className="font-display text-[1.2rem] tracking-tight mt-1">
+                            Sugerencias pendientes ({sugerencias.length})
+                        </h2>
                     </div>
                     <div className="overflow-x-auto">
-                    <table className="min-w-full text-sm">
-                        <thead className="bg-slate-50 border-b">
-                            <tr>
-                                <th className="px-4 py-2 text-left">Transacción</th>
-                                <th className="px-4 py-2 text-left">Asiento</th>
-                                <th className="px-4 py-2 text-right">Score</th>
-                                <th className="px-4 py-2 text-left">Match</th>
-                                <th className="px-4 py-2 text-right">Acciones</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {sugerencias.map((s) => (
-                                <tr key={`${s.transaccion_id}-${s.linea_asiento_id}`} className="border-b last:border-0">
-                                    <td className="px-4 py-2 font-mono text-xs">#{s.transaccion_id}</td>
-                                    <td className="px-4 py-2">
-                                        <div className="text-xs">#{s.asiento_numero} · {s.fecha_linea}</div>
-                                        <div className="text-xs text-slate-500 truncate max-w-[300px]">{s.descripcion_linea ?? ''}</div>
-                                    </td>
-                                    <td className="px-4 py-2 text-right font-bold">{s.score}</td>
-                                    <td className="px-4 py-2 text-xs text-slate-600">{s.detalle_match}</td>
-                                    <td className="px-4 py-2 text-right space-x-2">
-                                        <button onClick={() => aprobar(s)}
-                                            className="px-2 py-1 text-xs rounded bg-emerald-600 text-white hover:bg-emerald-700">
-                                            Aprobar
-                                        </button>
-                                        <button onClick={() => rechazar(s)}
-                                            className="px-2 py-1 text-xs rounded bg-rose-50 text-rose-700 hover:bg-rose-100">
-                                            Rechazar
-                                        </button>
-                                    </td>
+                        <table className="min-w-full text-[14px]">
+                            <thead style={{ background: 'var(--paper-tinted)' }}>
+                                <tr>
+                                    <th className="kicker px-5 py-3 text-left" style={{ background: 'var(--paper-tinted)' }}>Transacción</th>
+                                    <th className="kicker px-5 py-3 text-left" style={{ background: 'var(--paper-tinted)' }}>Asiento</th>
+                                    <th className="kicker px-5 py-3 text-right" style={{ background: 'var(--paper-tinted)' }}>Score</th>
+                                    <th className="kicker px-5 py-3 text-left" style={{ background: 'var(--paper-tinted)' }}>Match</th>
+                                    <th className="kicker px-5 py-3 text-right" style={{ background: 'var(--paper-tinted)' }}>Acciones</th>
                                 </tr>
-                            ))}
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody>
+                                {sugerencias.map((s, idx) => (
+                                    <tr
+                                        key={`${s.transaccion_id}-${s.linea_asiento_id}`}
+                                        style={{ borderTop: idx > 0 ? '1px solid var(--rule-soft)' : 'none' }}
+                                    >
+                                        <td className="px-5 py-3 font-mono text-[12px]" style={{ color: 'var(--accent)' }}>#{s.transaccion_id}</td>
+                                        <td className="px-5 py-3">
+                                            <div className="text-[12px] font-mono">#{s.asiento_numero} · {s.fecha_linea}</div>
+                                            <div className="text-[11px] truncate max-w-[300px]" style={{ color: 'var(--ink-faint)' }}>
+                                                {s.descripcion_linea ?? ''}
+                                            </div>
+                                        </td>
+                                        <td className="px-5 py-3 text-right">
+                                            <span className="numeral text-[1.2rem]" style={{ color: 'var(--gold)' }}>{s.score}</span>
+                                        </td>
+                                        <td className="px-5 py-3 text-[12px]" style={{ color: 'var(--ink-soft)' }}>{s.detalle_match}</td>
+                                        <td className="px-5 py-3 text-right space-x-2">
+                                            <button onClick={() => aprobar(s)} className="btn-accent text-[11px] py-1.5">
+                                                Aprobar
+                                            </button>
+                                            <button
+                                                onClick={() => rechazar(s)}
+                                                className="btn-secondary text-[11px] py-1.5"
+                                                style={{ color: 'var(--negative)' }}
+                                            >
+                                                Rechazar
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             )}
 
             {/* Detalle transacciones */}
             {transacciones.length > 0 && (
-                <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
-                    <div className="px-5 py-3 border-b bg-slate-50">
-                        <h2 className="font-semibold text-slate-900">Transacciones del extracto #{extractoSel}</h2>
+                <div className="surface-raised overflow-hidden">
+                    <div
+                        className="px-5 py-4"
+                        style={{ borderBottom: '1px solid var(--rule)', background: 'var(--paper-tinted)' }}
+                    >
+                        <div className="kicker-accent">Detalle</div>
+                        <h2 className="font-display text-[1.2rem] tracking-tight mt-1">
+                            Transacciones del extracto #{extractoSel}
+                        </h2>
                     </div>
                     <div className="overflow-x-auto">
-                    <table className="min-w-full text-sm">
-                        <thead className="bg-slate-50 border-b">
-                            <tr>
-                                <th className="px-4 py-2 text-left">Fecha</th>
-                                <th className="px-4 py-2 text-left">Descripción</th>
-                                <th className="px-4 py-2 text-left">Ref.</th>
-                                <th className="px-4 py-2 text-right">Monto</th>
-                                <th className="px-4 py-2 text-center">Tipo</th>
-                                <th className="px-4 py-2 text-left">Estado</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {transacciones.map((t) => (
-                                <tr key={t.id} className="border-b last:border-0 hover:bg-slate-50">
-                                    <td className="px-4 py-2 text-xs font-mono">{t.fecha}</td>
-                                    <td className="px-4 py-2 truncate max-w-[360px]">{t.descripcion}</td>
-                                    <td className="px-4 py-2 text-xs text-slate-500">{t.referencia ?? '—'}</td>
-                                    <td className="px-4 py-2 text-right font-mono">{formatCOP(t.monto)}</td>
-                                    <td className="px-4 py-2 text-center text-xs">{t.naturaleza}</td>
-                                    <td className="px-4 py-2">
-                                        <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${BADGE[t.estado_conciliacion]}`}>
-                                            {t.estado_conciliacion}
-                                        </span>
-                                    </td>
+                        <table className="min-w-full text-[14px]">
+                            <thead style={{ background: 'var(--paper-tinted)' }}>
+                                <tr>
+                                    <th className="kicker px-5 py-3 text-left" style={{ background: 'var(--paper-tinted)' }}>Fecha</th>
+                                    <th className="kicker px-5 py-3 text-left" style={{ background: 'var(--paper-tinted)' }}>Descripción</th>
+                                    <th className="kicker px-5 py-3 text-left" style={{ background: 'var(--paper-tinted)' }}>Ref.</th>
+                                    <th className="kicker px-5 py-3 text-right" style={{ background: 'var(--paper-tinted)' }}>Monto</th>
+                                    <th className="kicker px-5 py-3 text-center" style={{ background: 'var(--paper-tinted)' }}>Tipo</th>
+                                    <th className="kicker px-5 py-3 text-left" style={{ background: 'var(--paper-tinted)' }}>Estado</th>
                                 </tr>
-                            ))}
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody>
+                                {transacciones.map((t, idx) => (
+                                    <tr
+                                        key={t.id}
+                                        style={{ borderTop: idx > 0 ? '1px solid var(--rule-soft)' : 'none' }}
+                                        className="transition-colors"
+                                        onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--paper-tinted)')}
+                                        onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                                    >
+                                        <td className="px-5 py-3 font-mono text-[12px]" style={{ color: 'var(--ink-soft)' }}>{t.fecha}</td>
+                                        <td className="px-5 py-3 truncate max-w-[360px]">{t.descripcion}</td>
+                                        <td className="px-5 py-3 text-[12px] font-mono" style={{ color: 'var(--ink-faint)' }}>
+                                            {t.referencia ?? '—'}
+                                        </td>
+                                        <td className="px-5 py-3 text-right font-mono">{formatCOP(t.monto)}</td>
+                                        <td className="px-5 py-3 text-center">
+                                            <span className="kicker">{t.naturaleza}</span>
+                                        </td>
+                                        <td className="px-5 py-3">
+                                            <span className={`tag ${TAG[t.estado_conciliacion]}`}>{t.estado_conciliacion}</span>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             )}

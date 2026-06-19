@@ -2,97 +2,218 @@ import { Link } from 'react-router-dom';
 
 export default function LandingPage() {
     return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-100 via-indigo-50 to-purple-50">
+        <div className="min-h-screen relative overflow-hidden" style={{ background: 'var(--canvas)' }}>
+            {/* Decorative watermark mesh */}
+            <div
+                aria-hidden
+                className="absolute inset-0 pointer-events-none"
+                style={{
+                    background: `
+                        radial-gradient(60% 50% at 8% 0%, rgba(45, 108, 223, 0.10) 0%, transparent 60%),
+                        radial-gradient(45% 40% at 95% 5%, rgba(181, 141, 62, 0.06) 0%, transparent 60%),
+                        radial-gradient(80% 50% at 50% 110%, rgba(15, 119, 84, 0.05) 0%, transparent 60%)
+                    `,
+                }}
+            />
+
+            {/* Decorative serif glyph — distant, oversized */}
+            <div
+                aria-hidden
+                className="absolute font-display-wonk select-none pointer-events-none"
+                style={{
+                    top: '8rem',
+                    right: '-4rem',
+                    fontSize: '38rem',
+                    lineHeight: 1,
+                    color: 'var(--rule-strong)',
+                    opacity: 0.18,
+                    fontWeight: 300,
+                }}
+            >
+                ƒ
+            </div>
+
             {/* Nav */}
-            <header className="max-w-6xl mx-auto px-6 py-5 flex items-center justify-between">
+            <header className="relative z-10 max-w-7xl mx-auto px-8 py-6 flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow">
-                        <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                        </svg>
+                    <div
+                        className="w-10 h-10 rounded-md flex items-center justify-center font-display-wonk text-2xl"
+                        style={{
+                            background: 'var(--ink)',
+                            color: 'var(--paper)',
+                        }}
+                    >
+                        ƒ
                     </div>
                     <div>
-                        <div className="font-bold text-slate-800">Facturación SaaS</div>
-                        <div className="text-[11px] text-slate-500">Facturación + Contabilidad</div>
+                        <div className="font-display text-[15px] tracking-tight leading-none">Facturación SaaS</div>
+                        <div className="kicker mt-1.5">Contabilidad · Bogotá</div>
                     </div>
                 </div>
                 <div className="flex items-center gap-2">
-                    <Link to="/login" className="px-4 py-2 text-sm text-slate-700 hover:text-indigo-600 font-medium">
+                    <Link to="/login" className="btn-ghost">
                         Iniciar sesión
                     </Link>
-                    <Link
-                        to="/register"
-                        className="px-4 py-2 rounded-lg bg-gradient-to-r from-indigo-500 to-purple-600 text-white text-sm font-medium shadow hover:opacity-95"
-                    >
+                    <Link to="/register" className="btn-accent">
                         Registra tu empresa
                     </Link>
                 </div>
             </header>
 
-            {/* Hero */}
-            <section className="max-w-5xl mx-auto px-6 pt-16 pb-20 text-center">
-                <h1 className="text-4xl md:text-5xl font-extrabold text-slate-800 leading-tight mb-6">
-                    Facturación, contabilidad e impuestos<br />
-                    <span className="bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
-                        para empresas colombianas.
-                    </span>
-                </h1>
-                <p className="text-lg text-slate-600 max-w-2xl mx-auto mb-8">
-                    Plataforma SaaS multi-empresa con PUC Decreto 2649, causación automática,
-                    IVA, Retefuente, ReteIVA e ICA. Lista para tu firma y tus clientes.
-                </p>
-                <div className="flex items-center justify-center gap-3">
-                    <Link
-                        to="/register"
-                        className="px-6 py-3 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-semibold shadow-lg hover:opacity-95 transition"
-                    >
-                        Empieza gratis →
-                    </Link>
-                    <Link
-                        to="/login"
-                        className="px-6 py-3 rounded-xl border border-slate-300 text-slate-700 font-semibold hover:bg-white transition"
-                    >
-                        Ya tengo cuenta
-                    </Link>
+            {/* Hero — editorial split */}
+            <section className="relative z-10 max-w-7xl mx-auto px-8 pt-12 pb-24">
+                <div className="grid lg:grid-cols-12 gap-10 items-end">
+                    <div className="lg:col-span-8 anim-fade-up">
+                        <div className="eyebrow mb-8">Decreto 2650 · Régimen Ordinario · 2026</div>
+                        <h1
+                            className="editorial-title"
+                            style={{ fontSize: 'clamp(3rem, 7vw, 6.25rem)' }}
+                        >
+                            Contabilidad <em>seria</em>,<br />
+                            para empresas que la toman <em>en serio</em>.
+                        </h1>
+                        <p
+                            className="mt-10 text-[17px] leading-relaxed max-w-xl"
+                            style={{ color: 'var(--ink-soft)' }}
+                        >
+                            Plataforma SaaS multi-empresa con PUC Decreto 2650, causación automática,
+                            IVA, Retefuente, ReteIVA, ReteICA y Medios Magnéticos DIAN. Diseñada
+                            para firmas contadoras que manejan múltiples clientes desde una
+                            misma cuenta.
+                        </p>
+                        <div className="mt-10 flex items-center gap-3">
+                            <Link to="/register" className="btn-primary">
+                                Empieza gratis
+                                <span style={{ fontFamily: 'var(--font-display)', fontStyle: 'italic' }}>→</span>
+                            </Link>
+                            <Link to="/login" className="btn-secondary">
+                                Ya tengo cuenta
+                            </Link>
+                        </div>
+                    </div>
+
+                    {/* Right side: stat card "specimen" */}
+                    <div className="lg:col-span-4 anim-fade-up" style={{ animationDelay: '180ms' }}>
+                        <div className="ledger p-8 paper-grain">
+                            <div className="kicker-accent">Resumen de mayo</div>
+                            <div className="mt-1 font-display text-[13px]" style={{ color: 'var(--ink-faint)' }}>
+                                Empresa La Fortuna SAS
+                            </div>
+                            <div className="mt-8">
+                                <div className="eyebrow" style={{ color: 'var(--ink-faint)' }}>
+                                    Total facturado
+                                </div>
+                                <div className="numeral text-[3.5rem] leading-none mt-3">
+                                    $24<span style={{ color: 'var(--ink-faint)' }}>.85M</span>
+                                </div>
+                            </div>
+                            <hr className="hr-ledger my-6" />
+                            <div className="grid grid-cols-2 gap-4 text-[13px]">
+                                <div>
+                                    <div className="kicker mb-1">Retefuente</div>
+                                    <div className="numeral text-[1.4rem]">$612K</div>
+                                </div>
+                                <div>
+                                    <div className="kicker mb-1">IVA dscb.</div>
+                                    <div className="numeral text-[1.4rem]">$3.96M</div>
+                                </div>
+                                <div>
+                                    <div className="kicker mb-1">ReteIVA</div>
+                                    <div className="numeral text-[1.4rem]">$28K</div>
+                                </div>
+                                <div>
+                                    <div className="kicker mb-1">ReteICA</div>
+                                    <div className="numeral text-[1.4rem]">$19K</div>
+                                </div>
+                            </div>
+                            <hr className="hr-ledger my-6" />
+                            <div className="flex items-center justify-between text-[12px]">
+                                <span className="tag tag-positive">Cuadra ✓</span>
+                                <span className="font-mono" style={{ color: 'var(--ink-faint)' }}>
+                                    A = P + Pat + U
+                                </span>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </section>
 
-            {/* Features */}
-            <section className="max-w-6xl mx-auto px-6 pb-20 grid md:grid-cols-3 gap-6">
-                {[
-                    {
-                        title: 'Multi-empresa',
-                        desc: 'Una sola cuenta maneja varias empresas con roles independientes por usuario.',
-                        icon: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4',
-                        color: 'from-indigo-500 to-purple-600',
-                    },
-                    {
-                        title: 'Contabilidad profesional',
-                        desc: 'Plan Único de Cuentas (PUC) Decreto 2649, asientos con partida doble, libro mayor y balance de comprobación.',
-                        icon: 'M9 17v-2a4 4 0 014-4h4m-8-4h.01M9 13a3 3 0 11-6 0 3 3 0 016 0zm12 4v3m0 0v3m0-3h3m-3 0h-3',
-                        color: 'from-emerald-500 to-teal-600',
-                    },
-                    {
-                        title: 'Impuestos Colombia',
-                        desc: 'IVA 19 %, Retefuente, ReteIVA, ICA configurables por empresa. Cálculo y reporte automáticos.',
-                        icon: 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
-                        color: 'from-amber-500 to-orange-600',
-                    },
-                ].map((f) => (
-                    <div key={f.title} className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
-                        <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${f.color} flex items-center justify-center mb-4 shadow`}>
-                            <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d={f.icon} />
-                            </svg>
-                        </div>
-                        <h3 className="text-lg font-bold text-slate-800 mb-1">{f.title}</h3>
-                        <p className="text-sm text-slate-600">{f.desc}</p>
+            {/* Features — three editorial columns */}
+            <section className="relative z-10 max-w-7xl mx-auto px-8 pb-20">
+                <div className="flex items-end justify-between mb-12">
+                    <div>
+                        <div className="eyebrow mb-3">Para firmas y empresas</div>
+                        <h2 className="editorial-title text-[2.25rem]">
+                            Tres pilares <em>indispensables</em>.
+                        </h2>
                     </div>
-                ))}
+                    <div className="hidden lg:block kicker text-right max-w-xs">
+                        Construido sobre PUC<br />Decreto 2650 oficial
+                    </div>
+                </div>
+
+                <div className="grid md:grid-cols-3 gap-px" style={{ background: 'var(--rule)' }}>
+                    {[
+                        {
+                            num: 'I',
+                            title: 'Multi-empresa',
+                            desc: 'Una sola cuenta maneja N clientes con roles independientes. Switch en un click, datos completamente aislados por tenant.',
+                            kicker: 'Tenant aislado',
+                        },
+                        {
+                            num: 'II',
+                            title: 'Contabilidad profesional',
+                            desc: 'PUC Decreto 2650 (428 cuentas), partida doble validada, libro mayor, balance de comprobación, cierre anual automático.',
+                            kicker: 'Decreto 2650',
+                        },
+                        {
+                            num: 'III',
+                            title: 'Impuestos Colombia',
+                            desc: 'IVA 19 %, Retefuente con tarifas DIAN 2026, ReteIVA, ReteICA configurable por municipio. Formatos 1001, 1007, 1008.',
+                            kicker: 'UVT 52.374',
+                        },
+                    ].map((f) => (
+                        <div
+                            key={f.title}
+                            className="relative p-8 transition-colors"
+                            style={{ background: 'var(--paper)' }}
+                            onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--paper-tinted)')}
+                            onMouseLeave={(e) => (e.currentTarget.style.background = 'var(--paper)')}
+                        >
+                            <div className="flex items-baseline gap-4">
+                                <span
+                                    className="font-display-wonk text-[3.5rem] leading-none"
+                                    style={{ color: 'var(--accent)' }}
+                                >
+                                    {f.num}
+                                </span>
+                                <div>
+                                    <div className="kicker-accent">{f.kicker}</div>
+                                    <h3 className="font-display text-[1.5rem] mt-1 leading-tight">{f.title}</h3>
+                                </div>
+                            </div>
+                            <p
+                                className="mt-6 text-[14px] leading-relaxed"
+                                style={{ color: 'var(--ink-soft)' }}
+                            >
+                                {f.desc}
+                            </p>
+                        </div>
+                    ))}
+                </div>
             </section>
 
-            <footer className="border-t border-slate-200 bg-white/50 py-6 text-center text-xs text-slate-500">
-                Facturación SaaS · Plataforma de facturación y contabilidad multi-tenant
+            {/* Bottom strip — fine print */}
+            <footer
+                className="relative z-10 mt-12 py-8"
+                style={{ borderTop: '1px solid var(--rule)', background: 'var(--paper-tinted)' }}
+            >
+                <div className="max-w-7xl mx-auto px-8 flex flex-col md:flex-row items-center justify-between gap-4">
+                    <div className="kicker">Facturación SaaS · MMXXVI</div>
+                    <div className="text-[12px] font-mono" style={{ color: 'var(--ink-faint)' }}>
+                        Plataforma multi-tenant · Bogotá · Medellín · Cali
+                    </div>
+                </div>
             </footer>
         </div>
     );

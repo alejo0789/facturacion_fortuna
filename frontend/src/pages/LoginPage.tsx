@@ -28,75 +28,186 @@ export default function LoginPage() {
     };
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-100 via-indigo-50 to-purple-50 p-6">
-            <div className="w-full max-w-md">
-                {/* Logo */}
-                <div className="flex items-center justify-center gap-3 mb-8">
-                    <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg">
-                        <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                        </svg>
-                    </div>
-                    <div>
-                        <h1 className="text-xl font-bold text-slate-800">Facturación SaaS</h1>
-                        <p className="text-xs text-slate-500">Facturación + Contabilidad</p>
-                    </div>
+        <div className="min-h-screen flex" style={{ background: 'var(--canvas)' }}>
+            {/* Left — brand panel (dark, editorial) */}
+            <aside
+                className="hidden lg:flex relative w-2/5 flex-col justify-between p-12 overflow-hidden sidebar-shell"
+            >
+                {/* Decorative oversized ƒ */}
+                <div
+                    aria-hidden
+                    className="absolute font-display-wonk select-none pointer-events-none"
+                    style={{
+                        bottom: '-12rem',
+                        right: '-8rem',
+                        fontSize: '36rem',
+                        lineHeight: 1,
+                        color: 'rgba(232, 229, 220, 0.04)',
+                    }}
+                >
+                    ƒ
                 </div>
 
-                <div className="bg-white rounded-2xl shadow-xl border border-slate-200 p-8">
-                    <h2 className="text-2xl font-bold text-slate-800 mb-1">Iniciar sesión</h2>
-                    <p className="text-sm text-slate-500 mb-6">Ingresa a tu espacio de trabajo.</p>
+                <Link to="/" className="relative z-10 flex items-center gap-3 anim-fade-up">
+                    <div
+                        className="w-10 h-10 rounded-md flex items-center justify-center font-display-wonk text-2xl"
+                        style={{
+                            background: 'linear-gradient(180deg, #f6f4ee, #e8e5dc)',
+                            color: 'var(--accent-deep)',
+                        }}
+                    >
+                        ƒ
+                    </div>
+                    <div>
+                        <div className="font-display text-[15px] leading-none" style={{ color: 'var(--sidebar-ink)' }}>
+                            Facturación SaaS
+                        </div>
+                        <div
+                            className="text-[9px] uppercase tracking-[0.22em] mt-1.5"
+                            style={{ color: 'var(--sidebar-ink-soft)' }}
+                        >
+                            Contabilidad corporativa
+                        </div>
+                    </div>
+                </Link>
+
+                <div className="relative z-10 anim-fade-up" style={{ animationDelay: '180ms' }}>
+                    <div
+                        className="eyebrow mb-6"
+                        style={{ color: 'rgba(232, 229, 220, 0.6)' }}
+                    >
+                        Edición Régimen Ordinario
+                    </div>
+                    <h2
+                        className="font-display text-[2.75rem] leading-[1.05] tracking-tight"
+                        style={{ color: 'var(--sidebar-ink)', fontVariationSettings: "'SOFT' 30" }}
+                    >
+                        Los números
+                        <br />
+                        <em
+                            style={{
+                                fontStyle: 'italic',
+                                color: 'var(--sidebar-accent)',
+                                fontVariationSettings: "'SOFT' 100, 'WONK' 1",
+                            }}
+                        >
+                            siempre cuadran.
+                        </em>
+                    </h2>
+                    <p
+                        className="mt-6 text-[14px] leading-relaxed max-w-sm"
+                        style={{ color: 'rgba(232, 229, 220, 0.65)' }}
+                    >
+                        PUC Decreto 2650, IVA, Retefuente, ReteIVA, ReteICA y Medios Magnéticos DIAN —
+                        todo configurado por empresa, todo automatizado.
+                    </p>
+                </div>
+
+                <div
+                    className="relative z-10 text-[11px] font-mono"
+                    style={{ color: 'rgba(232, 229, 220, 0.4)' }}
+                >
+                    MMXXVI · Bogotá · Medellín · Cali
+                </div>
+            </aside>
+
+            {/* Right — form */}
+            <div className="flex-1 flex items-center justify-center p-6 lg:p-12 relative">
+                <div className="w-full max-w-md anim-fade-up">
+                    {/* Mobile-only brand */}
+                    <Link to="/" className="lg:hidden flex items-center justify-center gap-3 mb-10">
+                        <div
+                            className="w-10 h-10 rounded-md flex items-center justify-center font-display-wonk text-2xl"
+                            style={{ background: 'var(--ink)', color: 'var(--paper)' }}
+                        >
+                            ƒ
+                        </div>
+                        <div>
+                            <div className="font-display text-[15px] leading-none">Facturación SaaS</div>
+                            <div className="kicker mt-1">Contabilidad corporativa</div>
+                        </div>
+                    </Link>
+
+                    <div className="eyebrow mb-4">Acceso al espacio de trabajo</div>
+                    <h1 className="editorial-title text-[2.5rem] mb-2">Bienvenido de vuelta.</h1>
+                    <p className="text-[14px]" style={{ color: 'var(--ink-soft)' }}>
+                        Ingresa con tus credenciales para continuar.
+                    </p>
+
+                    <hr className="hr-ledger my-8" />
 
                     {error && (
-                        <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700">
+                        <div className="mb-5 rounded-md border px-4 py-3 text-sm"
+                            style={{
+                                borderColor: 'var(--negative)',
+                                background: 'var(--negative-soft)',
+                                color: 'var(--negative)',
+                            }}
+                        >
+                            <div className="kicker-accent mb-1" style={{ color: 'var(--negative)' }}>
+                                Error
+                            </div>
                             {error}
                         </div>
                     )}
 
-                    <form onSubmit={handleSubmit} className="space-y-4">
+                    <form onSubmit={handleSubmit} className="space-y-5">
                         <div>
-                            <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
+                            <label className="kicker block mb-2">Correo electrónico</label>
                             <input
                                 type="email"
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
                                 required
                                 autoComplete="email"
-                                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                                className="input-field"
                                 placeholder="tu@empresa.com"
                             />
                         </div>
                         <div>
-                            <label className="block text-sm font-medium text-slate-700 mb-1">Contraseña</label>
+                            <label className="kicker block mb-2">Contraseña</label>
                             <input
                                 type="password"
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
                                 required
                                 autoComplete="current-password"
-                                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                                className="input-field"
                                 placeholder="••••••••"
                             />
                         </div>
                         <button
                             type="submit"
                             disabled={submitting}
-                            className="w-full py-2.5 rounded-lg bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-medium shadow-md hover:opacity-95 transition disabled:opacity-60"
+                            className="btn-primary w-full disabled:opacity-60"
                         >
                             {submitting ? 'Ingresando…' : 'Ingresar'}
+                            {!submitting && (
+                                <span style={{ fontFamily: 'var(--font-display)', fontStyle: 'italic' }}>→</span>
+                            )}
                         </button>
                     </form>
 
-                    <div className="mt-6 text-center text-sm text-slate-600">
+                    <hr className="hr-ledger my-8" />
+
+                    <div className="text-center text-[13px]" style={{ color: 'var(--ink-soft)' }}>
                         ¿No tienes cuenta?{' '}
-                        <Link to="/register" className="text-indigo-600 hover:underline font-medium">
+                        <Link
+                            to="/register"
+                            className="font-medium transition-colors"
+                            style={{ color: 'var(--accent)' }}
+                            onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--accent-vivid)')}
+                            onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--accent)')}
+                        >
                             Registra tu empresa
                         </Link>
                     </div>
-                </div>
 
-                <div className="mt-6 text-center text-xs text-slate-500">
-                    <Link to="/" className="hover:underline">← Volver al inicio</Link>
+                    <div className="mt-6 text-center">
+                        <Link to="/" className="kicker hover:underline">
+                            ← Volver al inicio
+                        </Link>
+                    </div>
                 </div>
             </div>
         </div>

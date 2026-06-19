@@ -1214,98 +1214,95 @@ export default function FacturasPage() {
     };
 
     return (
-        <div className="space-y-6">
-            {/* Header with Stats */}
-            <div className="flex flex-col md:flex-row justify-between items-start gap-4">
-                <div className="flex items-center gap-4">
-                    <div>
-                        <h1 className="text-3xl font-bold text-gray-900">Facturas</h1>
-                        <p className="text-gray-500 mt-1">Gestiona las facturas de proveedores</p>
+        <div className="space-y-6 max-w-[1480px] mx-auto">
+            {/* Header — Ledger Modern editorial */}
+            <div className="anim-fade-up">
+                <div className="eyebrow mb-4">Operación · Causación de gastos</div>
+                <div className="flex flex-col xl:flex-row xl:items-end xl:justify-between gap-6">
+                    <h1 className="editorial-title text-[3rem] xl:text-[3.5rem]">
+                        Facturas <em>de proveedores</em>.
+                    </h1>
+
+                    <div className="flex items-center gap-3 flex-wrap">
+                        <button onClick={() => setIsUploadModalOpen(true)} className="btn-primary">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                            </svg>
+                            Subir factura
+                        </button>
+
+                        {stats && (
+                            <>
+                                {/* En Trámite */}
+                                <button
+                                    onClick={() => {
+                                        const isActive = filterEstado === 'EN_TRAMITE' && filterPeriodo === 'este_mes';
+                                        if (isActive) {
+                                            setFilterEstado('');
+                                            handlePeriodoChange('');
+                                            setFilterUsarFechaEstado(false);
+                                        } else {
+                                            setFilterEstado('EN_TRAMITE');
+                                            handlePeriodoChange('este_mes');
+                                            setFilterUsarFechaEstado(true);
+                                        }
+                                    }}
+                                    className="px-4 py-2 rounded-md text-center transition-all"
+                                    style={
+                                        filterEstado === 'EN_TRAMITE' && filterPeriodo === 'este_mes'
+                                            ? { background: 'var(--accent)', color: 'var(--paper)', border: '1px solid var(--accent-deep)' }
+                                            : { background: 'var(--accent-soft)', color: 'var(--accent)', border: '1px solid var(--rule)' }
+                                    }
+                                    title="Ver facturas En Trámite de este mes"
+                                >
+                                    <div className="numeral text-[1.4rem] leading-none">{stats.en_tramite || 0}</div>
+                                    <div className="text-[10px] font-semibold uppercase tracking-[0.16em] mt-1 opacity-80">
+                                        En trámite
+                                    </div>
+                                </button>
+
+                                {/* Pagadas */}
+                                <button
+                                    onClick={() => {
+                                        const isActive = filterEstado === 'PAGADA' && filterPeriodo === 'este_mes';
+                                        if (isActive) {
+                                            setFilterEstado('');
+                                            handlePeriodoChange('');
+                                            setFilterUsarFechaEstado(false);
+                                        } else {
+                                            setFilterEstado('PAGADA');
+                                            handlePeriodoChange('este_mes');
+                                            setFilterUsarFechaEstado(true);
+                                        }
+                                    }}
+                                    className="px-4 py-2 rounded-md text-center transition-all"
+                                    style={
+                                        filterEstado === 'PAGADA' && filterPeriodo === 'este_mes'
+                                            ? { background: 'var(--positive)', color: 'var(--paper)', border: '1px solid var(--positive)' }
+                                            : { background: 'var(--positive-soft)', color: 'var(--positive)', border: '1px solid var(--rule)' }
+                                    }
+                                    title="Ver facturas Pagadas de este mes"
+                                >
+                                    <div className="numeral text-[1.4rem] leading-none">{stats.pagadas}</div>
+                                    <div className="text-[10px] font-semibold uppercase tracking-[0.16em] mt-1 opacity-80">
+                                        Pagadas
+                                    </div>
+                                </button>
+
+                                {/* Pendientes */}
+                                <button
+                                    onClick={() => navigate('/app/facturas/pendientes')}
+                                    className="px-4 py-2 rounded-md text-center transition-all"
+                                    style={{ background: 'var(--negative-soft)', color: 'var(--negative)', border: '1px solid var(--rule)' }}
+                                >
+                                    <div className="numeral text-[1.4rem] leading-none">{stats.pendientes_por_llegar}</div>
+                                    <div className="text-[10px] font-semibold uppercase tracking-[0.16em] mt-1 opacity-80">
+                                        Pendientes
+                                    </div>
+                                </button>
+                            </>
+                        )}
                     </div>
-                </div>
-
-                {/* Stats Cards + Upload Button */}
-                <div className="flex items-center gap-3">
-                    {/* Upload button */}
-                    <button
-                        onClick={() => setIsUploadModalOpen(true)}
-                        className="flex items-center gap-2 bg-gradient-to-r from-slate-700 to-slate-800 hover:from-slate-800 hover:to-slate-900 text-white px-4 py-2.5 rounded-lg font-medium shadow-lg hover:shadow-xl transition-all duration-200"
-                    >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                        </svg>
-                        Subir Factura
-                    </button>
-
-                    {/* Stats Cards */}
-                    {stats && (
-                        <>
-                            {/* En Trámite - clickable filter for current month */}
-                            <button
-                                onClick={() => {
-                                    const isActive = filterEstado === 'EN_TRAMITE' && filterPeriodo === 'este_mes';
-                                    if (isActive) {
-                                        setFilterEstado('');
-                                        handlePeriodoChange('');
-                                        setFilterUsarFechaEstado(false);
-                                    } else {
-                                        setFilterEstado('EN_TRAMITE');
-                                        handlePeriodoChange('este_mes');
-                                        setFilterUsarFechaEstado(true);
-                                    }
-                                }}
-                                className={`rounded-lg px-4 py-2 text-center transition-all duration-200 border ${filterEstado === 'EN_TRAMITE' && filterPeriodo === 'este_mes'
-                                    ? 'bg-purple-600 border-purple-700 shadow-md ring-2 ring-purple-400 ring-offset-1'
-                                    : 'bg-purple-50 border-purple-200 hover:bg-purple-100 hover:border-purple-400'
-                                    }`}
-                                title="Ver facturas En Trámite de este mes"
-                            >
-                                <div className={`text-2xl font-bold ${filterEstado === 'EN_TRAMITE' && filterPeriodo === 'este_mes' ? 'text-white' : 'text-purple-700'
-                                    }`}>{stats.en_tramite || 0}</div>
-                                <div className={`text-xs font-medium ${filterEstado === 'EN_TRAMITE' && filterPeriodo === 'este_mes' ? 'text-purple-100' : 'text-purple-600'
-                                    }`}>En Trámite</div>
-                                <div className={`text-[10px] ${filterEstado === 'EN_TRAMITE' && filterPeriodo === 'este_mes' ? 'text-purple-200' : 'text-purple-400'
-                                    }`}>este mes</div>
-                            </button>
-
-                            {/* Pagadas - clickable filter for current month */}
-                            <button
-                                onClick={() => {
-                                    const isActive = filterEstado === 'PAGADA' && filterPeriodo === 'este_mes';
-                                    if (isActive) {
-                                        setFilterEstado('');
-                                        handlePeriodoChange('');
-                                        setFilterUsarFechaEstado(false);
-                                    } else {
-                                        setFilterEstado('PAGADA');
-                                        handlePeriodoChange('este_mes');
-                                        setFilterUsarFechaEstado(true);
-                                    }
-                                }}
-                                className={`rounded-lg px-4 py-2 text-center transition-all duration-200 border ${filterEstado === 'PAGADA' && filterPeriodo === 'este_mes'
-                                    ? 'bg-green-600 border-green-700 shadow-md ring-2 ring-green-400 ring-offset-1'
-                                    : 'bg-green-50 border-green-200 hover:bg-green-100 hover:border-green-400'
-                                    }`}
-                                title="Ver facturas Pagadas de este mes"
-                            >
-                                <div className={`text-2xl font-bold ${filterEstado === 'PAGADA' && filterPeriodo === 'este_mes' ? 'text-white' : 'text-green-700'
-                                    }`}>{stats.pagadas}</div>
-                                <div className={`text-xs font-medium ${filterEstado === 'PAGADA' && filterPeriodo === 'este_mes' ? 'text-green-100' : 'text-green-600'
-                                    }`}>Pagadas</div>
-                                <div className={`text-[10px] ${filterEstado === 'PAGADA' && filterPeriodo === 'este_mes' ? 'text-green-200' : 'text-green-400'
-                                    }`}>este mes</div>
-                            </button>
-
-                            {/* Pendientes por llegar - navigate to dedicated page */}
-                            <button
-                                onClick={() => navigate('/app/facturas/pendientes')}
-                                className="bg-red-50 border border-red-200 rounded-lg px-4 py-2 text-center hover:bg-red-100 transition-colors"
-                            >
-                                <div className="text-2xl font-bold text-red-700">{stats.pendientes_por_llegar}</div>
-                                <div className="text-xs text-red-600 font-semibold">Pendientes</div>
-                            </button>
-                        </>
-                    )}
                 </div>
             </div>
 

@@ -1,11 +1,5 @@
 /**
  * Medios Magnéticos DIAN — formatos 1001, 1007 y 1008.
- *
- * Consume /api/dian/medios-magneticos/*:
- *   - /resumen?anio= → totales de los 3 formatos
- *   - /1001?anio=&formato=json|csv
- *   - /1007?anio=&formato=json|csv
- *   - /1008?anio=&formato=json|csv
  */
 import { useCallback, useEffect, useState } from 'react';
 import { apiGet, apiFetch, ApiError } from '../utils/apiClient';
@@ -30,6 +24,12 @@ interface FilaGenerica {
 }
 
 type FormatoActivo = '1001' | '1007' | '1008';
+
+const FORMATO_META: Record<FormatoActivo, { label: string; desc: string }> = {
+    '1001': { label: 'Pagos a terceros', desc: 'Retefuente practicada, ReteIVA, ReteICA, IVA descontable' },
+    '1007': { label: 'Ingresos recibidos', desc: 'Total facturado por tercero + IVA generado' },
+    '1008': { label: 'Cuentas por cobrar', desc: 'Saldos pendientes al cierre del año' },
+};
 
 export default function MediosMagneticosPage() {
     const currentYear = new Date().getFullYear();
@@ -69,8 +69,6 @@ export default function MediosMagneticosPage() {
     useEffect(() => { void loadFormato(); }, [loadFormato]);
 
     const descargarCSV = async () => {
-        // Usa apiFetch para que el interceptor global inyecte Authorization
-        // y X-Empresa-Id desde el AuthContext.
         const resp = await apiFetch(`/api/dian/medios-magneticos/${formato}`, {
             method: 'GET',
             params: { anio, formato: 'csv' },
@@ -109,111 +107,260 @@ export default function MediosMagneticosPage() {
     };
 
     return (
-        <div className="max-w-7xl mx-auto space-y-6">
-            <div>
-                <h1 className="text-2xl font-bold text-slate-900">Medios Magnéticos DIAN</h1>
-                <p className="text-sm text-slate-500 mt-1">
-                    Formatos 1001 (pagos + retenciones), 1007 (ingresos) y 1008 (CxC) — exigidos por
-                    la Resolución anual de la DIAN. Se construyen a partir de los asientos APROBADOS
-                    del año seleccionado.
-                </p>
+        <div className="max-w-[1480px] mx-auto space-y-8">
+            {/* Masthead */}
+            <div className="anim-fade-up">
+                <div className="eyebrow mb-4">Cumplimiento DIAN · Año fiscal {anio}</div>
+                <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6">
+                    <h1 className="editorial-title text-[3rem] lg:text-[3.5rem]">
+                        Medios <em>magnéticos</em>.
+                    </h1>
+                    <p className="text-[14px] max-w-md" style={{ color: 'var(--ink-soft)' }}>
+                        Formatos 1001, 1007 y 1008 exigidos por la Resolución anual de la DIAN.
+                        Construidos a partir de los asientos aprobados del año seleccionado.
+                    </p>
+                </div>
             </div>
 
-            {error && <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-rose-800 text-sm">{error}</div>}
-
-            {/* Aviso de integridad: líneas 1001 sin NIT — reporte incompleto */}
-            {resumen && (resumen.f1001_lineas_omitidas_sin_nit ?? 0) > 0 && (
-                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-900 text-sm">
-                    <strong>Atención — Formato 1001 incompleto:</strong>{' '}
-                    {resumen.f1001_lineas_omitidas_sin_nit} línea(s) contable(s) por{' '}
-                    {formatCOP(resumen.f1001_valor_omitido_sin_nit ?? '0')} se omitieron por
-                    falta de NIT del tercero. Complete esos NITs en los asientos para que
-                    el reporte DIAN quede íntegro.
-                </div>
-            )}
-
-            {/* Año */}
-            <div className="bg-white rounded-xl border shadow-sm p-4 flex items-end gap-3">
+            {/* Año picker */}
+            <div className="surface p-4 flex items-end gap-3">
                 <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Año fiscal</label>
-                    <input type="number" min={2000} max={2100} value={anio}
+                    <label className="kicker block mb-1.5">Año fiscal</label>
+                    <input
+                        type="number"
+                        min={2000}
+                        max={2100}
+                        value={anio}
                         onChange={(e) => setAnio(Number(e.target.value) || currentYear)}
-                        className="px-3 py-2 border rounded-lg text-sm w-32" />
+                        className="input-field font-mono w-28 text-[14px]"
+                    />
                 </div>
             </div>
 
-            {/* Resumen de los 3 formatos */}
-            {resumen && (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <div className="bg-white rounded-xl border shadow-sm p-4">
-                        <div className="text-xs uppercase tracking-wide text-slate-500">Formato 1001 — Pagos</div>
-                        <div className="text-2xl font-bold text-slate-900 mt-1">{formatCOP(resumen.f1001_total_pagos)}</div>
-                        <div className="text-xs text-slate-500 mt-1">{resumen.f1001_registros} terceros</div>
-                    </div>
-                    <div className="bg-white rounded-xl border shadow-sm p-4">
-                        <div className="text-xs uppercase tracking-wide text-slate-500">Formato 1007 — Ingresos</div>
-                        <div className="text-2xl font-bold text-slate-900 mt-1">{formatCOP(resumen.f1007_total_ingresos)}</div>
-                        <div className="text-xs text-slate-500 mt-1">{resumen.f1007_registros} terceros</div>
-                    </div>
-                    <div className="bg-white rounded-xl border shadow-sm p-4">
-                        <div className="text-xs uppercase tracking-wide text-slate-500">Formato 1008 — CxC</div>
-                        <div className="text-2xl font-bold text-slate-900 mt-1">{formatCOP(resumen.f1008_total_cxc)}</div>
-                        <div className="text-xs text-slate-500 mt-1">{resumen.f1008_registros} terceros</div>
-                    </div>
+            {error && (
+                <div
+                    className="px-5 py-4 rounded-lg text-[13px]"
+                    style={{
+                        background: 'var(--negative-soft)',
+                        border: '1px solid var(--negative)',
+                        color: 'var(--negative)',
+                    }}
+                >
+                    {error}
                 </div>
             )}
 
-            {/* Tabs + CSV */}
-            <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
-                <div className="px-5 py-3 border-b bg-slate-50 flex items-center justify-between">
-                    <div className="flex gap-2">
-                        {(['1001', '1007', '1008'] as const).map((f) => (
-                            <button key={f} onClick={() => setFormato(f)}
-                                className={`px-3 py-1.5 rounded-lg text-sm font-medium ${formato === f ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>
-                                Formato {f}
-                            </button>
-                        ))}
+            {/* Aviso de integridad */}
+            {resumen && (resumen.f1001_lineas_omitidas_sin_nit ?? 0) > 0 && (
+                <div
+                    className="rounded-lg px-5 py-4 text-[13px]"
+                    style={{
+                        background: 'var(--gold-soft)',
+                        border: '1px solid var(--gold)',
+                        color: '#7a5e29',
+                    }}
+                >
+                    <div className="kicker-accent mb-1" style={{ color: 'var(--gold)' }}>
+                        Atención — Formato 1001 incompleto
                     </div>
-                    <button onClick={descargarCSV} disabled={filas.length === 0}
-                        className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50">
+                    {resumen.f1001_lineas_omitidas_sin_nit} línea(s) contable(s) por{' '}
+                    <strong>{formatCOP(resumen.f1001_valor_omitido_sin_nit ?? '0')}</strong> se
+                    omitieron por falta de NIT del tercero. Complete esos NITs en los asientos
+                    para que el reporte DIAN quede íntegro.
+                </div>
+            )}
+
+            {/* Resumen — 3 ledger cards */}
+            {resumen && (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 anim-stagger">
+                    <FormatoCard
+                        codigo="1001"
+                        label="Pagos a terceros"
+                        valor={resumen.f1001_total_pagos}
+                        registros={resumen.f1001_registros}
+                        tone="var(--accent)"
+                    />
+                    <FormatoCard
+                        codigo="1007"
+                        label="Ingresos"
+                        valor={resumen.f1007_total_ingresos}
+                        registros={resumen.f1007_registros}
+                        tone="var(--positive)"
+                    />
+                    <FormatoCard
+                        codigo="1008"
+                        label="CxC pendientes"
+                        valor={resumen.f1008_total_cxc}
+                        registros={resumen.f1008_registros}
+                        tone="var(--gold)"
+                    />
+                </div>
+            )}
+
+            {/* Tabs + Tabla */}
+            <div className="surface-raised overflow-hidden">
+                <div
+                    className="px-6 py-4 flex flex-col md:flex-row md:items-center md:justify-between gap-4"
+                    style={{ borderBottom: '1px solid var(--rule)', background: 'var(--paper-tinted)' }}
+                >
+                    <div className="flex items-center gap-2 flex-wrap">
+                        {(['1001', '1007', '1008'] as const).map((f) => {
+                            const active = formato === f;
+                            return (
+                                <button
+                                    key={f}
+                                    onClick={() => setFormato(f)}
+                                    className="relative px-4 py-2 rounded-md text-[13px] font-medium transition-all"
+                                    style={
+                                        active
+                                            ? {
+                                                  background: 'var(--ink)',
+                                                  color: 'var(--paper)',
+                                                  borderBottom: '2px solid var(--accent)',
+                                              }
+                                            : {
+                                                  background: 'transparent',
+                                                  color: 'var(--ink-soft)',
+                                              }
+                                    }
+                                    onMouseEnter={(e) => {
+                                        if (!active) e.currentTarget.style.background = 'var(--canvas-2)';
+                                    }}
+                                    onMouseLeave={(e) => {
+                                        if (!active) e.currentTarget.style.background = 'transparent';
+                                    }}
+                                >
+                                    <span className="font-mono text-[11px] mr-2" style={{ opacity: 0.7 }}>
+                                        F
+                                    </span>
+                                    {f}
+                                    <span className="ml-1.5 text-[10px] opacity-70 hidden md:inline">
+                                        · {FORMATO_META[f].label}
+                                    </span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                    <button
+                        onClick={descargarCSV}
+                        disabled={filas.length === 0}
+                        className="btn-accent text-[13px] disabled:opacity-50"
+                    >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        </svg>
                         Descargar CSV
                     </button>
                 </div>
 
+                <div className="px-6 py-4" style={{ borderBottom: '1px solid var(--rule-soft)' }}>
+                    <div className="kicker-accent">Formato {formato}</div>
+                    <div className="font-display text-[1.2rem] tracking-tight mt-1">
+                        {FORMATO_META[formato].label}
+                    </div>
+                    <div className="text-[12px] mt-1" style={{ color: 'var(--ink-faint)' }}>
+                        {FORMATO_META[formato].desc}
+                    </div>
+                </div>
+
                 <div className="overflow-x-auto">
-                <table className="min-w-full text-sm">
-                    <thead className="bg-slate-50 border-b">
-                        <tr>
-                            {columnas[formato].map((c) => (
-                                <th key={c.key} className={`px-4 py-2 font-semibold text-slate-600 ${c.money ? 'text-right' : 'text-left'}`}>
-                                    {c.label}
-                                </th>
-                            ))}
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {cargando && <tr><td colSpan={columnas[formato].length} className="p-6 text-center text-slate-400">Cargando...</td></tr>}
-                        {!cargando && filas.length === 0 && (
-                            <tr><td colSpan={columnas[formato].length} className="p-6 text-center text-slate-400">
-                                Sin registros para el año {anio}.
-                            </td></tr>
-                        )}
-                        {filas.map((f, idx) => (
-                            <tr key={idx} className="border-b last:border-0 hover:bg-slate-50">
-                                {columnas[formato].map((c) => {
-                                    const v = f[c.key];
-                                    return (
-                                        <td key={c.key} className={`px-4 py-2 ${c.money ? 'text-right font-mono' : ''}`}>
-                                            {c.money ? formatCOP(v as string) : (v as string)}
-                                        </td>
-                                    );
-                                })}
+                    <table className="min-w-full text-[14px]">
+                        <thead style={{ background: 'var(--paper-tinted)' }}>
+                            <tr>
+                                {columnas[formato].map((c) => (
+                                    <th
+                                        key={c.key}
+                                        className={`kicker px-5 py-3 ${c.money ? 'text-right' : 'text-left'}`}
+                                        style={{ background: 'var(--paper-tinted)' }}
+                                    >
+                                        {c.label}
+                                    </th>
+                                ))}
                             </tr>
-                        ))}
-                    </tbody>
-                </table>
+                        </thead>
+                        <tbody>
+                            {cargando && (
+                                <tr>
+                                    <td colSpan={columnas[formato].length} className="p-10 text-center">
+                                        <div
+                                            className="h-8 w-8 mx-auto rounded-full border-2 border-t-transparent"
+                                            style={{
+                                                borderColor: 'var(--accent)',
+                                                borderTopColor: 'transparent',
+                                                animation: 'spin-soft 800ms linear infinite',
+                                            }}
+                                        />
+                                        <div className="kicker mt-3">Cargando</div>
+                                    </td>
+                                </tr>
+                            )}
+                            {!cargando && filas.length === 0 && (
+                                <tr>
+                                    <td colSpan={columnas[formato].length} className="p-16 text-center">
+                                        <div
+                                            className="font-display text-[3rem]"
+                                            style={{ color: 'var(--ink-mute)', fontVariationSettings: "'SOFT' 100, 'WONK' 1" }}
+                                        >
+                                            —
+                                        </div>
+                                        <div className="kicker mt-2">Sin registros para {anio}</div>
+                                    </td>
+                                </tr>
+                            )}
+                            {filas.map((f, idx) => (
+                                <tr
+                                    key={idx}
+                                    style={{ borderTop: idx > 0 ? '1px solid var(--rule-soft)' : 'none' }}
+                                    className="transition-colors"
+                                    onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--paper-tinted)')}
+                                    onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                                >
+                                    {columnas[formato].map((c) => {
+                                        const v = f[c.key];
+                                        return (
+                                            <td
+                                                key={c.key}
+                                                className={`px-5 py-3 ${c.money ? 'text-right font-mono text-[13px]' : ''}`}
+                                                style={{ color: c.money ? 'var(--ink-soft)' : 'var(--ink)' }}
+                                            >
+                                                {c.money ? formatCOP(v as string) : (v as string)}
+                                            </td>
+                                        );
+                                    })}
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
                 </div>
             </div>
+        </div>
+    );
+}
+
+interface FormatoCardProps {
+    codigo: string;
+    label: string;
+    valor: string;
+    registros: number;
+    tone: string;
+}
+
+function FormatoCard({ codigo, label, valor, registros, tone }: FormatoCardProps) {
+    return (
+        <div className="surface p-6 transition-all hover:-translate-y-px">
+            <div className="flex items-baseline justify-between mb-3">
+                <div className="kicker">{label}</div>
+                <span
+                    className="font-display-wonk text-[1.4rem] leading-none"
+                    style={{ color: tone }}
+                >
+                    F·{codigo}
+                </span>
+            </div>
+            <div className="numeral text-[1.8rem] leading-none">
+                {formatCOP(valor)}
+            </div>
+            <div className="kicker mt-3">{registros} terceros</div>
         </div>
     );
 }

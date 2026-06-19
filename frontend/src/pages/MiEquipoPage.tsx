@@ -1,11 +1,6 @@
 /**
  * Mi Equipo — gestión de usuarios y roles por empresa.
- *
  * Requiere rol ADMIN en la empresa activa.
- *
- *  - Lista usuarios de la firma (GET /api/usuarios/)
- *  - Crea un nuevo usuario (POST /api/usuarios/)
- *  - Asigna rol a (usuario, empresa_activa) (POST /api/usuarios/asignar-rol)
  */
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { apiGet, apiPost, ApiError } from '../utils/apiClient';
@@ -31,7 +26,6 @@ export default function MiEquipoPage() {
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState<string | null>(null);
 
-    // Form — nuevo usuario
     const [nuevoEmail, setNuevoEmail] = useState('');
     const [nuevoNombre, setNuevoNombre] = useState('');
     const [nuevoPassword, setNuevoPassword] = useState('');
@@ -71,13 +65,11 @@ export default function MiEquipoPage() {
         }
         setCreating(true);
         try {
-            // 1. Crear el usuario en la firma
             const nuevoUser = await apiPost<UserInfo>('/api/usuarios/', {
                 email: nuevoEmail.trim(),
                 nombre: nuevoNombre.trim(),
                 password: nuevoPassword,
             });
-            // 2. Asignarle rol en la empresa activa
             await apiPost('/api/usuarios/asignar-rol', {
                 usuario_id: nuevoUser.id,
                 empresa_id: empresaActiva.id,
@@ -110,27 +102,53 @@ export default function MiEquipoPage() {
     };
 
     return (
-        <div className="space-y-6">
-            <div>
-                <h1 className="text-2xl font-bold text-slate-800">Mi equipo</h1>
-                <p className="text-sm text-slate-500">
-                    Administra los usuarios de tu firma y asigna roles en{' '}
-                    <span className="font-medium text-slate-700">
-                        {empresaActiva?.nombre ?? 'la empresa activa'}
-                    </span>.
-                </p>
+        <div className="space-y-8 max-w-[1480px] mx-auto">
+            <div className="anim-fade-up">
+                <div className="eyebrow mb-4">Administración · Roles y accesos</div>
+                <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6">
+                    <h1 className="editorial-title text-[3rem] lg:text-[3.5rem]">
+                        Mi <em>equipo</em>.
+                    </h1>
+                    <p className="text-[13px] max-w-md" style={{ color: 'var(--ink-soft)' }}>
+                        Administra los usuarios de tu firma y asigna roles en{' '}
+                        <span className="font-display" style={{ color: 'var(--ink)' }}>
+                            {empresaActiva?.nombre ?? 'la empresa activa'}
+                        </span>.
+                    </p>
+                </div>
             </div>
 
             {error && (
-                <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700">{error}</div>
+                <div
+                    className="px-5 py-4 rounded-lg text-[13px]"
+                    style={{
+                        background: 'var(--negative-soft)',
+                        border: '1px solid var(--negative)',
+                        color: 'var(--negative)',
+                    }}
+                >
+                    {error}
+                </div>
             )}
             {success && (
-                <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-sm text-emerald-700">{success}</div>
+                <div
+                    className="px-5 py-4 rounded-lg text-[13px]"
+                    style={{
+                        background: 'var(--positive-soft)',
+                        border: '1px solid var(--positive)',
+                        color: 'var(--positive)',
+                    }}
+                >
+                    ✓ {success}
+                </div>
             )}
 
             {/* Alta de usuario */}
-            <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
-                <h2 className="font-semibold text-slate-800 mb-4">Invitar nuevo usuario</h2>
+            <div className="surface p-6">
+                <div className="kicker-accent">Acción</div>
+                <h2 className="font-display text-[1.4rem] tracking-tight mt-1 mb-5">
+                    Invitar nuevo usuario
+                </h2>
                 <form onSubmit={handleCreate} className="grid md:grid-cols-5 gap-3">
                     <input
                         type="text"
@@ -138,7 +156,7 @@ export default function MiEquipoPage() {
                         value={nuevoNombre}
                         onChange={(e) => setNuevoNombre(e.target.value)}
                         required
-                        className="px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        className="input-field"
                     />
                     <input
                         type="email"
@@ -146,7 +164,7 @@ export default function MiEquipoPage() {
                         value={nuevoEmail}
                         onChange={(e) => setNuevoEmail(e.target.value)}
                         required
-                        className="px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        className="input-field"
                     />
                     <input
                         type="password"
@@ -154,19 +172,19 @@ export default function MiEquipoPage() {
                         value={nuevoPassword}
                         onChange={(e) => setNuevoPassword(e.target.value)}
                         required
-                        className="px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        className="input-field"
                     />
                     <select
                         value={nuevoRol}
                         onChange={(e) => setNuevoRol(e.target.value as Rol)}
-                        className="px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        className="input-field"
                     >
                         {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
                     </select>
                     <button
                         type="submit"
                         disabled={creating || !empresaActiva}
-                        className="px-4 py-2 rounded-lg bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-medium shadow hover:opacity-95 disabled:opacity-60"
+                        className="btn-accent disabled:opacity-50"
                     >
                         {creating ? 'Creando…' : 'Crear + asignar'}
                     </button>
@@ -174,47 +192,75 @@ export default function MiEquipoPage() {
             </div>
 
             {/* Listado */}
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
-                    <h2 className="font-semibold text-slate-800">Usuarios de tu firma</h2>
-                    <button
-                        onClick={loadUsers}
-                        className="text-sm text-indigo-600 hover:underline"
-                    >
+            <div className="surface-raised overflow-hidden">
+                <div
+                    className="px-6 py-4 flex items-baseline justify-between"
+                    style={{ borderBottom: '1px solid var(--rule)', background: 'var(--paper-tinted)' }}
+                >
+                    <div>
+                        <div className="kicker-accent">Equipo</div>
+                        <h2 className="font-display text-[1.2rem] tracking-tight mt-1">
+                            Usuarios de tu firma
+                        </h2>
+                    </div>
+                    <button onClick={loadUsers} className="btn-ghost text-[12px]">
                         Recargar
                     </button>
                 </div>
                 {loading ? (
-                    <div className="p-6 text-sm text-slate-500">Cargando…</div>
+                    <div className="p-10 text-center">
+                        <div
+                            className="h-8 w-8 mx-auto rounded-full border-2 border-t-transparent"
+                            style={{
+                                borderColor: 'var(--accent)',
+                                borderTopColor: 'transparent',
+                                animation: 'spin-soft 800ms linear infinite',
+                            }}
+                        />
+                        <div className="kicker mt-3">Cargando</div>
+                    </div>
                 ) : users.length === 0 ? (
-                    <div className="p-6 text-sm text-slate-500">No hay usuarios registrados todavía.</div>
+                    <div className="p-16 text-center">
+                        <div
+                            className="font-display text-[3rem]"
+                            style={{ color: 'var(--ink-mute)', fontVariationSettings: "'SOFT' 100, 'WONK' 1" }}
+                        >
+                            —
+                        </div>
+                        <div className="kicker mt-2">Sin usuarios registrados</div>
+                    </div>
                 ) : (
-                    <table className="w-full text-sm">
-                        <thead className="bg-slate-50 text-slate-600 text-left">
+                    <table className="w-full text-[14px]">
+                        <thead style={{ background: 'var(--paper-tinted)' }}>
                             <tr>
-                                <th className="px-6 py-3 font-medium">Nombre</th>
-                                <th className="px-6 py-3 font-medium">Email</th>
-                                <th className="px-6 py-3 font-medium">Rol en {empresaActiva?.nombre ?? '—'}</th>
+                                <th className="kicker px-6 py-3 text-left" style={{ background: 'var(--paper-tinted)' }}>Nombre</th>
+                                <th className="kicker px-6 py-3 text-left" style={{ background: 'var(--paper-tinted)' }}>Email</th>
+                                <th className="kicker px-6 py-3 text-left" style={{ background: 'var(--paper-tinted)' }}>
+                                    Rol en {empresaActiva?.nombre ?? '—'}
+                                </th>
                             </tr>
                         </thead>
-                        <tbody className="divide-y divide-slate-100">
-                            {users.map((u) => (
-                                <tr key={u.id}>
-                                    <td className="px-6 py-3">
-                                        {u.nombre}
+                        <tbody>
+                            {users.map((u, idx) => (
+                                <tr
+                                    key={u.id}
+                                    style={{ borderTop: idx > 0 ? '1px solid var(--rule-soft)' : 'none' }}
+                                >
+                                    <td className="px-6 py-3.5">
+                                        <span className="font-display" style={{ fontVariationSettings: "'SOFT' 30" }}>
+                                            {u.nombre}
+                                        </span>
                                         {u.id === user?.id && (
-                                            <span className="ml-2 text-[10px] uppercase tracking-wider bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">
-                                                Tú
-                                            </span>
+                                            <span className="tag tag-accent ml-2">Tú</span>
                                         )}
                                         {u.es_superadmin && (
-                                            <span className="ml-2 text-[10px] uppercase tracking-wider bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
-                                                Superadmin
-                                            </span>
+                                            <span className="tag tag-gold ml-2">Superadmin</span>
                                         )}
                                     </td>
-                                    <td className="px-6 py-3 text-slate-600">{u.email}</td>
-                                    <td className="px-6 py-3">
+                                    <td className="px-6 py-3.5 font-mono text-[12px]" style={{ color: 'var(--ink-soft)' }}>
+                                        {u.email}
+                                    </td>
+                                    <td className="px-6 py-3.5">
                                         <select
                                             defaultValue=""
                                             onChange={(e) => {
@@ -222,7 +268,7 @@ export default function MiEquipoPage() {
                                                 if (rol) handleAsignar(u.id, rol);
                                                 e.target.value = '';
                                             }}
-                                            className="px-2 py-1 border border-slate-300 rounded-lg text-xs"
+                                            className="input-field text-[12px] py-1.5 w-44"
                                             disabled={!empresaActiva}
                                         >
                                             <option value="">Asignar rol…</option>

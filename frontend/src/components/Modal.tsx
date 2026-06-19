@@ -15,53 +15,60 @@ export default function Modal({ isOpen, onClose, title, children, onSubmit, subm
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 z-50 overflow-y-auto">
-            {/* Backdrop */}
+        <div className="fixed inset-0 z-50 overflow-y-auto anim-fade-in">
             <div
-                className="fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity"
+                className="fixed inset-0"
+                style={{ background: 'rgba(11, 15, 25, 0.55)', backdropFilter: 'blur(4px)' }}
                 onClick={onClose}
             />
-
-            {/* Modal Container */}
             <div className="flex min-h-full items-center justify-center p-4">
-                <div
-                    className="relative w-full max-w-lg transform rounded-2xl bg-white shadow-2xl transition-all
-                               animate-in fade-in zoom-in-95 duration-200"
-                >
-                    {/* Header */}
-                    <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
-                        <h2 className="text-xl font-semibold text-gray-900">{title}</h2>
+                <div className="relative w-full max-w-lg surface-raised anim-fade-up overflow-hidden">
+                    <div
+                        className="flex items-center justify-between px-6 py-4"
+                        style={{ borderBottom: '1px solid var(--rule)' }}
+                    >
+                        <div>
+                            <div className="kicker-accent mb-1">Acción</div>
+                            <h2 className="font-display text-[1.25rem] tracking-tight" style={{ fontVariationSettings: "'SOFT' 30" }}>
+                                {title}
+                            </h2>
+                        </div>
                         <button
                             onClick={onClose}
-                            className="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+                            className="rounded-md p-2 transition-colors"
+                            style={{ color: 'var(--ink-mute)' }}
+                            onMouseEnter={(e) => {
+                                e.currentTarget.style.color = 'var(--ink)';
+                                e.currentTarget.style.background = 'var(--canvas-2)';
+                            }}
+                            onMouseLeave={(e) => {
+                                e.currentTarget.style.color = 'var(--ink-mute)';
+                                e.currentTarget.style.background = 'transparent';
+                            }}
                         >
-                            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                             </svg>
                         </button>
                     </div>
 
-                    {/* Body */}
-                    <div className="px-6 py-5">
-                        {children}
-                    </div>
+                    <div className="px-6 py-5">{children}</div>
 
-                    {/* Footer */}
                     {onSubmit && (
-                        <div className="flex justify-end gap-3 border-t border-gray-100 bg-gray-50/50 px-6 py-4 rounded-b-2xl">
-                            <button
-                                onClick={onClose}
-                                className="px-4 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-                            >
+                        <div
+                            className="flex justify-end gap-2 px-6 py-4"
+                            style={{
+                                borderTop: '1px solid var(--rule)',
+                                background: 'var(--paper-tinted)',
+                            }}
+                        >
+                            <button onClick={onClose} className="btn-ghost">
                                 Cancelar
                             </button>
                             <button
                                 onClick={onSubmit}
                                 disabled={submitDisabled}
-                                className={`px-5 py-2.5 text-sm font-medium text-white bg-gradient-to-r from-blue-600 to-indigo-600 rounded-lg shadow-lg shadow-blue-500/25 transition-all ${submitDisabled
-                                        ? 'opacity-50 cursor-not-allowed'
-                                        : 'hover:from-blue-700 hover:to-indigo-700'
-                                    }`}
+                                className="btn-accent disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 {submitText || submitLabel}
                             </button>
@@ -73,24 +80,16 @@ export default function Modal({ isOpen, onClose, title, children, onSubmit, subm
     );
 }
 
-// Reusable Form Field Component
 export function FormField({ label, children, required }: { label: string; children: ReactNode; required?: boolean }) {
     return (
         <div className="space-y-1.5">
-            <label className="block text-sm font-medium text-gray-700">
+            <label className="kicker block">
                 {label}
-                {required && <span className="text-red-500 ml-1">*</span>}
+                {required && <span style={{ color: 'var(--negative)', marginLeft: '4px' }}>*</span>}
             </label>
             {children}
         </div>
     );
 }
 
-// Enhanced Input Style
-export const inputClassName = `
-    w-full px-4 py-2.5 
-    bg-gray-50 border border-gray-200 rounded-xl 
-    text-gray-900 placeholder-gray-400
-    focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 
-    transition-all duration-200 outline-none
-`;
+export const inputClassName = 'input-field';

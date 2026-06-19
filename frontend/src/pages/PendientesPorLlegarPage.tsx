@@ -7,10 +7,6 @@ import { apiFetch } from '../utils/apiClient';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
-/**
- * Drop-in replacement de window.fetch para este archivo.
- * Convierte `${API_URL}/x` -> apiFetch('/x') que inyecta auth desde authStorage.
- */
 const authFetch = (url: string, options?: RequestInit): Promise<Response> => {
     const endpoint = url.startsWith(API_URL) ? url.slice(API_URL.length) : url;
     return apiFetch(endpoint, options as never);
@@ -20,7 +16,6 @@ export default function PendientesPorLlegarPage() {
     const [contratos, setContratos] = useState<Contrato[]>([]);
     const [loading, setLoading] = useState(true);
 
-    // Filtering states
     const [search, setSearch] = useState('');
     const [oficinaSearch, setOficinaSearch] = useState('');
     const [selectedOficina, setSelectedOficina] = useState<Oficina | null>(null);
@@ -34,11 +29,9 @@ export default function PendientesPorLlegarPage() {
         setLoading(true);
         try {
             const res = await authFetch(`${API_URL}/facturas/stats/contratos-pendientes`);
-            if (res.ok) {
-                setContratos(await res.json());
-            }
+            if (res.ok) setContratos(await res.json());
         } catch (error) {
-            console.error("Failed to fetch pending contracts", error);
+            console.error('Failed to fetch pending contracts', error);
         } finally {
             setLoading(false);
         }
@@ -47,11 +40,9 @@ export default function PendientesPorLlegarPage() {
     const loadOficinas = async () => {
         try {
             const res = await authFetch(`${API_URL}/oficinas/?limit=1000`);
-            if (res.ok) {
-                setAllOficinas(await res.json());
-            }
+            if (res.ok) setAllOficinas(await res.json());
         } catch (error) {
-            console.error("Failed to load oficinas", error);
+            console.error('Failed to load oficinas', error);
         }
     };
 
@@ -60,7 +51,6 @@ export default function PendientesPorLlegarPage() {
         loadOficinas();
     }, []);
 
-    // Filter oficinas as user types
     useEffect(() => {
         if (oficinaSearch.trim() === '') {
             setFilteredOficinas([]);
@@ -75,161 +65,190 @@ export default function PendientesPorLlegarPage() {
         setFilteredOficinas(filtered);
     }, [oficinaSearch, allOficinas]);
 
-    // Local filtering of contracts
     const filteredContratos = contratos.filter((c: Contrato) => {
-        // Search by provider or contract num
         const matchesSearch = search === '' ||
             c.proveedor?.nombre.toLowerCase().includes(search.toLowerCase()) ||
             c.proveedor?.nit.toLowerCase().includes(search.toLowerCase()) ||
             c.num_contrato?.toLowerCase().includes(search.toLowerCase());
-
-        // Filter by office
         const matchesOficina = !selectedOficina || c.oficina_id === selectedOficina.id;
-
         return matchesSearch && matchesOficina;
     });
 
-
-
     return (
-        <div className="space-y-6">
-            <div className="flex items-center gap-4">
+        <div className="space-y-8 max-w-[1480px] mx-auto">
+            <div className="anim-fade-up">
                 <button
                     onClick={() => navigate('/app/facturas')}
-                    className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+                    className="btn-ghost text-[13px] mb-4"
                 >
-                    <svg className="w-6 h-6 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                    </svg>
+                    ← Volver a facturas
                 </button>
-                <div>
-                    <h1 className="text-3xl font-bold text-gray-900">Facturas Pendientes por Llegar</h1>
-                    <p className="text-gray-500 mt-1">Contratos activos sin factura registrada este mes</p>
+                <div className="eyebrow mb-4">Operación · Seguimiento contractual</div>
+                <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6">
+                    <h1 className="editorial-title text-[3rem] lg:text-[3.5rem]">
+                        Pendientes por <em>llegar</em>.
+                    </h1>
+                    <p className="text-[13px] max-w-md" style={{ color: 'var(--ink-soft)' }}>
+                        Contratos activos sin factura registrada en el mes en curso.
+                    </p>
                 </div>
             </div>
 
-            {/* Filters Bar */}
-            <div className="flex flex-col md:flex-row gap-4 bg-white p-4 rounded-xl shadow-sm border border-gray-100">
-                {/* Provider Search */}
+            <div className="surface p-4 flex flex-col md:flex-row gap-3">
                 <div className="relative flex-1">
                     <input
                         type="text"
-                        placeholder="Buscar por proveedor o NIT..."
-                        className="w-full px-4 py-2.5 pl-10 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all outline-none"
+                        placeholder="Buscar por proveedor o NIT…"
+                        className="input-field pl-10"
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
                     />
-                    <svg className="absolute left-3 top-3 h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg
+                        className="absolute left-3 top-3 h-4 w-4"
+                        style={{ color: 'var(--ink-faint)' }}
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                    >
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                     </svg>
                 </div>
 
-                {/* Office Filter */}
                 <div className="relative flex-1">
-                    <div className="relative">
-                        <input
-                            type="text"
-                            placeholder="Filtrar por oficina..."
-                            className="w-full px-4 py-2.5 pl-10 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all outline-none"
-                            value={selectedOficina ? `${selectedOficina.nombre} (${selectedOficina.cod_oficina})` : oficinaSearch}
-                            onChange={(e) => {
-                                setOficinaSearch(e.target.value);
-                                if (selectedOficina) setSelectedOficina(null);
-                                setShowOficinaSuggestions(true);
-                            }}
-                            onFocus={() => setShowOficinaSuggestions(true)}
-                        />
-                        <svg className="absolute left-3 top-3 h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                        </svg>
-                        {selectedOficina && (
-                            <button
-                                onClick={() => {
-                                    setSelectedOficina(null);
-                                    setOficinaSearch('');
-                                }}
-                                className="absolute right-3 top-3 text-gray-400 hover:text-gray-600"
-                            >
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                            </button>
-                        )}
-                    </div>
-
+                    <input
+                        type="text"
+                        placeholder="Filtrar por oficina…"
+                        className="input-field pl-10"
+                        value={selectedOficina ? `${selectedOficina.nombre} (${selectedOficina.cod_oficina})` : oficinaSearch}
+                        onChange={(e) => {
+                            setOficinaSearch(e.target.value);
+                            if (selectedOficina) setSelectedOficina(null);
+                            setShowOficinaSuggestions(true);
+                        }}
+                        onFocus={() => setShowOficinaSuggestions(true)}
+                    />
+                    <svg
+                        className="absolute left-3 top-3 h-4 w-4"
+                        style={{ color: 'var(--ink-faint)' }}
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                    >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                    </svg>
+                    {selectedOficina && (
+                        <button
+                            onClick={() => { setSelectedOficina(null); setOficinaSearch(''); }}
+                            className="absolute right-3 top-3"
+                            style={{ color: 'var(--ink-faint)' }}
+                        >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    )}
                     {showOficinaSuggestions && filteredOficinas.length > 0 && !selectedOficina && (
-                        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-60 overflow-y-auto">
+                        <div className="absolute z-10 w-full mt-1.5 surface-raised max-h-60 overflow-y-auto py-1">
                             {filteredOficinas.map((o: Oficina) => (
                                 <button
                                     key={o.id}
-                                    onClick={() => {
-                                        setSelectedOficina(o);
-                                        setShowOficinaSuggestions(false);
-                                    }}
-                                    className="w-full px-4 py-2 text-left hover:bg-red-50 transition-colors border-b border-gray-50 last:border-0"
+                                    onClick={() => { setSelectedOficina(o); setShowOficinaSuggestions(false); }}
+                                    className="w-full px-3 py-2 text-left transition-colors"
+                                    onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--accent-soft)')}
+                                    onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
                                 >
-                                    <div className="font-medium text-sm text-gray-900">{o.nombre}</div>
-                                    <div className="text-xs text-gray-500">{o.cod_oficina} - {o.ciudad}</div>
+                                    <div className="text-[13px] font-medium">{o.nombre}</div>
+                                    <div className="text-[11px] font-mono" style={{ color: 'var(--ink-faint)' }}>
+                                        {o.cod_oficina} · {o.ciudad}
+                                    </div>
                                 </button>
                             ))}
                         </div>
                     )}
                 </div>
 
-                <div className="text-sm text-gray-500 flex items-center px-2">
-                    <span className="font-semibold text-red-600 mr-1">{filteredContratos.length}</span> resultados
+                <div className="flex items-center px-3 kicker whitespace-nowrap">
+                    <span className="numeral text-[1.4rem] mr-2" style={{ color: 'var(--negative)' }}>
+                        {filteredContratos.length}
+                    </span>
+                    resultados
                 </div>
             </div>
 
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+            <div className="surface-raised overflow-hidden">
                 <table className="w-full text-left">
-                    <thead>
-                        <tr className="bg-gray-50 border-b border-gray-100">
-                            <th className="px-6 py-4 font-semibold text-gray-700">Proveedor</th>
-                            <th className="px-6 py-4 font-semibold text-gray-700">Oficina</th>
-                            <th className="px-6 py-4 font-semibold text-gray-700">Contrato #</th>
-                            <th className="px-6 py-4 font-semibold text-gray-700">Valor Mensual</th>
-                            <th className="px-6 py-4 font-semibold text-gray-700">Estado</th>
+                    <thead style={{ background: 'var(--paper-tinted)' }}>
+                        <tr>
+                            <th className="kicker px-6 py-3" style={{ background: 'var(--paper-tinted)' }}>Proveedor</th>
+                            <th className="kicker px-6 py-3" style={{ background: 'var(--paper-tinted)' }}>Oficina</th>
+                            <th className="kicker px-6 py-3" style={{ background: 'var(--paper-tinted)' }}>Contrato</th>
+                            <th className="kicker px-6 py-3" style={{ background: 'var(--paper-tinted)' }}>Valor mensual</th>
+                            <th className="kicker px-6 py-3" style={{ background: 'var(--paper-tinted)' }}>Estado</th>
                         </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-50">
+                    <tbody>
                         {loading ? (
                             <tr>
-                                <td colSpan={5} className="px-6 py-10 text-center">
-                                    <div className="flex flex-col items-center gap-2">
-                                        <div className="animate-spin h-8 w-8 border-4 border-red-500 border-t-transparent rounded-full"></div>
-                                        <span className="text-gray-500">Cargando contratos...</span>
-                                    </div>
+                                <td colSpan={5} className="px-6 py-12 text-center">
+                                    <div
+                                        className="h-8 w-8 mx-auto rounded-full border-2 border-t-transparent"
+                                        style={{
+                                            borderColor: 'var(--accent)',
+                                            borderTopColor: 'transparent',
+                                            animation: 'spin-soft 800ms linear infinite',
+                                        }}
+                                    />
+                                    <div className="kicker mt-3">Cargando contratos</div>
                                 </td>
                             </tr>
                         ) : filteredContratos.length === 0 ? (
                             <tr>
-                                <td colSpan={5} className="px-6 py-10 text-center text-gray-500 italic">
-                                    No se encontraron contratos con los filtros aplicados.
+                                <td colSpan={5} className="px-6 py-16 text-center">
+                                    <div
+                                        className="font-display text-[2.5rem]"
+                                        style={{ color: 'var(--ink-mute)', fontVariationSettings: "'SOFT' 100, 'WONK' 1" }}
+                                    >
+                                        —
+                                    </div>
+                                    <div className="kicker mt-2">Sin contratos con los filtros aplicados</div>
                                 </td>
                             </tr>
                         ) : (
-                            filteredContratos.map((c: Contrato) => (
-                                <tr key={c.id} className="hover:bg-gray-50 transition-colors">
-                                    <td className="px-6 py-4">
-                                        <div className="font-medium text-gray-900">{c.proveedor?.nombre}</div>
-                                        <div className="text-xs text-gray-500">{c.proveedor?.nit}</div>
+                            filteredContratos.map((c: Contrato, idx) => (
+                                <tr
+                                    key={c.id}
+                                    style={{ borderTop: idx > 0 ? '1px solid var(--rule-soft)' : 'none' }}
+                                    className="transition-colors"
+                                    onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--paper-tinted)')}
+                                    onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                                >
+                                    <td className="px-6 py-3.5">
+                                        <div className="font-display text-[14px]" style={{ fontVariationSettings: "'SOFT' 30" }}>
+                                            {c.proveedor?.nombre}
+                                        </div>
+                                        <div className="text-[11px] font-mono" style={{ color: 'var(--accent)' }}>
+                                            {c.proveedor?.nit}
+                                        </div>
                                     </td>
-                                    <td className="px-6 py-4 text-gray-700">
+                                    <td className="px-6 py-3.5 text-[13px]">
                                         {c.oficina?.nombre}
-                                        <span className="text-xs text-gray-500 ml-1">({c.oficina?.cod_oficina})</span>
-                                        <div className="text-xs text-gray-500">{c.oficina?.ciudad}</div>
-                                    </td>
-                                    <td className="px-6 py-4 font-mono text-sm text-gray-600">
-                                        {c.num_contrato || '-'}
-                                    </td>
-                                    <td className="px-6 py-4 text-emerald-600 font-semibold">
-                                        {formatCOP(c.valor_mensual)}
-                                    </td>
-                                    <td className="px-6 py-4">
-                                        <span className="px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs font-medium">
-                                            {c.estado}
+                                        <span className="text-[11px] font-mono ml-1" style={{ color: 'var(--ink-faint)' }}>
+                                            ({c.oficina?.cod_oficina})
                                         </span>
+                                        <div className="text-[11px]" style={{ color: 'var(--ink-faint)' }}>
+                                            {c.oficina?.ciudad}
+                                        </div>
+                                    </td>
+                                    <td className="px-6 py-3.5 font-mono text-[12px]" style={{ color: 'var(--ink-soft)' }}>
+                                        {c.num_contrato || '—'}
+                                    </td>
+                                    <td className="px-6 py-3.5">
+                                        <span className="numeral text-[1.1rem]" style={{ color: 'var(--positive)' }}>
+                                            {formatCOP(c.valor_mensual)}
+                                        </span>
+                                    </td>
+                                    <td className="px-6 py-3.5">
+                                        <span className="tag tag-positive">{c.estado}</span>
                                     </td>
                                 </tr>
                             ))

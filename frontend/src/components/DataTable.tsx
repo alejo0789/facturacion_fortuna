@@ -19,62 +19,101 @@ export default function DataTable<T extends { id: number }>({
     columns,
     onEdit,
     onDelete,
-    loading
+    loading,
 }: DataTableProps<T>) {
     if (loading) {
-        return <div className="text-center py-10">Loading...</div>;
+        return (
+            <div className="surface p-10 text-center">
+                <div
+                    className="h-8 w-8 mx-auto rounded-full border-2 border-t-transparent"
+                    style={{
+                        borderColor: 'var(--accent)',
+                        borderTopColor: 'transparent',
+                        animation: 'spin-soft 800ms linear infinite',
+                    }}
+                />
+                <div className="kicker mt-3">Cargando</div>
+            </div>
+        );
     }
 
     return (
-        <div className="bg-white rounded-xl shadow-lg overflow-hidden border border-gray-100">
+        <div className="surface-raised overflow-hidden">
             <table className="w-full">
-                <thead className="bg-slate-50 border-b border-gray-200">
+                <thead style={{ background: 'var(--paper-tinted)' }}>
                     <tr>
-                        {columns.map(col => (
-                            <th key={String(col.key)} className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                        {columns.map((col) => (
+                            <th
+                                key={String(col.key)}
+                                className="kicker px-5 py-3 text-left"
+                                style={{ background: 'var(--paper-tinted)' }}
+                            >
                                 {col.header}
                             </th>
                         ))}
                         {(onEdit || onDelete) && (
-                            <th className="px-6 py-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                                Actions
+                            <th
+                                className="kicker px-5 py-3 text-right"
+                                style={{ background: 'var(--paper-tinted)' }}
+                            >
+                                Acciones
                             </th>
                         )}
                     </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100">
+                <tbody>
                     {data.length === 0 ? (
                         <tr>
-                            <td colSpan={columns.length + 1} className="px-6 py-10 text-center text-gray-500">
-                                No data found.
+                            <td colSpan={columns.length + 1} className="px-6 py-16 text-center">
+                                <div
+                                    className="font-display text-[2.5rem]"
+                                    style={{ color: 'var(--ink-mute)', fontVariationSettings: "'SOFT' 100, 'WONK' 1" }}
+                                >
+                                    —
+                                </div>
+                                <div className="kicker mt-2">Sin registros</div>
                             </td>
                         </tr>
                     ) : (
-                        data.map(item => (
-                            <tr key={item.id} className="hover:bg-slate-50 transition-colors">
-                                {columns.map(col => (
-                                    <td key={String(col.key)} className="px-6 py-4 text-sm text-gray-700">
+                        data.map((item, idx) => (
+                            <tr
+                                key={item.id}
+                                style={{ borderTop: idx > 0 ? '1px solid var(--rule-soft)' : 'none' }}
+                                className="transition-colors"
+                                onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--paper-tinted)')}
+                                onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                            >
+                                {columns.map((col) => (
+                                    <td
+                                        key={String(col.key)}
+                                        className="px-5 py-3 text-[13.5px]"
+                                        style={{ color: 'var(--ink)' }}
+                                    >
                                         {col.render
                                             ? col.render(item)
-                                            : String((item as Record<string, unknown>)[col.key as string] ?? '-')}
+                                            : String((item as Record<string, unknown>)[col.key as string] ?? '—')}
                                     </td>
                                 ))}
                                 {(onEdit || onDelete) && (
-                                    <td className="px-6 py-4 text-right space-x-2">
+                                    <td className="px-5 py-3 text-right space-x-3">
                                         {onEdit && (
                                             <button
                                                 onClick={() => onEdit(item)}
-                                                className="text-blue-600 hover:text-blue-800 font-medium text-sm"
+                                                className="text-[12px] font-medium transition-colors"
+                                                style={{ color: 'var(--accent)' }}
+                                                onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--accent-vivid)')}
+                                                onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--accent)')}
                                             >
-                                                Edit
+                                                Editar
                                             </button>
                                         )}
                                         {onDelete && (
                                             <button
                                                 onClick={() => onDelete(item)}
-                                                className="text-red-600 hover:text-red-800 font-medium text-sm"
+                                                className="text-[12px] font-medium transition-colors"
+                                                style={{ color: 'var(--negative)' }}
                                             >
-                                                Delete
+                                                Eliminar
                                             </button>
                                         )}
                                     </td>

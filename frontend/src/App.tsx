@@ -55,11 +55,12 @@ const ImpuestosPage = lazy(() => import('./pages/ImpuestosPage'));
 const CuentasBancariasPage = lazy(() => import('./pages/CuentasBancariasPage'));
 const ConciliacionBancariaPage = lazy(() => import('./pages/ConciliacionBancariaPage'));
 const MediosMagneticosPage = lazy(() => import('./pages/MediosMagneticosPage'));
+const IntegracionesPage = lazy(() => import('./pages/IntegracionesPage'));
 
 function LoadingFallback() {
     return (
         <div className="flex items-center justify-center h-64">
-            <div className="animate-pulse text-slate-400 text-sm">Cargando...</div>
+            <div className="eyebrow animate-pulse">Cargando</div>
         </div>
     );
 }
@@ -67,12 +68,12 @@ function LoadingFallback() {
 function AppShell() {
     const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
     return (
-        <div className="min-h-screen bg-slate-50 flex">
+        <div className="min-h-screen flex" style={{ background: 'var(--canvas)' }}>
             <Sidebar
                 collapsed={sidebarCollapsed}
                 onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
             />
-            <main className={`flex-1 p-4 lg:p-6 xl:p-8 transition-all duration-300 ${sidebarCollapsed ? 'ml-16' : 'ml-64'}`}>
+            <main className={`flex-1 px-6 lg:px-10 xl:px-14 py-8 lg:py-10 transition-all duration-300 ${sidebarCollapsed ? 'ml-16' : 'ml-64'}`}>
                 <Suspense fallback={<LoadingFallback />}>
                     <Routes>
                         <Route index element={<DashboardHome />} />
@@ -93,6 +94,7 @@ function AppShell() {
                         <Route path="cuentas-bancarias" element={<CuentasBancariasPage />} />
                         <Route path="conciliacion" element={<ConciliacionBancariaPage />} />
                         <Route path="medios-magneticos" element={<MediosMagneticosPage />} />
+                        <Route path="integraciones" element={<IntegracionesPage />} />
                         <Route path="*" element={<Navigate to="/app" replace />} />
                     </Routes>
                 </Suspense>

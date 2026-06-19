@@ -17,7 +17,7 @@ export default defineConfig(({ command }) => ({
   base: command === 'build' ? '/facturacion_ia/' : '/',
   server: {
     host: '0.0.0.0',
-    port: 5173,
+    port: process.env.PORT ? Number(process.env.PORT) : 5173,
     allowedHosts: ['saman.lafortuna.com.co']
   },
   plugins: [react()]

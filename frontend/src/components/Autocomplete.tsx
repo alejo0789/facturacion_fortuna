@@ -2,37 +2,23 @@
  * Autocomplete — componente genérico de búsqueda incremental.
  *
  * Características:
- *   - Debouncing automático (300 ms) — no satura el backend mientras escribís.
- *   - Renderiza un dropdown bajo el input con las coincidencias.
+ *   - Debouncing automático (300 ms).
+ *   - Dropdown bajo el input con coincidencias.
  *   - Navegación con teclado (↑/↓/Enter/Esc).
  *   - Render personalizable de cada opción (prop `renderOption`).
- *   - Funciona con cualquier fuente: pasás una función `fetcher(query)` que
- *     devuelve una promesa con la lista.
- *
- * Pensado para reusar en:
- *   - PUCPage → añadir cuenta desde el catálogo Decreto 2650 (428 opciones).
- *   - UploadFacturaModal → escoger concepto DIAN de retención (50 opciones).
- *   - Cualquier otro lugar donde haya una lista larga + búsqueda.
+ *   - Estética "Ledger Modern".
  */
 import { useEffect, useRef, useState } from 'react';
 
 export interface AutocompleteProps<T> {
-    /** Función que llama al backend y devuelve la lista filtrada. */
     fetcher: (query: string) => Promise<T[]>;
-    /** Callback cuando el usuario selecciona una opción. */
     onSelect: (option: T) => void;
-    /** Render personalizado de cada item en la lista. */
     renderOption: (option: T, isHighlighted: boolean) => React.ReactNode;
-    /** Texto que aparece en el input cuando una opción ya está seleccionada. */
     getOptionLabel?: (option: T) => string;
-    /** Valor inicial del input (texto). */
     initialValue?: string;
     placeholder?: string;
-    /** Mínimo de caracteres antes de empezar a buscar (default 1). */
     minChars?: number;
-    /** Debounce en ms (default 300). */
     debounceMs?: number;
-    /** Auto-foco al montar. */
     autoFocus?: boolean;
     className?: string;
     inputClassName?: string;
@@ -60,7 +46,6 @@ export default function Autocomplete<T>({
     const inputRef = useRef<HTMLInputElement>(null);
     const requestSeq = useRef(0);
 
-    // Fetch con debounce — sólo si query ≥ minChars
     useEffect(() => {
         if (query.trim().length < minChars) {
             setOptions([]);
@@ -72,7 +57,7 @@ export default function Autocomplete<T>({
         const t = setTimeout(async () => {
             try {
                 const data = await fetcher(query.trim());
-                if (seq !== requestSeq.current) return; // descartar respuesta vieja
+                if (seq !== requestSeq.current) return;
                 setOptions(data);
                 setOpen(true);
                 setHighlighted(data.length > 0 ? 0 : -1);
@@ -86,7 +71,6 @@ export default function Autocomplete<T>({
         return () => clearTimeout(t);
     }, [query, minChars, debounceMs, fetcher]);
 
-    // Cerrar al click fuera
     useEffect(() => {
         const onDocClick = (e: MouseEvent) => {
             if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
@@ -132,30 +116,38 @@ export default function Autocomplete<T>({
                 onKeyDown={onKeyDown}
                 placeholder={placeholder}
                 autoFocus={autoFocus}
-                className={
-                    inputClassName ||
-                    'w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none'
-                }
+                className={inputClassName || 'input-field'}
             />
             {loading && (
                 <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
-                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />
+                    <div
+                        className="h-4 w-4 rounded-full border-2 border-t-transparent"
+                        style={{
+                            borderColor: 'var(--accent)',
+                            borderTopColor: 'transparent',
+                            animation: 'spin-soft 800ms linear infinite',
+                        }}
+                    />
                 </div>
             )}
             {open && options.length > 0 && (
-                <div className="absolute z-50 left-0 right-0 mt-1 max-h-72 overflow-y-auto bg-white border border-gray-200 rounded-lg shadow-lg">
+                <div
+                    className="absolute z-50 left-0 right-0 mt-1.5 max-h-72 overflow-y-auto surface-raised"
+                    style={{ padding: '4px' }}
+                >
                     {options.map((opt, i) => (
                         <div
                             key={i}
                             onMouseDown={(e) => {
-                                // mousedown (no click) para evitar el blur que cierra el dropdown
                                 e.preventDefault();
                                 selectOption(opt);
                             }}
                             onMouseEnter={() => setHighlighted(i)}
-                            className={`px-3 py-2 cursor-pointer text-sm border-b last:border-b-0 ${
-                                i === highlighted ? 'bg-blue-50' : 'bg-white hover:bg-gray-50'
-                            }`}
+                            className="px-3 py-2 cursor-pointer text-[13px] rounded transition-colors"
+                            style={{
+                                background: i === highlighted ? 'var(--accent-soft)' : 'transparent',
+                                color: 'var(--ink)',
+                            }}
                         >
                             {renderOption(opt, i === highlighted)}
                         </div>
@@ -163,7 +155,10 @@ export default function Autocomplete<T>({
                 </div>
             )}
             {open && !loading && options.length === 0 && query.trim().length >= minChars && (
-                <div className="absolute z-50 left-0 right-0 mt-1 px-3 py-2 bg-white border border-gray-200 rounded-lg shadow-lg text-sm text-gray-500 italic">
+                <div
+                    className="absolute z-50 left-0 right-0 mt-1.5 px-4 py-3 surface-raised text-[13px] italic"
+                    style={{ color: 'var(--ink-faint)' }}
+                >
                     Sin coincidencias para «{query}»
                 </div>
             )}

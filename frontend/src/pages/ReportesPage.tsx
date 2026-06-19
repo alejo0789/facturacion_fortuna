@@ -592,30 +592,30 @@ export default function ReportesPage() {
     const activeFiltersCount = [proveedorId, oficinaId, tipo, estado, ciudad, mes].filter(Boolean).length;
 
     return (
-        <div className="space-y-6">
-            {/* Header */}
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                <div>
-                    <h1 className="text-3xl font-bold text-gray-900">📊 Reportes</h1>
-                    <p className="text-gray-500 mt-1">Genera y exporta reportes de contratos</p>
+        <div className="space-y-8 max-w-[1480px] mx-auto">
+            {/* Header — Ledger Modern editorial */}
+            <div className="anim-fade-up">
+                <div className="eyebrow mb-4">Análisis · Exportación de datos</div>
+                <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-6">
+                    <h1 className="editorial-title text-[3rem] md:text-[3.5rem]">
+                        Reportes <em>contractuales</em>.
+                    </h1>
+                    {activeFiltersCount > 0 && (
+                        <button onClick={clearAllFilters} className="btn-secondary text-[13px]">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                            Limpiar filtros ({activeFiltersCount})
+                        </button>
+                    )}
                 </div>
-                {activeFiltersCount > 0 && (
-                    <button
-                        onClick={clearAllFilters}
-                        className="flex items-center gap-2 px-4 py-2 text-sm text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
-                    >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                        Limpiar filtros ({activeFiltersCount})
-                    </button>
-                )}
             </div>
 
-            {/* Filter Card - FIRST */}
-            <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6">
-                <h2 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                    <span>🔍</span> Filtros del Reporte
+            {/* Filter Card */}
+            <div className="surface-raised p-6">
+                <div className="kicker-accent mb-1">Filtros</div>
+                <h2 className="font-display text-[1.4rem] tracking-tight mb-5" style={{ fontVariationSettings: "'SOFT' 30" }}>
+                    Configuración del reporte
                 </h2>
 
                 {/* Main Filters */}
