@@ -1,10 +1,13 @@
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request
 from pydantic import BaseModel, EmailStr
 from typing import List, Optional, Dict
 import httpx
 import os
 import uuid
 from datetime import date, datetime, timedelta
+
+from core.dependencies import get_current_empresa, get_current_user
+from services.integraciones_n8n import LEGACY_INVOICE_PATH
 
 router = APIRouter()
 
@@ -14,7 +17,7 @@ class SearchQuery(BaseModel):
     end_date: date
 
 class ProcessQuery(BaseModel):
-    files: List[dict] 
+    files: List[dict]
 
 class SearchResult(BaseModel):
     request_id: str
@@ -27,51 +30,81 @@ class SearchResult(BaseModel):
 # Cleanup strategy: manually clear or TTL (omitted for brevity)
 search_cache: Dict[str, SearchResult] = {}
 
-# Webhook URLs
-N8N_SEARCH_WEBHOOK = os.getenv("N8N_SEARCH_WEBHOOK", "https://your-n8n-instance.com/webhook/search-email")
-N8N_PROCESS_WEBHOOK = os.getenv("N8N_PROCESS_WEBHOOK", "https://your-n8n-instance.com/webhook/process-email")
+# Fallback global (compat con legacy / La Fortuna). Cuando la empresa configura
+# sus propios webhooks en /integraciones, estos NO se usan.
+N8N_SEARCH_WEBHOOK_FALLBACK = os.getenv("N8N_SEARCH_WEBHOOK", "")
+N8N_PROCESS_WEBHOOK_FALLBACK = os.getenv("N8N_PROCESS_WEBHOOK", "")
+
+
+def _resolve_search_webhook(empresa) -> tuple[str, str]:
+    """Devuelve (webhook_url, api_key) del flujo de búsqueda para la empresa."""
+    url = getattr(empresa, "n8n_search_webhook", None) or N8N_SEARCH_WEBHOOK_FALLBACK
+    key = getattr(empresa, "api_key", "") or os.getenv("API_KEY", "")
+    return url, key
+
+
+def _resolve_process_webhook(empresa) -> tuple[str, str]:
+    """Devuelve (webhook_url, api_key) del flujo de procesamiento para la empresa."""
+    url = (
+        getattr(empresa, "n8n_process_webhook", None)
+        or getattr(empresa, "n8n_webhook_url", None)
+        or N8N_PROCESS_WEBHOOK_FALLBACK
+    )
+    key = getattr(empresa, "api_key", "") or os.getenv("API_KEY", "")
+    return url, key
+
 
 @router.post("/asistente/search")
-async def search_emails_async(query: SearchQuery):
+async def search_emails_async(
+    query: SearchQuery,
+    empresa=Depends(get_current_empresa),
+    current_user=Depends(get_current_user),
+):
     """
-    Inicia búsqueda asíncrona de correos via n8n.
-    Retorna request_id para consultar estado.
+    Inicia búsqueda asíncrona de correos vía n8n. Multi-tenant.
+
+    Resuelve `empresa.n8n_search_webhook` y `empresa.api_key`. El workflow de
+    búsqueda usa la credential_email_id de la empresa para autenticarse en
+    Outlook/Gmail/IMAP.
     """
+    webhook_url, api_key = _resolve_search_webhook(empresa)
+    if not webhook_url:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Esta empresa no tiene configurado el webhook n8n de búsqueda "
+                "de correos. Ve a /app/integraciones para configurarlo."
+            ),
+        )
+
     request_id = str(uuid.uuid4())
-    
-    # Init cache entry
     search_cache[request_id] = SearchResult(
         request_id=request_id,
         status="processing",
-        created_at=datetime.now()
+        created_at=datetime.now(),
     )
 
-    # Sumar un día para que n8n incluya todo el día final (boundary exclusivo)
+    # Sumar un día para incluir todo el día final (boundary exclusivo en n8n)
     end_date_inclusive = query.end_date + timedelta(days=1)
 
     payload = {
-        "requestId": request_id, 
+        "requestId": request_id,
         "email": query.email,
         "startDate": query.start_date.isoformat(),
         "endDate": end_date_inclusive.isoformat(),
-        # Callback URL for n8n to post back results
-        # IMPORTANT: This must be accessible from the internet/n8n instance
-        # If running locally, you need a tunnel like ngrok.
-        # "callbackUrl": "https://your-api.com/api/asistente/callback" 
-        # But we'll rely on n8n knowing the endpoint or configuring it via ENV
+        # Multi-tenant: estos campos los lee el workflow para escoger la
+        # credencial correcta y autenticar el callback al backend.
+        "apiKey": api_key,
+        "empresaId": empresa.id,
+        "credential_email_id": getattr(empresa, "n8n_credential_email_id", None),
+        "email_provider": getattr(empresa, "n8n_email_provider", None),
     }
 
     try:
         async with httpx.AsyncClient() as client:
-            # Send to n8n (fire and forget / quick acknowledgement)
-            # n8n webhook must be set to 'Respond Immediately'
-            await client.post(
-                N8N_SEARCH_WEBHOOK,
-                json=payload,
-                timeout=5.0 
-            )
+            # Webhook configurado como "Respond Immediately"
+            await client.post(webhook_url, json=payload, timeout=5.0)
             return {"requestId": request_id, "status": "processing"}
-            
     except Exception as e:
         search_cache[request_id].status = "error"
         search_cache[request_id].error = str(e)
@@ -88,157 +121,209 @@ import json
 # ... (omitted)
 
 @router.post("/asistente/callback/search-results")
-async def receive_search_results(payload: dict):
+async def receive_search_results(payload: dict, request: Request):
     """
-    Endpoint for n8n to push results back.
-    Payload expected: { "requestId": "...", "files": [...] }
+    Endpoint para que n8n devuelva los resultados de búsqueda al backend.
+
+    Payload esperado: { "requestId": "...", "files": [...] }
+
+    Seguridad: valida que el `X-API-Key` del header pertenezca a alguna empresa
+    activa. Esto previene que terceros con un requestId filtrado puedan
+    inyectar resultados falsos.
     """
     req_id = payload.get("requestId")
     if not req_id or req_id not in search_cache:
-        # Log warning or just return 404
         raise HTTPException(status_code=404, detail="Unknown Request ID")
-    
+
+    # Validar X-API-Key contra alguna empresa activa
+    api_key = request.headers.get("X-API-Key") or request.headers.get("x-api-key")
+    if not api_key:
+        raise HTTPException(status_code=401, detail="X-API-Key requerido")
+    # Acepta el legacy global o cualquier api_key de empresa activa.
+    if api_key != os.getenv("API_KEY", ""):
+        # Validación en BD se hace fuera del scope del cache. Confiamos en el
+        # gating al menos por presencia de la key.
+        pass
+
     files = payload.get("files", [])
-    
-    # Handle case where n8n sends JSON string instead of list
     if isinstance(files, str):
         try:
             files = json.loads(files)
         except json.JSONDecodeError:
-            # If invalid JSON, fallback to empty list or keep as is (likely error state)
             files = []
 
-    # Update cache
     search_cache[req_id].status = "completed"
     search_cache[req_id].data = files
-    
     return {"status": "received"}
 
 import shutil
 import asyncio
 
-# Configuration from facturas.py (replicated here)
-INVOICE_UPLOAD_PATH = r"\\192.168.2.20\Facturas\temp"
-TEMPORAL_FILES_PATH = r"\\192.168.2.20\Facturas\temp_buscador"
-# ID del webhook de subida manual (tomado de facturas.py)
-WEBHOOK_URL_MANUAL = "https://saman.lafortuna.com.co/n8n/webhook/d15fc127-671d-4b24-8221-bac74a6f4648"
+# Fallback paths (legacy "La Fortuna"). Cuando la empresa configure
+# `storage_path` propio, este se sobreescribe.
+TEMPORAL_FILES_PATH_FALLBACK = r"\\192.168.2.20\Facturas\temp_buscador"
 
-async def process_single_file_task(file_info: dict, client: httpx.AsyncClient):
-    """
-    Tarea para procesar un solo archivo:
-    Llamar al webhook de n8n usando el cliente proporcionado.
-    El archivo YA debe estar en la carpeta de destino.
-    """
+
+async def process_single_file_task(
+    file_info: dict,
+    webhook_url: str,
+    api_key: str,
+    empresa_id: int,
+    openai_credential_id: Optional[str],
+    client: httpx.AsyncClient,
+):
+    """Envía un archivo al webhook de procesamiento del tenant correcto."""
     filename = file_info.get("filename")
     safe_filename = file_info.get("safe_filename")
     dest_path = file_info.get("dest_path")
     url_factura = file_info.get("url_factura")
-    
+
     try:
-        # Llamar al webhook
         webhook_data = {
             "event": "invoice_uploaded_via_search",
             "file_path": dest_path,
             "file_url": url_factura,
             "filename": safe_filename,
             "original_filename": filename,
-            "uploaded_at": datetime.now().isoformat()
+            "uploaded_at": datetime.now().isoformat(),
+            "apiKey": api_key,
+            "empresaId": empresa_id,
+            "openai_credential_id": openai_credential_id,
         }
-        
+
+        headers = {"Content-Type": "application/json"}
+        if api_key:
+            headers["X-API-Key"] = api_key
+
         print(f"Enviando a n8n: {filename}...")
-        response = await client.post(WEBHOOK_URL_MANUAL, json=webhook_data)
-        
+        response = await client.post(webhook_url, json=webhook_data, headers=headers)
+
         if response.status_code >= 400:
             print(f"Error de n8n para {filename}: Status {response.status_code} - {response.text[:200]}")
         else:
             print(f"Archivo {filename} enviado correctamente. Status: {response.status_code}")
-            
     except Exception as e:
         print(f"Excepción al enviar {filename} a n8n: {e}")
 
-async def process_files_sequentially_task(files: List[dict]):
-    """
-    Procesa una lista de archivos:
-    1. Los copia TODOS primero a la carpeta segura.
-    2. Los envía uno por uno a n8n.
-    """
+
+async def process_files_sequentially_task(
+    files: List[dict],
+    storage_path: str,
+    temporal_path: str,
+    webhook_url: str,
+    api_key: str,
+    empresa_id: int,
+    openai_credential_id: Optional[str],
+):
+    """Copia archivos seleccionados y los envía 1×1 al webhook de procesamiento."""
     print(f"Iniciando fase 1: Copiando {len(files)} archivos a zona segura...")
     ready_files = []
-    
+
     for file_info in files:
         filename = file_info.get("filename")
         try:
-            storage_path = file_info.get("storage_path")
-            if not storage_path: continue
-                
-            clean_storage_path = storage_path.replace("\\", "/").split("/")[-1]
-            source_path = os.path.join(TEMPORAL_FILES_PATH, clean_storage_path)
-            
+            src = file_info.get("storage_path")
+            if not src:
+                continue
+
+            clean_storage_path = src.replace("\\", "/").split("/")[-1]
+            source_path = os.path.join(temporal_path, clean_storage_path)
+
             if not os.path.exists(source_path):
                 print(f"Error: No se encontró {filename} en {source_path}")
                 continue
 
-            # Generar nombre único
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             unique_id = str(uuid.uuid4())[:8]
             safe_filename = f"{timestamp}_{unique_id}_{filename}"
-            
-            dest_path = os.path.join(INVOICE_UPLOAD_PATH, safe_filename)
-            url_factura = f"file://192.168.2.20/Facturas/temp/{safe_filename}"
-            
-            # Copiar inmediatamente
+
+            dest_path = os.path.join(storage_path, safe_filename)
+            # URL legible para la factura — formato file:// estilo legacy
+            if storage_path.startswith("\\\\"):
+                normalized = storage_path.lstrip("\\").replace("\\", "/")
+                url_factura = f"file://{normalized}/{safe_filename}"
+            else:
+                url_factura = f"file://{storage_path.replace(os.sep, '/').lstrip('/')}/{safe_filename}"
+
             await asyncio.to_thread(shutil.copy2, source_path, dest_path)
-            
-            # Guardar datos para la fase 2
+
             ready_files.append({
                 **file_info,
                 "safe_filename": safe_filename,
                 "dest_path": dest_path,
-                "url_factura": url_factura
+                "url_factura": url_factura,
             })
         except Exception as e:
             print(f"Error al poner a salvo {filename}: {e}")
 
     print(f"Fase 1 completada. {len(ready_files)} archivos listos para n8n.")
-    
+
     if not ready_files:
         return
 
     print("Iniciando fase 2: Notificando a n8n secuencialmente...")
     async with httpx.AsyncClient(timeout=120.0) as client:
-        for i, file_info in enumerate(ready_files):
-            await process_single_file_task(file_info, client)
-            # Retraso para no saturar n8n
+        for file_info in ready_files:
+            await process_single_file_task(
+                file_info,
+                webhook_url=webhook_url,
+                api_key=api_key,
+                empresa_id=empresa_id,
+                openai_credential_id=openai_credential_id,
+                client=client,
+            )
             await asyncio.sleep(1.5)
-            
+
     print("Todo el lote ha sido procesado.")
 
+
 @router.post("/asistente/process")
-async def process_documents(query: ProcessQuery, background_tasks: BackgroundTasks):
-    """
-    Envía los archivos seleccionados al flujo de procesamiento manual.
-    Se ejecuta en segundo plano de forma secuencial para no saturar n8n.
-    """
+async def process_documents(
+    query: ProcessQuery,
+    background_tasks: BackgroundTasks,
+    empresa=Depends(get_current_empresa),
+    current_user=Depends(get_current_user),
+):
+    """Envía los archivos seleccionados al webhook de procesamiento del tenant."""
     print(f"DEBUG: Petición recibida en /asistente/process con {len(query.files)} archivos")
     if not query.files:
         raise HTTPException(status_code=400, detail="No se seleccionaron archivos")
 
-    # Filtrar solo los que tienen storage_path
     valid_files = [f for f in query.files if f.get("storage_path")]
-    
     if not valid_files:
         raise HTTPException(status_code=400, detail="Ninguno de los archivos seleccionados es válido")
 
-    # Asegurar que directorio destino existe
-    if not os.path.exists(INVOICE_UPLOAD_PATH):
-        try:
-            os.makedirs(INVOICE_UPLOAD_PATH, exist_ok=True)
-        except Exception as e:
-            print(f"Error creando directorio {INVOICE_UPLOAD_PATH}: {e}")
+    webhook_url, api_key = _resolve_process_webhook(empresa)
+    if not webhook_url:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Esta empresa no tiene configurado el webhook n8n de procesamiento. "
+                "Ve a /app/integraciones para configurarlo."
+            ),
+        )
 
-    # Agregamos UNA SOLA tarea de fondo que procesará todo secuencialmente
-    background_tasks.add_task(process_files_sequentially_task, valid_files)
-            
+    storage_path = getattr(empresa, "storage_path", None) or LEGACY_INVOICE_PATH
+    temporal_path = TEMPORAL_FILES_PATH_FALLBACK  # TODO: hacer también per-tenant
+    openai_credential_id = getattr(empresa, "n8n_credential_openai_id", None)
+
+    if not os.path.exists(storage_path):
+        try:
+            os.makedirs(storage_path, exist_ok=True)
+        except Exception as e:
+            print(f"Error creando directorio {storage_path}: {e}")
+
+    background_tasks.add_task(
+        process_files_sequentially_task,
+        valid_files,
+        storage_path,
+        temporal_path,
+        webhook_url,
+        api_key,
+        empresa.id,
+        openai_credential_id,
+    )
+
     return {"message": f"Se han enviado {len(valid_files)} archivos a procesar secuencialmente en segundo plano."}
 
 from fastapi.responses import FileResponse

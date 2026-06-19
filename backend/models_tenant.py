@@ -84,9 +84,20 @@ class Empresa(Base):
     oracle_enabled = Column(Boolean, default=False)
 
     # Webhooks n8n configurables por empresa
-    n8n_webhook_url = Column(String(500))
-    n8n_search_webhook = Column(String(500))
-    n8n_process_webhook = Column(String(500))
+    n8n_webhook_url = Column(String(500))     # upload manual de PDF
+    n8n_search_webhook = Column(String(500))  # búsqueda emails (fase 2)
+    n8n_process_webhook = Column(String(500)) # procesar adjuntos (fase 2)
+
+    # IDs de credenciales en n8n. El usuario las crea en n8n una sola vez
+    # y pega los IDs en su panel /app/integraciones. El workflow los lee del
+    # payload y los usa como credentialId dinámico → multi-tenant.
+    n8n_credential_openai_id = Column(String(100))
+    n8n_credential_email_id = Column(String(100))
+    n8n_email_provider = Column(String(20))  # outlook|gmail|yahoo|imap
+
+    # Estado del último test del webhook (UI)
+    n8n_webhook_last_test = Column(DateTime)
+    n8n_webhook_last_status = Column(String(10))  # 'ok'|'error'
 
     # Almacenamiento de archivos
     storage_type = Column(String(20), default="local")  # local, ftp, s3

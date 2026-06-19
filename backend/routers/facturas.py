@@ -30,6 +30,14 @@ from database import get_db
 from core.dependencies import get_current_empresa, get_current_user
 from services.causacion import crear_asiento_causacion_factura
 from services.pago import crear_asiento_pago_factura, CUENTA_PROVEEDORES_DEFAULT
+from services.integraciones_n8n import (
+    get_upload_config,
+    build_upload_payload,
+    call_upload_webhook,
+    file_url_from_storage,
+    LEGACY_INVOICE_PATH,
+    LEGACY_WEBHOOK_URL,
+)
 from sqlalchemy import select, func as sqlfunc
 from models_contabilidad import AsientoContable, LineaAsiento
 
@@ -132,9 +140,13 @@ async def _generar_asiento_causacion_safe(
         )
         return {"creado": False, "razon": f"Error generando asiento: {e}"}
 
-# Configuration for invoice uploads
-INVOICE_UPLOAD_PATH = r"\\192.168.2.20\Facturas\temp"
-WEBHOOK_URL = "https://saman.lafortuna.com.co/n8n/webhook/d15fc127-671d-4b24-8221-bac74a6f4648"
+# Configuration for invoice uploads — fallback legacy
+# La configuración real ahora se resuelve por empresa vía
+# services.integraciones_n8n.get_upload_config(empresa). Estas constantes
+# quedan solo como fallback para empresas que aún no configuraron su panel
+# (ver migración 007_integraciones_n8n.sql).
+INVOICE_UPLOAD_PATH = LEGACY_INVOICE_PATH
+WEBHOOK_URL = LEGACY_WEBHOOK_URL
 
 
 
@@ -1163,78 +1175,67 @@ async def upload_factura(
     fecha_vencimiento: str = Form(None),
     valor: float = Form(None),
     observaciones: str = Form(None),
-    db: AsyncSession = Depends(get_db)
+    empresa=Depends(get_current_empresa),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Upload an invoice PDF manually or create an invoice with manual data.
-    
-    - If a PDF file is provided, it will be saved to the server and the webhook will be notified
-    - If no file is provided, an invoice will be created with the manual data
-    
-    The PDF is saved to: \\\\192.168.2.20\\Facturas\\temp
-    Then webhook is notified: https://acertemos.a.pinggy.link/webhook/...
+    Multi-tenant: storage path y webhook se leen de la empresa activa.
+
+    - Si llega PDF, se guarda en empresa.storage_path y se notifica al webhook
+      empresa.n8n_webhook_url con la api_key + credential OpenAI del tenant.
+    - Si no llega archivo, se crea la factura solo con los datos manuales.
     """
+    cfg = get_upload_config(empresa)
     url_factura = None
-    
+    webhook_status = None
+
     # Handle PDF file upload
     if file and file.filename:
-        # Validate file type
         if not file.filename.lower().endswith('.pdf'):
             raise HTTPException(status_code=400, detail="Solo se permiten archivos PDF")
-        
-        # Generate unique filename to avoid conflicts
+
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         unique_id = str(uuid.uuid4())[:8]
         safe_filename = f"{timestamp}_{unique_id}_{file.filename}"
-        
-        # Create full path
-        file_path = os.path.join(INVOICE_UPLOAD_PATH, safe_filename)
-        
-        # Check if directory exists
+
+        file_path = os.path.join(cfg.storage_path, safe_filename)
+
         try:
-            if not os.path.exists(INVOICE_UPLOAD_PATH):
-                os.makedirs(INVOICE_UPLOAD_PATH, exist_ok=True)
+            if not os.path.exists(cfg.storage_path):
+                os.makedirs(cfg.storage_path, exist_ok=True)
         except Exception as e:
             raise HTTPException(
-                status_code=500, 
-                detail=f"No se puede acceder a la carpeta de destino: {INVOICE_UPLOAD_PATH}. Error: {str(e)}"
+                status_code=500,
+                detail=f"No se puede acceder a la carpeta de destino: {cfg.storage_path}. Error: {str(e)}",
             )
-        
-        # Save file
+
         try:
             content = await file.read()
             with open(file_path, "wb") as f:
                 f.write(content)
-            
-            # Create URL for the saved file
-            url_factura = f"file://192.168.2.20/Facturas/temp/{safe_filename}"
-            
+            url_factura = file_url_from_storage(cfg.storage_path, safe_filename)
         except Exception as e:
-            raise HTTPException(
-                status_code=500, 
-                detail=f"Error guardando archivo: {str(e)}"
-            )
-        
-        # Notify webhook
+            raise HTTPException(status_code=500, detail=f"Error guardando archivo: {str(e)}")
+
+        # Notify webhook (best-effort: el upload no falla si el webhook falla)
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                webhook_data = {
-                    "event": "invoice_uploaded",
-                    "file_path": file_path,
-                    "file_url": url_factura,
-                    "filename": safe_filename,
-                    "original_filename": file.filename,
-                    "uploaded_at": datetime.now().isoformat(),
+            webhook_data = build_upload_payload(
+                cfg=cfg,
+                file_path=file_path,
+                file_url=url_factura,
+                safe_filename=safe_filename,
+                original_filename=file.filename,
+                uploaded_at_iso=datetime.now().isoformat(),
+                extras={
                     "proveedor_nit": proveedor_nit,
-                    "numero_factura": numero_factura
-                }
-                
-                response = await client.post(WEBHOOK_URL, json=webhook_data)
-                webhook_status = response.status_code
-                
+                    "numero_factura": numero_factura,
+                },
+            )
+            response = await call_upload_webhook(cfg, webhook_data, timeout=30.0)
+            webhook_status = response.status_code
         except Exception as e:
-            # Don't fail the upload if webhook fails, just log it
-            print(f"Warning: Webhook notification failed: {e}")
+            logger.warning("Webhook notification failed: %s", e)
             webhook_status = None
     
     # If no file and no invoice data provided
@@ -1301,134 +1302,125 @@ async def upload_factura(
 @router.post("/facturas/upload-pdf")
 async def upload_factura_pdf(
     file: UploadFile = File(...),
-    db: AsyncSession = Depends(get_db)
+    empresa=Depends(get_current_empresa),
+    db: AsyncSession = Depends(get_db),
 ):
     """
-    Upload a PDF file for OCR processing by n8n.
-    
-    This endpoint is synchronous - it waits for n8n to process the PDF and respond.
-    n8n uses "Respond to Webhook" node to return the result.
-    
+    Upload a PDF file for OCR processing by n8n. Multi-tenant.
+
+    Sincrónico — espera la respuesta de n8n (timeout 120s). El webhook URL,
+    la api_key y la credencial OpenAI se resuelven por empresa (ver
+    services.integraciones_n8n.get_upload_config).
+
     Flow:
-    1. Frontend uploads PDF
-    2. Backend saves PDF and calls webhook
-    3. Backend WAITS for n8n to respond (up to 120 seconds)
-    4. n8n processes the PDF (OCR, extraction), creates factura
-    5. n8n responds with the result
-    6. Backend returns the result to frontend
-    
-    n8n should respond with JSON:
+    1. Frontend uploads PDF (JWT identifica empresa activa)
+    2. Backend guarda el PDF en empresa.storage_path
+    3. Backend dispara el webhook empresa.n8n_webhook_url con apiKey +
+       openai_credential_id del tenant
+    4. n8n procesa con la credencial OpenAI del tenant y responde
+    5. Backend devuelve el resultado
+
+    n8n responde con JSON:
     - Success: {"success": true, "factura_id": 123, "factura": {...}}
-    - Error: {"success": false, "error": "Error message"}
+    - Error:   {"success": false, "error": "..."}
     """
+    # Resolver config n8n de la empresa activa
+    cfg = get_upload_config(empresa)
+
     # Validate file type and prepare filename
     filename = file.filename.lower()
     is_image = filename.endswith(('.jpg', '.jpeg', '.png'))
-    
+
     if not (filename.endswith('.pdf') or is_image):
         raise HTTPException(status_code=400, detail="Solo se permiten archivos PDF, JPG o PNG")
-    
+
     # Generate unique filename (always .pdf for storage)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     unique_id = str(uuid.uuid4())[:8]
-    
+
     original_name_base = os.path.splitext(file.filename)[0]
     safe_filename = f"{timestamp}_{unique_id}_{original_name_base}.pdf"
-    
-    # Create full path
-    file_path = os.path.join(INVOICE_UPLOAD_PATH, safe_filename)
-    url_factura = f"file://192.168.2.20/Facturas/temp/{safe_filename}"
-    
+
+    # Create full path (usa empresa.storage_path con fallback a legacy)
+    file_path = os.path.join(cfg.storage_path, safe_filename)
+    url_factura = file_url_from_storage(cfg.storage_path, safe_filename)
+
     # Check if directory exists and save/convert file
     try:
-        if not os.path.exists(INVOICE_UPLOAD_PATH):
-            os.makedirs(INVOICE_UPLOAD_PATH, exist_ok=True)
-        
+        if not os.path.exists(cfg.storage_path):
+            os.makedirs(cfg.storage_path, exist_ok=True)
+
         content = await file.read()
-        
+
         if is_image:
-            # Convert image to PDF
-            # Use Pillow to handle image loading and img2pdf for quality/efficiency or just Pillow
-            # img2pdf is better for preserving quality without re-encoding if possible, 
-            # but simplest path is Pillow.save(..., "PDF")
-            
-            # Use Pillow to ensure it's a valid image and handle basic conversions (e.g. RGBA to RGB)
             image = Image.open(io.BytesIO(content))
-            
-            # Convert to RGB if necessary (PDF doesn't support RGBA)
             if image.mode == 'RGBA':
                 image = image.convert('RGB')
-                
-            # Save as PDF
             image.save(file_path, "PDF", resolution=100.0)
         else:
-            # Save PDF directly
             with open(file_path, "wb") as f:
                 f.write(content)
-        
+
     except Exception as e:
         raise HTTPException(
-            status_code=500, 
+            status_code=500,
             detail=f"Error procesando archivo: {str(e)}"
         )
-    
+
     # Call webhook and WAIT for n8n response (timeout 120 seconds for OCR processing)
     try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            webhook_data = {
-                "event": "invoice_uploaded",
-                "file_path": file_path,
-                "file_url": url_factura,
-                "filename": safe_filename,
-                "original_filename": file.filename,
-                "uploaded_at": datetime.now().isoformat()
-            }
-            
-            response = await client.post(WEBHOOK_URL, json=webhook_data)
-            
-            # Check if n8n responded successfully
-            if response.status_code in [200, 201, 202]:
-                try:
-                    n8n_result = response.json()
-                    
-                    # n8n returned success
-                    if n8n_result.get("success"):
-                        return {
-                            "ok": True,
-                            "message": "Factura procesada correctamente",
-                            "file_url": url_factura,
-                            "filename": safe_filename,
-                            "factura_id": n8n_result.get("factura_id"),
-                            "factura": n8n_result.get("factura"),
-                            "n8n_response": n8n_result
-                        }
-                    else:
-                        # n8n returned an error
-                        return {
-                            "ok": False,
-                            "message": n8n_result.get("error", "Error procesando factura en n8n"),
-                            "file_url": url_factura,
-                            "filename": safe_filename,
-                            "n8n_response": n8n_result
-                        }
-                except Exception as json_error:
-                    # n8n responded but not with valid JSON
+        webhook_data = build_upload_payload(
+            cfg=cfg,
+            file_path=file_path,
+            file_url=url_factura,
+            safe_filename=safe_filename,
+            original_filename=file.filename,
+            uploaded_at_iso=datetime.now().isoformat(),
+        )
+        response = await call_upload_webhook(cfg, webhook_data, timeout=120.0)
+
+        # Check if n8n responded successfully
+        if response.status_code in [200, 201, 202]:
+            try:
+                n8n_result = response.json()
+
+                # n8n returned success
+                if n8n_result.get("success"):
                     return {
                         "ok": True,
-                        "message": "Archivo procesado (respuesta no JSON)",
+                        "message": "Factura procesada correctamente",
                         "file_url": url_factura,
                         "filename": safe_filename,
-                        "raw_response": response.text[:500]
+                        "factura_id": n8n_result.get("factura_id"),
+                        "factura": n8n_result.get("factura"),
+                        "n8n_response": n8n_result,
                     }
-            else:
-                # n8n returned error status
+                # n8n returned an error
                 return {
                     "ok": False,
-                    "message": f"Error en n8n: HTTP {response.status_code}",
+                    "message": n8n_result.get("error", "Error procesando factura en n8n"),
                     "file_url": url_factura,
-                    "filename": safe_filename
+                    "filename": safe_filename,
+                    "n8n_response": n8n_result,
                 }
-            
+            except Exception:
+                # n8n responded but not with valid JSON
+                return {
+                    "ok": True,
+                    "message": "Archivo procesado (respuesta no JSON)",
+                    "file_url": url_factura,
+                    "filename": safe_filename,
+                    "raw_response": response.text[:500],
+                }
+
+        # n8n returned error status
+        return {
+            "ok": False,
+            "message": f"Error en n8n: HTTP {response.status_code}",
+            "file_url": url_factura,
+            "filename": safe_filename,
+        }
+
     except httpx.TimeoutException:
         return {
             "ok": False,
@@ -1448,17 +1440,20 @@ async def upload_factura_pdf(
 @router.post("/facturas/upload-zip")
 async def upload_factura_zip(
     file: UploadFile = File(...),
-    db: AsyncSession = Depends(get_db)
+    empresa=Depends(get_current_empresa),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Upload a ZIP file containing multiple PDF invoices for OCR processing.
-    
+    Multi-tenant: storage path y webhook se resuelven por empresa activa.
+
     Each PDF in the ZIP will be:
-    1. Extracted to the upload folder
-    2. Processed by n8n via webhook
-    
+    1. Extracted to empresa.storage_path
+    2. Processed by n8n via empresa.n8n_webhook_url
+
     Returns a summary of processed files.
     """
+    cfg = get_upload_config(empresa)
     # Validate file type
     if not file.filename.lower().endswith('.zip'):
         raise HTTPException(status_code=400, detail="Solo se permiten archivos ZIP")
@@ -1496,66 +1491,62 @@ async def upload_factura_zip(
                     original_filename = os.path.basename(pdf_name)
                     safe_filename = f"{timestamp}_{unique_id}_{original_filename}"
                     
-                    # Save PDF to upload folder
-                    file_path = os.path.join(INVOICE_UPLOAD_PATH, safe_filename)
-                    url_factura = f"file://192.168.2.20/Facturas/temp/{safe_filename}"
-                    
-                    # Ensure directory exists
-                    if not os.path.exists(INVOICE_UPLOAD_PATH):
-                        os.makedirs(INVOICE_UPLOAD_PATH, exist_ok=True)
-                    
+                    # Save PDF to empresa.storage_path
+                    file_path = os.path.join(cfg.storage_path, safe_filename)
+                    url_factura = file_url_from_storage(cfg.storage_path, safe_filename)
+
+                    if not os.path.exists(cfg.storage_path):
+                        os.makedirs(cfg.storage_path, exist_ok=True)
+
                     with open(file_path, "wb") as f:
                         f.write(pdf_content)
-                    
-                    # Call webhook for this PDF
+
+                    # Call webhook for this PDF (multi-tenant)
                     try:
-                        async with httpx.AsyncClient(timeout=120.0) as client:
-                            webhook_data = {
-                                "event": "invoice_uploaded",
-                                "file_path": file_path,
-                                "file_url": url_factura,
-                                "filename": safe_filename,
-                                "original_filename": original_filename,
-                                "uploaded_at": datetime.now().isoformat(),
-                                "from_zip": True,
-                                "zip_filename": file.filename
-                            }
-                            
-                            response = await client.post(WEBHOOK_URL, json=webhook_data)
-                            
-                            if response.status_code in [200, 201, 202]:
-                                try:
-                                    n8n_result = response.json()
-                                    if n8n_result.get("success"):
-                                        results.append({
-                                            "filename": original_filename,
-                                            "status": "success",
-                                            "factura_id": n8n_result.get("factura_id"),
-                                            "message": "Procesado correctamente",
-                                            "data": {
-                                                "numero_factura": n8n_result.get("factura", {}).get("numero_factura"),
-                                                "es_duplicada": n8n_result.get("factura", {}).get("es_duplicada", False)
-                                            }
-                                        })
-                                    else:
-                                        errors.append({
-                                            "filename": original_filename,
-                                            "status": "error",
-                                            "message": n8n_result.get("error", "Error en n8n")
-                                        })
-                                except:
+                        webhook_data = build_upload_payload(
+                            cfg=cfg,
+                            file_path=file_path,
+                            file_url=url_factura,
+                            safe_filename=safe_filename,
+                            original_filename=original_filename,
+                            uploaded_at_iso=datetime.now().isoformat(),
+                            extras={"from_zip": True, "zip_filename": file.filename},
+                        )
+                        response = await call_upload_webhook(cfg, webhook_data, timeout=120.0)
+
+                        if response.status_code in [200, 201, 202]:
+                            try:
+                                n8n_result = response.json()
+                                if n8n_result.get("success"):
                                     results.append({
                                         "filename": original_filename,
                                         "status": "success",
-                                        "message": "Archivo guardado (respuesta no JSON)"
+                                        "factura_id": n8n_result.get("factura_id"),
+                                        "message": "Procesado correctamente",
+                                        "data": {
+                                            "numero_factura": n8n_result.get("factura", {}).get("numero_factura"),
+                                            "es_duplicada": n8n_result.get("factura", {}).get("es_duplicada", False),
+                                        },
                                     })
-                            else:
-                                errors.append({
+                                else:
+                                    errors.append({
+                                        "filename": original_filename,
+                                        "status": "error",
+                                        "message": n8n_result.get("error", "Error en n8n"),
+                                    })
+                            except Exception:
+                                results.append({
                                     "filename": original_filename,
-                                    "status": "error",
-                                    "message": f"Error n8n: HTTP {response.status_code}"
+                                    "status": "success",
+                                    "message": "Archivo guardado (respuesta no JSON)",
                                 })
-                                
+                        else:
+                            errors.append({
+                                "filename": original_filename,
+                                "status": "error",
+                                "message": f"Error n8n: HTTP {response.status_code}",
+                            })
+
                     except httpx.TimeoutException:
                         errors.append({
                             "filename": original_filename,

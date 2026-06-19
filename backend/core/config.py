@@ -31,6 +31,19 @@ class Settings(BaseSettings):
     # por empresa almacenadas en la tabla empresas.api_key.
     API_KEY: Optional[str] = None
 
+    # ---------- n8n compartido del SaaS ----------
+    # Arquitectura: un solo workflow atiende a TODOS los tenants. El backend
+    # envía en el payload `apiKey`, `empresaId`, `openai_credential_id` y
+    # `credential_email_id` para que el workflow use credenciales dinámicas
+    # (n8n soporta credentialId como expresión desde v1.x).
+    #
+    # Estas URLs son las del workflow compartido. Cada empresa puede sobreescribir
+    # con su propia instancia n8n self-hosted en empresas.n8n_webhook_url, pero el
+    # default debería ser apuntar a la instancia n8n del SaaS.
+    N8N_PROCESS_WEBHOOK_URL: Optional[str] = None  # workflow procesar factura (PDF)
+    N8N_SEARCH_WEBHOOK_URL: Optional[str] = None   # workflow buscar correos (fase 2)
+    N8N_PROCESS_EMAIL_WEBHOOK_URL: Optional[str] = None  # workflow procesar adjunto (fase 2)
+
     # ---------- Superadmin semilla ----------
     SUPERADMIN_EMAIL: str = "admin@admin.com"
     SUPERADMIN_PASSWORD: str = "admin123"
