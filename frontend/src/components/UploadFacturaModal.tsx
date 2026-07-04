@@ -212,13 +212,15 @@ export default function UploadFacturaModal({ isOpen, onClose, onSuccess }: Uploa
             const formDataObj = new FormData();
             formDataObj.append('file', selectedFile);
 
-            // Determine endpoint based on file type
+            // Determine endpoint based on file type — apiFetch arma la URL
+            // contra VITE_API_URL + prefix /api/ e inyecta Authorization JWT
+            // + X-Empresa-Id del tenant activo.
             const isZip = selectedFile.name.toLowerCase().endsWith('.zip');
-            const endpoint = isZip ? `${API_URL}/facturas/upload-zip` : `${API_URL}/facturas/upload-pdf`;
+            const endpoint = isZip ? '/facturas/upload-zip' : '/facturas/upload-pdf';
 
-            const res = await fetch(endpoint, {
+            const res = await apiFetch(endpoint, {
                 method: 'POST',
-                body: formDataObj
+                body: formDataObj,
             });
 
             const data = await res.json();
