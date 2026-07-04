@@ -221,6 +221,8 @@ backup_db/
 # Excepciones — archivos del proyecto que SÍ deben ir al repo (rama saas-multitenant)
 !README.md
 !DEPLOYMENT_LOCAL.md
+!SETUP_N8N.md
+!n8n/README_INTEGRACION.md
 !backend/migrations/*.sql
 # NOTA: backend/.env.example y frontend/.env.production se SACARON del repo
 # por seguridad. Las instrucciones para crearlos están en README.md.

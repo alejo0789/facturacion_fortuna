@@ -230,22 +230,36 @@ empresa A y `SOLO_LECTURA` en la empresa B.
 
 ## Integraciones
 
-### n8n — extracción automática desde correo
+### n8n — extracción automática con IA
 
-El flujo `n8n_flujo_fact.json` conecta:
+Arquitectura **un solo workflow compartido + credenciales dinámicas**: el
+SaaS opera una instancia n8n con los workflows compartidos que atienden a
+todos los tenants. Cada empresa registra su propia credencial Google Gemini
+(AI Studio) en ese n8n y pega el Credential ID en su panel
+`/app/integraciones`. El backend inyecta ese ID en cada payload y el
+workflow lo usa como `credentialId` dinámico.
 
-1. **Outlook** (IMAP) lee correos con adjuntos PDF.
-2. **IA** (modelo LLM) extrae campos de la factura: NIT, número,
-   fecha, total, impuestos, proveedor.
-3. **HTTP Request** hace `POST /api/facturas` con la factura
-   estructurada + PDF en base64.
-4. Autenticación del webhook con `X-API-Key: <api_key de la empresa>`.
-5. La empresa se resuelve automáticamente por la `api_key`; no se
-   necesita enviar `X-Empresa-Id`.
+Workflows en `n8n/` (todos con Google Gemini nativo):
 
-Cada empresa tiene una `api_key` única (UUID) rotable vía
-`POST /api/empresas/{id}/rotate-api-key`. Así, un solo n8n puede servir
-a N empresas apuntando cada flujo al webhook con su propia llave.
+| Archivo | Rol |
+|---------|-----|
+| `workflow_procesar_factura_gemini.json` | Upload manual de PDF (probado end-to-end) |
+| `workflow_buscar_facturas_template.json` | Fase 2: buscar correos con adjuntos (Outlook/Gmail/Yahoo/IMAP) |
+| `workflow_procesar_adjunto_template.json` | Fase 2: procesar el adjunto seleccionado |
+
+Autenticación del callback del workflow al backend:
+
+- `X-API-Key: <api_key de la empresa>` — UUID rotable vía
+  `POST /api/empresas/{id}/rotate-api-key`.
+- `X-Empresa-Id: <id>` — identifica el tenant destino.
+
+El PDF viaja embebido como `pdf_base64` en el payload del webhook (no se lee
+del filesystem — evita la restricción `N8N_RESTRICT_FILE_ACCESS_TO`).
+
+Para el paso a paso completo con los tropiezos comunes documentados
+(activación del workflow, credenciales fixed value, `127.0.0.1` vs
+`localhost` en Windows, etc.), ver [`SETUP_N8N.md`](./SETUP_N8N.md) y
+[`n8n/README_INTEGRACION.md`](./n8n/README_INTEGRACION.md).
 
 ### Oracle ManagerERP / MANAMED
 
@@ -838,9 +852,14 @@ facturacion_fortuna/
 │   │   └── App.tsx                # Router con lazy() + Suspense
 │   ├── vite.config.ts
 │   └── package.json
-├── n8n_flujo_fact.json            # Flujo Outlook → IA → POST /api/facturas
+├── n8n/                           # Workflows compartidos + README de integración
+│   ├── workflow_procesar_factura_gemini.json           # ← probado end-to-end
+│   ├── workflow_buscar_facturas_template.json          # fase 2 correo
+│   ├── workflow_procesar_adjunto_template.json         # fase 2 correo (Gemini)
+│   └── README_INTEGRACION.md
 ├── apache_config_production.conf  # Reverse proxy HTTPS
-├── DEPLOYMENT_LOCAL.md            # Versión extendida del despliegue (este README la consolida)
+├── SETUP_N8N.md                   # Guía end-to-end del setup de n8n
+├── DEPLOYMENT_LOCAL.md            # Versión extendida del despliegue
 └── README.md                      # ← este archivo
 ```
 
