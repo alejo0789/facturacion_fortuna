@@ -16,7 +16,7 @@
     },
     {
       "parameters": {
-        "functionCode": "// Extrae el contexto tenant del payload y normaliza variables\nconst d = $input.item.json;\nconst provider = (d.email_provider || 'outlook').toLowerCase();\nreturn { json: {\n  requestId: d.requestId || '',\n  apiKey: d.apiKey || '',\n  empresaId: d.empresaId || null,\n  startDate: d.startDate || '',\n  endDate: d.endDate || '',\n  email: d.email || '',\n  email_provider: provider,\n  credential_email_id: d.credential_email_id || '',\n  callbackUrl: d.callbackUrl || ($env.FACTURACION_API_URL || 'http://localhost:8000') + '/api/asistente/callback/search-results'\n}};"
+        "functionCode": "// Extrae el contexto tenant del payload y normaliza variables.\n// $env.* está bloqueado por N8N_BLOCK_ENV_ACCESS_IN_NODE, así que el\n// fallback del callbackUrl va hardcoded a 127.0.0.1:8000. El backend\n// puede sobreescribirlo enviando 'callbackUrl' explícitamente en el payload.\nconst d = $input.item.json;\nconst provider = (d.email_provider || 'outlook').toLowerCase();\nreturn { json: {\n  requestId: d.requestId || '',\n  apiKey: d.apiKey || '',\n  empresaId: d.empresaId || null,\n  startDate: d.startDate || '',\n  endDate: d.endDate || '',\n  email: d.email || '',\n  email_provider: provider,\n  credential_email_id: d.credential_email_id || '',\n  callbackUrl: d.callbackUrl || 'http://127.0.0.1:8000/api/asistente/callback/search-results'\n}};"
       },
       "name": "Extraer Contexto",
       "type": "n8n-nodes-base.code",

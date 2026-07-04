@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request
 from pydantic import BaseModel, EmailStr
 from typing import List, Optional, Dict
+import base64
 import httpx
 import os
 import uuid
@@ -179,6 +180,17 @@ async def process_single_file_task(
     url_factura = file_info.get("url_factura")
 
     try:
+        # Leer el PDF y adjuntarlo como base64 en el payload — mismo patrón
+        # que /facturas/upload-pdf. Evita que el workflow tenga que leer del
+        # filesystem (bloqueado por N8N_RESTRICT_FILE_ACCESS_TO en n8n).
+        pdf_base64 = ""
+        pdf_mime_type = "application/pdf"
+        try:
+            with open(dest_path, "rb") as fh:
+                pdf_base64 = base64.b64encode(fh.read()).decode("ascii")
+        except Exception as read_err:
+            print(f"WARN: no se pudo leer {dest_path} para base64: {read_err}")
+
         webhook_data = {
             "event": "invoice_uploaded_via_search",
             "file_path": dest_path,
@@ -189,13 +201,15 @@ async def process_single_file_task(
             "apiKey": api_key,
             "empresaId": empresa_id,
             "openai_credential_id": openai_credential_id,
+            "pdf_base64": pdf_base64,
+            "pdf_mime_type": pdf_mime_type,
         }
 
         headers = {"Content-Type": "application/json"}
         if api_key:
             headers["X-API-Key"] = api_key
 
-        print(f"Enviando a n8n: {filename}...")
+        print(f"Enviando a n8n: {filename} ({len(pdf_base64)} B64 chars)...")
         response = await client.post(webhook_url, json=webhook_data, headers=headers)
 
         if response.status_code >= 400:

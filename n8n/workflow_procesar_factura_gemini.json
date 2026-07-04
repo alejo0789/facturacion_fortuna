@@ -1,0 +1,195 @@
+{
+  "name": "Procesar Factura — Gemini nativo",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "procesar-factura",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "Webhook — Recibir Factura",
+      "type": "n8n-nodes-base.webhook",
+      "position": [-1728, 1344],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Extrae el contexto tenant del payload. El backend envía apiKey,\n// empresaId, credenciales, y el PDF embebido en pdf_base64 para evitar\n// que el workflow tenga que leer del filesystem (N8N_RESTRICT_FILE_ACCESS_TO).\nconst d = $json || {};\nreturn {\n  apiKey: d.apiKey || '',\n  empresaId: d.empresaId || null,\n  gemini_credential_id: d.openai_credential_id || d.gemini_credential_id || '',\n  file_path: d.file_path || '',\n  file_url: d.file_url || '',\n  filename: d.filename || '',\n  original_filename: d.original_filename || d.filename || '',\n  uploaded_at: d.uploaded_at || new Date().toISOString(),\n  pdf_base64: d.pdf_base64 || '',\n  pdf_mime_type: d.pdf_mime_type || 'application/pdf'\n};"
+      },
+      "name": "Extraer Contexto Tenant",
+      "type": "n8n-nodes-base.code",
+      "position": [-1504, 1344],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Lee directamente del nodo Webhook para evitar problemas de propagación\n// del string base64 (que puede ser muy largo) entre nodos intermedios.\nconst webhookData = $('Webhook — Recibir Factura').item.json;\n\n// El webhook puede entregar el body anidado en .body o plano en raíz\nconst data = webhookData.body || webhookData;\n\nconst base64 = data.pdf_base64 || $json.pdf_base64 || '';\nconst mimeType = data.pdf_mime_type || $json.pdf_mime_type || 'application/pdf';\nconst fileName = data.original_filename || $json.original_filename || 'factura.pdf';\n\nif (!base64 || base64.length < 100) {\n  throw new Error(\n    `pdf_base64 vacío o muy corto (length=${base64.length}). ` +\n    `Webhook keys: [${Object.keys(data).join(', ')}]. ` +\n    `$json keys: [${Object.keys($json).join(', ')}].`\n  );\n}\n\nreturn {\n  json: $json,\n  binary: {\n    data: {\n      data: base64,\n      mimeType: mimeType,\n      fileName: fileName,\n      fileExtension: 'pdf'\n    }\n  }\n};"
+      },
+      "name": "Base64 a Binary",
+      "type": "n8n-nodes-base.code",
+      "position": [-1280, 1344],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "resource": "document",
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-2.5-flash",
+          "mode": "list",
+          "cachedResultName": "models/gemini-2.5-flash"
+        },
+        "text": "Eres un experto en facturas colombianas. Analiza el PDF adjunto y devuelve SOLO un JSON válido con esta estructura exacta, sin texto adicional ni bloques markdown:\n\n{\n  \"proveedor_nit\": \"NIT del proveedor con dígito de verificación (ej 900238454-8)\",\n  \"proveedor_nombre\": \"Razón social del proveedor\",\n  \"numero_factura\": \"Número de la factura\",\n  \"cufe\": \"Código CUFE o null\",\n  \"fecha_factura\": \"YYYY-MM-DD\",\n  \"fecha_vencimiento\": \"YYYY-MM-DD o null\",\n  \"valor\": 123456,\n  \"observaciones\": \"Notas relevantes sobre la factura\"\n}\n\nReglas:\n- Si no encuentras un campo, ponlo como null.\n- \"valor\" debe ser número decimal sin separadores ni símbolo de moneda.\n- \"proveedor_nit\" debe incluir el dígito de verificación si está visible.\n- Responde SOLO con el JSON, sin texto antes ni después.",
+        "inputType": "binary",
+        "options": {}
+      },
+      "name": "Analyze document",
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1.1,
+      "position": [-1040, 1344],
+      "notes": "Al importar este workflow: asignar tu credencial Google Gemini (PaLM) API a este nodo. Genera la API key en https://aistudio.google.com/apikey (Google AI Studio, NO es la suscripción Gemini Pro consumer)."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const ctx = $('Extraer Contexto Tenant').item.json;\nconst response = $json || {};\n\n// Buscar el texto en las distintas estructuras posibles del nodo nativo Gemini\nlet text = '';\n\nif (typeof response === 'string') {\n  text = response;\n} else if (typeof response.content?.parts?.[0]?.text === 'string') {\n  // Formato actual del nodo n8n: response.content.parts[0].text\n  text = response.content.parts[0].text;\n} else if (typeof response.candidates?.[0]?.content?.parts?.[0]?.text === 'string') {\n  // Formato directo de Gemini API\n  text = response.candidates[0].content.parts[0].text;\n} else if (typeof response.text === 'string') {\n  text = response.text;\n} else if (typeof response.response === 'string') {\n  text = response.response;\n} else if (typeof response.output === 'string') {\n  text = response.output;\n} else if (typeof response.message?.content === 'string') {\n  text = response.message.content;\n}\n\ntry {\n  if (!text) {\n    throw new Error('No se encontró texto. Keys: ' + Object.keys(response).join(', '));\n  }\n\n  // Limpiar markdown ```json...```\n  let jsonStr = text.trim();\n  const m = jsonStr.match(/```(?:json)?\\s*([\\s\\S]*?)```/);\n  if (m) jsonStr = m[1].trim();\n\n  // Si vino con texto antes/después del JSON, recortar a las llaves\n  const firstBrace = jsonStr.indexOf('{');\n  const lastBrace = jsonStr.lastIndexOf('}');\n  if (firstBrace >= 0 && lastBrace > firstBrace) {\n    jsonStr = jsonStr.substring(firstBrace, lastBrace + 1);\n  }\n\n  const datos = JSON.parse(jsonStr);\n\n  return {\n    ...datos,\n    url_factura: ctx.file_url || ctx.file_path || '',\n    apiKey: ctx.apiKey,\n    empresaId: ctx.empresaId,\n    source_filename: ctx.original_filename,\n    extraction_success: true\n  };\n} catch (error) {\n  return {\n    error: 'No se pudo parsear: ' + error.message,\n    raw_response: JSON.stringify(response).slice(0, 2000),\n    extracted_text: (text || '').toString().slice(0, 1000),\n    extraction_success: false,\n    apiKey: ctx.apiKey,\n    empresaId: ctx.empresaId\n  };\n}"
+      },
+      "name": "Parsear Respuesta IA",
+      "type": "n8n-nodes-base.code",
+      "position": [-800, 1344],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.extraction_success}}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "name": "Extracción exitosa?",
+      "type": "n8n-nodes-base.if",
+      "position": [-592, 1344],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8000/api/facturas/crear-con-oficina",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $json.apiKey || $('Webhook — Recibir Factura').item.json.apiKey || $('Webhook — Recibir Factura').item.json.body?.apiKey }}"
+            },
+            {
+              "name": "X-Empresa-Id",
+              "value": "={{ $json.empresaId || $('Webhook — Recibir Factura').item.json.empresaId || $('Webhook — Recibir Factura').item.json.body?.empresaId }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  proveedor_nit: $json.proveedor_nit || null,\n  proveedor_nombre: $json.proveedor_nombre || null,\n  numero_factura: $json.numero_factura || null,\n  cufe: $json.cufe || null,\n  fecha_factura: $json.fecha_factura || null,\n  fecha_vencimiento: $json.fecha_vencimiento || null,\n  valor: Number($json.valor) || 0,\n  url_factura: $json.url_factura || '',\n  observaciones: $json.observaciones || 'Procesada con Gemini'\n}) }}",
+        "options": {}
+      },
+      "name": "API — Crear Factura",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [-352, 1232],
+      "typeVersion": 4.2,
+      "notes": "URL hardcoded a 127.0.0.1:8000 porque N8N_BLOCK_ENV_ACCESS_IN_NODE bloquea $env.* en expresiones. Si tu backend está en otro host/puerto, edita este campo directamente al importar el workflow."
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "name": "Respuesta OK",
+      "type": "n8n-nodes-base.set",
+      "position": [-128, 1232],
+      "typeVersion": 3
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "name": "Respuesta Error",
+      "type": "n8n-nodes-base.set",
+      "position": [-352, 1456],
+      "typeVersion": 3
+    },
+    {
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      },
+      "name": "Respond OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "position": [80, 1232],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {
+          "responseCode": 422
+        }
+      },
+      "name": "Respond Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "position": [-128, 1456],
+      "typeVersion": 1
+    }
+  ],
+  "connections": {
+    "Webhook — Recibir Factura": {
+      "main": [[{ "node": "Extraer Contexto Tenant", "type": "main", "index": 0 }]]
+    },
+    "Extraer Contexto Tenant": {
+      "main": [[{ "node": "Base64 a Binary", "type": "main", "index": 0 }]]
+    },
+    "Base64 a Binary": {
+      "main": [[{ "node": "Analyze document", "type": "main", "index": 0 }]]
+    },
+    "Analyze document": {
+      "main": [[{ "node": "Parsear Respuesta IA", "type": "main", "index": 0 }]]
+    },
+    "Parsear Respuesta IA": {
+      "main": [[{ "node": "Extracción exitosa?", "type": "main", "index": 0 }]]
+    },
+    "Extracción exitosa?": {
+      "main": [
+        [{ "node": "API — Crear Factura", "type": "main", "index": 0 }],
+        [{ "node": "Respuesta Error", "type": "main", "index": 0 }]
+      ]
+    },
+    "API — Crear Factura": {
+      "main": [[{ "node": "Respuesta OK", "type": "main", "index": 0 }]]
+    },
+    "Respuesta OK": {
+      "main": [[{ "node": "Respond OK", "type": "main", "index": 0 }]]
+    },
+    "Respuesta Error": {
+      "main": [[{ "node": "Respond Error", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "tags": [
+    { "name": "facturacion-saas" },
+    { "name": "multi-tenant" },
+    { "name": "gemini-nativo" }
+  ]
+}
