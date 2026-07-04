@@ -23,6 +23,7 @@ correcto y para que el backend valide quién hizo la solicitud.
 """
 from __future__ import annotations
 
+import base64
 import os
 from dataclasses import dataclass
 from typing import Optional
@@ -114,11 +115,19 @@ def build_upload_payload(
     original_filename: str,
     uploaded_at_iso: str,
     extras: Optional[dict] = None,
+    pdf_bytes: Optional[bytes] = None,
+    mime_type: str = "application/pdf",
 ) -> dict:
     """Construye el body del POST al webhook compartido de procesar factura.
 
     Incluye `apiKey`, `empresaId` y `openai_credential_id` para que el
-    workflow seleccione la credencial OpenAI del tenant correcto.
+    workflow seleccione la credencial del tenant correcto.
+
+    Si se pasa `pdf_bytes`, el archivo se envía como base64 en el payload
+    bajo `pdf_base64` + `pdf_mime_type`. Esto evita que el workflow tenga
+    que leer del filesystem (n8n restringe paths por seguridad — ver
+    N8N_RESTRICT_FILE_ACCESS_TO). El workflow toma esos campos directamente
+    para enviárselos al modelo IA.
     """
     payload = {
         "event": "invoice_uploaded",
@@ -128,12 +137,15 @@ def build_upload_payload(
         "original_filename": original_filename,
         "uploaded_at": uploaded_at_iso,
         # Multi-tenant: estos campos los lee el workflow compartido para
-        # autenticarse de vuelta al backend y escoger la credencial OpenAI
+        # autenticarse de vuelta al backend y escoger la credencial IA
         # correcta vía `credentialId` dinámico.
         "apiKey": cfg.api_key,
         "empresaId": cfg.empresa_id,
         "openai_credential_id": cfg.openai_credential_id,
     }
+    if pdf_bytes is not None:
+        payload["pdf_base64"] = base64.b64encode(pdf_bytes).decode("ascii")
+        payload["pdf_mime_type"] = mime_type
     if extras:
         payload.update(extras)
     return payload

@@ -304,6 +304,13 @@ async def create_factura_con_oficinas(
     datos_guardados = {}
     warnings = []
     
+    # Capturamos datos del proveedor en strings inmutables ANTES de cualquier
+    # commit/rollback que pueda dejar la instancia SQLAlchemy expired. Después
+    # del causación contable, intentar leer proveedor.nombre dispara un lazy
+    # load que necesita greenlet y revienta con MissingGreenlet.
+    proveedor_nombre_str: Optional[str] = None
+    proveedor_nit_str: Optional[str] = None
+
     try:
         # Step 1: Find or create proveedor (optional)
         proveedor_id = None
@@ -314,11 +321,13 @@ async def create_factura_con_oficinas(
             
             if proveedor:
                 proveedor_id = proveedor.id
+                proveedor_nombre_str = proveedor.nombre
+                proveedor_nit_str = proveedor.nit
                 progress["proveedor_encontrado"] = True
                 datos_guardados["proveedor"] = {
                     "id": proveedor.id,
-                    "nit": proveedor.nit,
-                    "nombre": proveedor.nombre,
+                    "nit": proveedor_nit_str,
+                    "nombre": proveedor_nombre_str,
                     "existia": True
                 }
             elif request.proveedor_nombre:
@@ -333,11 +342,13 @@ async def create_factura_con_oficinas(
                         empresa_id=empresa.id,
                     )
                     proveedor_id = proveedor.id
+                    proveedor_nombre_str = proveedor.nombre
+                    proveedor_nit_str = proveedor.nit
                     progress["proveedor_creado"] = True
                     datos_guardados["proveedor"] = {
                         "id": proveedor.id,
-                        "nit": proveedor.nit,
-                        "nombre": proveedor.nombre,
+                        "nit": proveedor_nit_str,
+                        "nombre": proveedor_nombre_str,
                         "existia": False,
                         "recien_creado": True
                     }
@@ -388,11 +399,28 @@ async def create_factura_con_oficinas(
             
             factura = await crud.create_factura(db, factura_data, empresa_id=empresa.id)
             progress["factura_creada"] = True
+
+            # Capturamos TODOS los atributos de la factura en variables locales
+            # AHORA, antes de cualquier commit/rollback futuro (causación). Si los
+            # leemos después, SQLAlchemy los marca como expired y lazy-load
+            # dispara greenlet_spawn en contexto sync → MissingGreenlet.
+            factura_id_int = factura.id
+            factura_numero = factura.numero_factura
+            factura_cufe = factura.cufe
+            factura_fecha = str(factura.fecha_factura) if factura.fecha_factura else None
+            factura_venc = str(factura.fecha_vencimiento) if factura.fecha_vencimiento else None
+            factura_valor_str = str(factura.valor) if factura.valor else None
+            factura_iva_str = str(factura.iva) if factura.iva is not None else None
+            factura_estado = factura.estado
+            factura_url = factura.url_factura
+            factura_obs = factura.observaciones
+            factura_proveedor_id = factura.proveedor_id
+
             datos_guardados["factura"] = {
-                "id": factura.id,
-                "numero_factura": factura.numero_factura,
-                "valor": str(factura.valor) if factura.valor else None,
-                "estado": factura.estado
+                "id": factura_id_int,
+                "numero_factura": factura_numero,
+                "valor": factura_valor_str,
+                "estado": factura_estado,
             }
         except Exception as e:
             return {
@@ -480,12 +508,14 @@ async def create_factura_con_oficinas(
                     codigos = [o["cod_oficina"] for o in oficinas_con_error]
                     advertencias.append(f"Oficinas con error: {', '.join(codigos)}")
                 
-                nueva_obs = (factura.observaciones or "") + f" [ADVERTENCIA: {'; '.join(advertencias)}]"
+                nueva_obs = (factura_obs or "") + f" [ADVERTENCIA: {'; '.join(advertencias)}]"
                 factura.observaciones = nueva_obs
                 await db.commit()
-        
-        # Refresh factura to get updated relationships
-        factura = await crud.get_factura(db, factura.id)
+                factura_obs = nueva_obs  # sincronizar la variable capturada
+
+        # Refresh factura usando factura_id_int (NO factura.id) para evitar
+        # lazy refresh sobre instancia posiblemente expired.
+        factura = await crud.get_factura(db, factura_id_int)
 
         # Causación contable automática (best-effort)
         asiento_info = None
@@ -495,6 +525,13 @@ async def create_factura_con_oficinas(
             cc = None
             if request.oficinas and len(request.oficinas) == 1:
                 cc = request.oficinas[0].cod_oficina
+
+            # Resolver user_id válido: cuando el endpoint se llama vía X-API-Key
+            # (sin JWT), el middleware puede devolver un user fake con id=0 que
+            # NO existe en la tabla usuarios → FK violation al crear asiento.
+            # Pasamos None en ese caso para que la columna created_by quede null.
+            raw_user_id = getattr(current_user, "id", None)
+            safe_user_id = raw_user_id if (raw_user_id and raw_user_id > 0) else None
 
             asiento_info = await _generar_asiento_causacion_safe(
                 empresa_id=empresa.id,
@@ -506,7 +543,7 @@ async def create_factura_con_oficinas(
                 aplica_reteica=bool(getattr(request, 'aplica_reteica', False)),
                 concepto_dian=getattr(request, 'concepto_dian', None),
                 centro_costo=cc,
-                user_id=getattr(current_user, "id", None),
+                user_id=safe_user_id,
                 db=db,
             )
             if not asiento_info.get("creado") and asiento_info.get("razon"):
@@ -515,21 +552,24 @@ async def create_factura_con_oficinas(
         # Build success response with detailed information
         response = {
             "success": True,
-            "factura_id": factura.id,
+            "factura_id": factura_id_int,
             "factura": {
-                "id": factura.id,
-                "numero_factura": factura.numero_factura,
-                "cufe": factura.cufe,
-                "fecha_factura": str(factura.fecha_factura) if factura.fecha_factura else None,
-                "fecha_vencimiento": str(factura.fecha_vencimiento) if factura.fecha_vencimiento else None,
-                "valor": str(factura.valor) if factura.valor else None,
-                "iva": str(factura.iva) if factura.iva is not None else None,
-                "estado": factura.estado,
-                "url_factura": factura.url_factura,
-                "observaciones": factura.observaciones,
-                "proveedor_id": factura.proveedor_id,
-                "proveedor_nombre": factura.proveedor.nombre if factura.proveedor else None,
-                "proveedor_nit": factura.proveedor.nit if factura.proveedor else None
+                # Usamos las variables capturadas al inicio (antes del commit
+                # del causación contable). Leer factura.* aquí dispara lazy
+                # refresh por expire_on_commit → MissingGreenlet.
+                "id": factura_id_int,
+                "numero_factura": factura_numero,
+                "cufe": factura_cufe,
+                "fecha_factura": factura_fecha,
+                "fecha_vencimiento": factura_venc,
+                "valor": factura_valor_str,
+                "iva": factura_iva_str,
+                "estado": factura_estado,
+                "url_factura": factura_url,
+                "observaciones": factura_obs,
+                "proveedor_id": proveedor_id,
+                "proveedor_nombre": proveedor_nombre_str,
+                "proveedor_nit": proveedor_nit_str,
             },
             "proveedor_creado": progress["proveedor_creado"],
             "oficinas_asignadas": oficinas_asignadas,
@@ -549,7 +589,7 @@ async def create_factura_con_oficinas(
                     "2. Usar el endpoint PUT /api/facturas/{factura_id}/oficinas-multiples para asignar las oficinas correctas",
                     "3. Verificar que los códigos de oficina sean correctos consultando GET /api/oficinas/"
                 ],
-                "factura_url": f"/api/facturas/{factura.id}"
+                "factura_url": f"/api/facturas/{factura_id_int}"
             }
         
         return response
@@ -558,7 +598,10 @@ async def create_factura_con_oficinas(
         # Re-raise HTTP exceptions as-is
         raise
     except Exception as e:
-        # Catch any unexpected errors
+        import traceback
+        # Imprimir traceback completo al log para diagnóstico (no al JSON
+        # response, donde no debe filtrarse información de rutas internas).
+        logger.exception("crear-con-oficina UNEXPECTED_ERROR")
         return {
             "success": False,
             "error_code": "UNEXPECTED_ERROR",
@@ -985,19 +1028,21 @@ async def cambiar_estado(
         and nuevo_estado == "PAGADA"
         and estado_anterior != "PAGADA"
     ):
+        # Mismo fix que en crear-con-oficina: si el caller autenticó vía
+        # X-API-Key, current_user.id puede ser 0 → viola FK created_by.
+        raw_user_id = getattr(current_user, "id", None)
+        safe_user_id = raw_user_id if (raw_user_id and raw_user_id > 0) else None
+
         asiento_info = await _generar_asiento_pago_safe(
             empresa_id=empresa.id,
             factura=factura,
             cuenta_banco_codigo=cuenta_banco_codigo,
-            user_id=getattr(current_user, "id", None),
+            user_id=safe_user_id,
             db=db,
         )
 
     factura_actualizada = await crud.get_factura(db, factura_id)
-    # `get_factura` retorna el ORM; lo devolvemos tal cual y adjuntamos info del asiento
-    # en el header de respuesta por medio de un dict wrapper no sería compatible con el
-    # tipo de retorno anterior, así que se retorna solo el log en el response body
-    # cuando se genera asiento.
+
     if asiento_info.get("creado"):
         logger.info(
             "Asiento PAGO creado id=%s para factura_id=%s",
@@ -1005,13 +1050,27 @@ async def cambiar_estado(
             factura_id,
         )
     elif asiento_info.get("razon"):
-        logger.info(
+        logger.warning(
             "No se generó asiento de pago para factura_id=%s: %s",
             factura_id,
             asiento_info["razon"],
         )
 
-    return factura_actualizada
+    # Adjuntamos el resultado del asiento como atributo dinámico para que
+    # FastAPI lo serialice en la respuesta (Pydantic v2 permite extras).
+    # Si el caller no lo lee, no rompe nada.
+    try:
+        setattr(factura_actualizada, "_asiento_pago_info", asiento_info)
+    except Exception:
+        pass
+
+    # También retornamos un wrapper dict para que el frontend pueda detectar
+    # fallos silenciosos. response_model_exclude no aplica porque este endpoint
+    # no declara response_model.
+    return {
+        "factura": factura_actualizada,
+        "asiento_pago": asiento_info,
+    }
 
 
 async def _calcular_neto_pago_desde_causacion(
@@ -1115,8 +1174,15 @@ async def _generar_asiento_pago_safe(
         return {"creado": True, "asiento_id": asiento.id, "numero": asiento.numero}
     except Exception as e:
         await db.rollback()
-        logger.warning("Error generando asiento de pago factura_id=%s: %s", factura.id, e)
-        return {"creado": False, "razon": f"Error generando asiento: {e}"}
+        # Logging completo con traceback para depurar (antes era solo warning)
+        logger.exception(
+            "Error generando asiento de pago factura_id=%s",
+            factura.id,
+        )
+        return {
+            "creado": False,
+            "razon": f"Error generando asiento: {type(e).__name__}: {e}",
+        }
 
 
 # --- Statistics ---
@@ -1367,6 +1433,20 @@ async def upload_factura_pdf(
             detail=f"Error procesando archivo: {str(e)}"
         )
 
+    # Re-leer el archivo guardado (en disco ya está como PDF, ya sea original
+    # o convertido desde imagen). Lo enviamos como base64 en el payload para
+    # que n8n no dependa del filesystem (restricción N8N_RESTRICT_FILE_ACCESS_TO).
+    try:
+        with open(file_path, "rb") as fh:
+            pdf_bytes_for_n8n = fh.read()
+    except Exception as read_err:
+        return {
+            "ok": False,
+            "message": f"Archivo guardado pero no se pudo releer: {read_err}",
+            "file_url": url_factura,
+            "filename": safe_filename,
+        }
+
     # Call webhook and WAIT for n8n response (timeout 120 seconds for OCR processing)
     try:
         webhook_data = build_upload_payload(
@@ -1376,6 +1456,7 @@ async def upload_factura_pdf(
             safe_filename=safe_filename,
             original_filename=file.filename,
             uploaded_at_iso=datetime.now().isoformat(),
+            pdf_bytes=pdf_bytes_for_n8n,
         )
         response = await call_upload_webhook(cfg, webhook_data, timeout=120.0)
 
@@ -1384,11 +1465,33 @@ async def upload_factura_pdf(
             try:
                 n8n_result = response.json()
 
-                # n8n returned success
-                if n8n_result.get("success"):
+                # n8n a veces devuelve un array de items en lugar de un objeto
+                # (cuando el nodo "Respond" usa "allIncomingItems"). Lo
+                # destrabamos tomando el primer elemento.
+                if isinstance(n8n_result, list):
+                    n8n_result = n8n_result[0] if n8n_result else {}
+
+                # Si por alguna razón es string, fallback a JSON.parse interno
+                if isinstance(n8n_result, str):
+                    import json as _json
+                    try:
+                        n8n_result = _json.loads(n8n_result)
+                    except Exception:
+                        n8n_result = {"raw": n8n_result}
+
+                # Soportamos `success: true` (bool), `success: "true"` (string),
+                # o ausencia de success cuando n8n devuelve directamente los
+                # campos de la factura recién creada.
+                success_flag = n8n_result.get("success")
+                if isinstance(success_flag, str):
+                    success_flag = success_flag.strip().lower() == "true"
+
+                if success_flag or n8n_result.get("factura_id"):
                     return {
                         "ok": True,
-                        "message": "Factura procesada correctamente",
+                        "message": n8n_result.get(
+                            "message", "Factura procesada correctamente"
+                        ),
                         "file_url": url_factura,
                         "filename": safe_filename,
                         "factura_id": n8n_result.get("factura_id"),
@@ -1398,16 +1501,23 @@ async def upload_factura_pdf(
                 # n8n returned an error
                 return {
                     "ok": False,
-                    "message": n8n_result.get("error", "Error procesando factura en n8n"),
+                    "message": n8n_result.get(
+                        "error", n8n_result.get(
+                            "message", "Error procesando factura en n8n"
+                        )
+                    ),
                     "file_url": url_factura,
                     "filename": safe_filename,
                     "n8n_response": n8n_result,
                 }
-            except Exception:
-                # n8n responded but not with valid JSON
+            except Exception as e:
                 return {
-                    "ok": True,
-                    "message": "Archivo procesado (respuesta no JSON)",
+                    "ok": False,
+                    "message": (
+                        f"n8n respondió pero sin JSON válido ({type(e).__name__}: {e}). "
+                        "Probablemente un nodo del workflow falló (revisa Executions en n8n). "
+                        "El archivo se guardó pero NO se creó factura."
+                    ),
                     "file_url": url_factura,
                     "filename": safe_filename,
                     "raw_response": response.text[:500],

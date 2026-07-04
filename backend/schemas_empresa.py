@@ -102,7 +102,10 @@ class IntegracionesResponse(BaseModel):
     son las URLs que el backend realmente usará al disparar webhooks.
     """
 
-    empresa_id: int
+    # validation_alias="id" → al construir desde el modelo SQLAlchemy Empresa
+    # (que usa .id como primary key) Pydantic mapea automáticamente a empresa_id.
+    # El frontend sigue recibiendo el campo como empresa_id en el JSON.
+    empresa_id: int = Field(..., validation_alias="id")
     api_key: Optional[str] = None
     storage_path: Optional[str] = None
 
