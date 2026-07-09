@@ -7,6 +7,7 @@ import os
 import uuid
 from datetime import date, datetime, timedelta
 
+from core.config import settings
 from core.dependencies import get_current_empresa, get_current_user
 from services.integraciones_n8n import LEGACY_INVOICE_PATH
 
@@ -31,25 +32,31 @@ class SearchResult(BaseModel):
 # Cleanup strategy: manually clear or TTL (omitted for brevity)
 search_cache: Dict[str, SearchResult] = {}
 
-# Fallback global (compat con legacy / La Fortuna). Cuando la empresa configura
-# sus propios webhooks en /integraciones, estos NO se usan.
-N8N_SEARCH_WEBHOOK_FALLBACK = os.getenv("N8N_SEARCH_WEBHOOK", "")
-N8N_PROCESS_WEBHOOK_FALLBACK = os.getenv("N8N_PROCESS_WEBHOOK", "")
+# Precedencia:
+#   1. Empresa override (modo self-hosted): empresa.n8n_search_webhook / n8n_process_webhook
+#   2. SaaS-shared: settings.N8N_SEARCH_WEBHOOK_URL / N8N_PROCESS_EMAIL_WEBHOOK_URL (.env)
+#   3. Legacy env vars sin sufijo _URL (compat con despliegues previos)
 
 
 def _resolve_search_webhook(empresa) -> tuple[str, str]:
     """Devuelve (webhook_url, api_key) del flujo de búsqueda para la empresa."""
-    url = getattr(empresa, "n8n_search_webhook", None) or N8N_SEARCH_WEBHOOK_FALLBACK
+    url = (
+        getattr(empresa, "n8n_search_webhook", None)
+        or getattr(settings, "N8N_SEARCH_WEBHOOK_URL", None)
+        or os.getenv("N8N_SEARCH_WEBHOOK", "")
+    )
     key = getattr(empresa, "api_key", "") or os.getenv("API_KEY", "")
     return url, key
 
 
 def _resolve_process_webhook(empresa) -> tuple[str, str]:
-    """Devuelve (webhook_url, api_key) del flujo de procesamiento para la empresa."""
+    """Devuelve (webhook_url, api_key) del flujo de procesamiento de adjuntos."""
     url = (
         getattr(empresa, "n8n_process_webhook", None)
         or getattr(empresa, "n8n_webhook_url", None)
-        or N8N_PROCESS_WEBHOOK_FALLBACK
+        or getattr(settings, "N8N_PROCESS_EMAIL_WEBHOOK_URL", None)
+        or getattr(settings, "N8N_PROCESS_WEBHOOK_URL", None)
+        or os.getenv("N8N_PROCESS_WEBHOOK", "")
     )
     key = getattr(empresa, "api_key", "") or os.getenv("API_KEY", "")
     return url, key
@@ -160,6 +167,12 @@ async def receive_search_results(payload: dict, request: Request):
 import shutil
 import asyncio
 
+
+def _write_bytes(path: str, data: bytes) -> None:
+    """Helper sync para escribir bytes a un path (usado con asyncio.to_thread)."""
+    with open(path, "wb") as fh:
+        fh.write(data)
+
 # Fallback paths (legacy "La Fortuna"). Cuando la empresa configure
 # `storage_path` propio, este se sobreescribe.
 TEMPORAL_FILES_PATH_FALLBACK = r"\\192.168.2.20\Facturas\temp_buscador"
@@ -236,30 +249,37 @@ async def process_files_sequentially_task(
     for file_info in files:
         filename = file_info.get("filename")
         try:
-            src = file_info.get("storage_path")
-            if not src:
-                continue
-
-            clean_storage_path = src.replace("\\", "/").split("/")[-1]
-            source_path = os.path.join(temporal_path, clean_storage_path)
-
-            if not os.path.exists(source_path):
-                print(f"Error: No se encontró {filename} en {source_path}")
-                continue
-
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             unique_id = str(uuid.uuid4())[:8]
             safe_filename = f"{timestamp}_{unique_id}_{filename}"
-
             dest_path = os.path.join(storage_path, safe_filename)
-            # URL legible para la factura — formato file:// estilo legacy
+
             if storage_path.startswith("\\\\"):
                 normalized = storage_path.lstrip("\\").replace("\\", "/")
                 url_factura = f"file://{normalized}/{safe_filename}"
             else:
                 url_factura = f"file://{storage_path.replace(os.sep, '/').lstrip('/')}/{safe_filename}"
 
-            await asyncio.to_thread(shutil.copy2, source_path, dest_path)
+            # Nuevo camino (Outlook/Gmail OAuth vía n8n): el workflow embebe el
+            # PDF como base64 en el file_info bajo content_base64. Lo decodificamos
+            # a disco para tener un archivo local antes de reenviarlo al webhook
+            # de procesamiento.
+            content_b64 = file_info.get("content_base64")
+            if content_b64:
+                pdf_bytes = base64.b64decode(content_b64)
+                await asyncio.to_thread(_write_bytes, dest_path, pdf_bytes)
+            else:
+                # Camino legacy: el archivo ya está en temporal_path (buscador
+                # antiguo que copiaba adjuntos a una carpeta compartida).
+                src = file_info.get("storage_path")
+                if not src:
+                    continue
+                clean_storage_path = src.replace("\\", "/").split("/")[-1]
+                source_path = os.path.join(temporal_path, clean_storage_path)
+                if not os.path.exists(source_path):
+                    print(f"Error: No se encontró {filename} en {source_path}")
+                    continue
+                await asyncio.to_thread(shutil.copy2, source_path, dest_path)
 
             ready_files.append({
                 **file_info,
