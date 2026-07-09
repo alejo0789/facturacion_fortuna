@@ -195,6 +195,10 @@ export default function FacturasPage() {
     const [feedbackFactura, setFeedbackFactura] = useState<Factura | null>(null);
     const [feedbackText, setFeedbackText] = useState('');
     const [savingFeedback, setSavingFeedback] = useState(false);
+    const [existingFeedbacks, setExistingFeedbacks] = useState<any[]>([]);
+    const [loadingFeedbacks, setLoadingFeedbacks] = useState(false);
+    const [editingFeedbackId, setEditingFeedbackId] = useState<number | null>(null);
+    const [editFeedbackText, setEditFeedbackText] = useState('');
 
     // Load historical invoices for a proveedor + oficina
     const loadHistorialFacturas = async (
@@ -227,10 +231,65 @@ export default function FacturasPage() {
     };
 
     // Open feedback modal for a factura
-    const openFeedbackModal = (factura: Factura) => {
+    const openFeedbackModal = async (factura: Factura) => {
         setFeedbackFactura(factura);
         setFeedbackText('');
         setIsFeedbackModalOpen(true);
+        setEditingFeedbackId(null);
+        setExistingFeedbacks([]);
+        
+        if (factura.proveedor?.nit) {
+            setLoadingFeedbacks(true);
+            try {
+                const res = await fetch(`${API_URL}/feedback/proveedor/${factura.proveedor.nit}`, {
+                    headers: getAuthHeaders()
+                });
+                if (res.ok) {
+                    setExistingFeedbacks(await res.json());
+                }
+            } catch (error) {
+                console.error("Failed to load feedbacks", error);
+            } finally {
+                setLoadingFeedbacks(false);
+            }
+        }
+    };
+
+    const deleteFeedback = async (id: number) => {
+        if (!confirm('¿Seguro que desea eliminar esta regla?')) return;
+        try {
+            const res = await fetch(`${API_URL}/feedback/${id}`, {
+                method: 'DELETE',
+                headers: getAuthHeaders()
+            });
+            if (res.ok) {
+                setExistingFeedbacks(prev => prev.filter(f => f.id !== id));
+            } else {
+                alert('Error al eliminar');
+            }
+        } catch (error) {
+            console.error("Failed to delete feedback", error);
+        }
+    };
+
+    const updateFeedback = async (id: number) => {
+        if (!editFeedbackText.trim()) return;
+        try {
+            const res = await fetch(`${API_URL}/feedback/${id}`, {
+                method: 'PUT',
+                headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+                body: JSON.stringify({ descripcion: editFeedbackText.trim() })
+            });
+            if (res.ok) {
+                const updated = await res.json();
+                setExistingFeedbacks(prev => prev.map(f => f.id === id ? updated : f));
+                setEditingFeedbackId(null);
+            } else {
+                alert('Error al actualizar');
+            }
+        } catch (error) {
+            console.error("Failed to update feedback", error);
+        }
     };
 
     // Save feedback to backend
@@ -241,7 +300,7 @@ export default function FacturasPage() {
         try {
             const res = await fetch(`${API_URL}/feedback/`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     proveedor_id: feedbackFactura.proveedor_id,
                     factura_id: feedbackFactura.id,
@@ -250,10 +309,9 @@ export default function FacturasPage() {
             });
 
             if (res.ok) {
-                setIsFeedbackModalOpen(false);
+                const newFeedback = await res.json();
+                setExistingFeedbacks(prev => [newFeedback, ...prev]);
                 setFeedbackText('');
-                setFeedbackFactura(null);
-                alert('Retroalimentación guardada correctamente');
             } else {
                 alert('Error al guardar la retroalimentación');
             }
@@ -3556,15 +3614,69 @@ export default function FacturasPage() {
                                 </div>
                             </div>
 
-                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                                ¿Qué debería saber el agente para la próxima vez?
-                            </label>
-                            <textarea
-                                value={feedbackText}
-                                onChange={(e) => setFeedbackText(e.target.value)}
-                                placeholder="Ej: Esta factura estaba duplicada, siempre revisar si ya existe antes de crear..."
-                                className="w-full h-32 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 resize-none"
-                            />
+                            {/* Existing Feedbacks List */}
+                            <div className="mb-6">
+                                <h4 className="font-bold text-gray-800 mb-3 flex items-center gap-2">
+                                    <svg className="w-5 h-5 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                    Reglas y Conocimiento del Proveedor:
+                                </h4>
+                                {loadingFeedbacks ? (
+                                    <div className="flex justify-center p-4">
+                                        <div className="animate-spin h-5 w-5 border-2 border-yellow-500 border-t-transparent rounded-full"></div>
+                                    </div>
+                                ) : existingFeedbacks.length === 0 ? (
+                                    <div className="text-sm text-gray-500 italic p-3 bg-gray-50 rounded border border-dashed border-gray-300">
+                                        No hay reglas guardadas aún para este proveedor.
+                                    </div>
+                                ) : (
+                                    <ul className="space-y-3 max-h-48 overflow-y-auto pr-2">
+                                        {existingFeedbacks.map(fb => (
+                                            <li key={fb.id} className="bg-yellow-50/50 border border-yellow-100 p-3 rounded-lg flex justify-between items-start gap-4">
+                                                {editingFeedbackId === fb.id ? (
+                                                    <div className="w-full flex flex-col gap-2">
+                                                        <textarea 
+                                                            value={editFeedbackText}
+                                                            onChange={e => setEditFeedbackText(e.target.value)}
+                                                            className="w-full p-2 text-sm border border-yellow-300 rounded focus:ring-1 focus:ring-yellow-500 focus:outline-none resize-none"
+                                                            rows={3}
+                                                        />
+                                                        <div className="flex gap-2 justify-end">
+                                                            <button onClick={() => setEditingFeedbackId(null)} className="text-xs px-2 py-1 text-gray-600 hover:bg-gray-100 rounded">Cancelar</button>
+                                                            <button onClick={() => updateFeedback(fb.id)} className="text-xs bg-yellow-500 text-white px-3 py-1 rounded hover:bg-yellow-600">Guardar</button>
+                                                        </div>
+                                                    </div>
+                                                ) : (
+                                                    <>
+                                                        <div className="text-sm text-gray-800 whitespace-pre-wrap flex-1">{fb.descripcion}</div>
+                                                        <div className="flex flex-col gap-2 shrink-0">
+                                                            <button onClick={() => { setEditingFeedbackId(fb.id); setEditFeedbackText(fb.descripcion); }} className="text-gray-400 hover:text-blue-600 transition-colors" title="Editar">
+                                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                                                            </button>
+                                                            <button onClick={() => deleteFeedback(fb.id)} className="text-gray-400 hover:text-red-500 transition-colors" title="Eliminar">
+                                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                                            </button>
+                                                        </div>
+                                                    </>
+                                                )}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                )}
+                            </div>
+
+                            <div className="border-t border-gray-100 pt-4">
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    Agregar nueva regla u observación para IA:
+                                </label>
+                                <textarea
+                                    value={feedbackText}
+                                    onChange={(e) => setFeedbackText(e.target.value)}
+                                    placeholder="Ej: Esta factura siempre debe ir a la oficina principal..."
+                                    className="w-full h-24 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 resize-none"
+                                />
+                            </div>
 
                             <div className="flex justify-end gap-3 mt-6">
                                 <button

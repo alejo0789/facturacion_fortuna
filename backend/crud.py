@@ -877,6 +877,32 @@ async def create_proveedor_feedback(db: AsyncSession, feedback: schemas.Proveedo
     return result.scalars().first()
 
 
+async def update_proveedor_feedback(db: AsyncSession, feedback_id: int, descripcion: str):
+    """Update a feedback entry"""
+    result = await db.execute(
+        select(models.ProveedorFeedback).filter(models.ProveedorFeedback.id == feedback_id)
+    )
+    db_item = result.scalars().first()
+    if db_item:
+        db_item.descripcion = descripcion
+        await db.commit()
+        await db.refresh(db_item)
+    return db_item
+
+
+async def delete_proveedor_feedback(db: AsyncSession, feedback_id: int):
+    """Delete a feedback entry"""
+    result = await db.execute(
+        select(models.ProveedorFeedback).filter(models.ProveedorFeedback.id == feedback_id)
+    )
+    db_item = result.scalars().first()
+    if db_item:
+        await db.delete(db_item)
+        await db.commit()
+        return True
+    return False
+
+
 async def get_feedback_by_proveedor_nit(db: AsyncSession, nit: str, limit: int = 50):
     """Get all feedback for a provider by NIT (for N8N agent)"""
     result = await db.execute(

@@ -60,3 +60,32 @@ async def get_all_feedback(
     Get all feedback entries.
     """
     return await crud.get_all_feedback(db, skip, limit)
+
+
+@router.put("/{feedback_id}", response_model=schemas.ProveedorFeedback)
+async def update_feedback(
+    feedback_id: int,
+    feedback: schemas.ProveedorFeedbackUpdate,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Update a feedback entry.
+    """
+    result = await crud.update_proveedor_feedback(db, feedback_id, feedback.descripcion)
+    if not result:
+        raise HTTPException(status_code=404, detail="Feedback no encontrado")
+    return result
+
+
+@router.delete("/{feedback_id}")
+async def delete_feedback(
+    feedback_id: int,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Delete a feedback entry.
+    """
+    success = await crud.delete_proveedor_feedback(db, feedback_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Feedback no encontrado")
+    return {"ok": True}
