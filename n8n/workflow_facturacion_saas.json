@@ -1,0 +1,469 @@
+{
+  "name": "Facturación SaaS — Multi-tenant (Gemini + OAuth)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "procesar-factura",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "Webhook — Recibir Factura",
+      "type": "n8n-nodes-base.webhook",
+      "position": [-1824, 1088],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const d = $json || {};\nreturn {\n  apiKey: d.apiKey || '',\n  empresaId: d.empresaId || null,\n  gemini_credential_id: d.openai_credential_id || d.gemini_credential_id || '',\n  file_path: d.file_path || '',\n  file_url: d.file_url || '',\n  filename: d.filename || '',\n  original_filename: d.original_filename || d.filename || '',\n  uploaded_at: d.uploaded_at || new Date().toISOString(),\n  pdf_base64: d.pdf_base64 || '',\n  pdf_mime_type: d.pdf_mime_type || 'application/pdf'\n};"
+      },
+      "name": "Extraer Contexto Tenant",
+      "type": "n8n-nodes-base.code",
+      "position": [-1600, 1088],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Lee directamente del nodo Webhook para evitar problemas de propagación\n// del string base64 (que puede ser muy largo) entre nodos intermedios.\nconst webhookData = $('Webhook — Recibir Factura').item.json;\n\n// El webhook puede entregar el body anidado en .body o plano en raíz\nconst data = webhookData.body || webhookData;\n\nconst base64 = data.pdf_base64 || $json.pdf_base64 || '';\nconst mimeType = data.pdf_mime_type || $json.pdf_mime_type || 'application/pdf';\nconst fileName = data.original_filename || $json.original_filename || 'factura.pdf';\n\nif (!base64 || base64.length < 100) {\n  throw new Error(\n    `pdf_base64 vacío o muy corto (length=${base64.length}). ` +\n    `Webhook keys: [${Object.keys(data).join(', ')}]. ` +\n    `$json keys: [${Object.keys($json).join(', ')}].`\n  );\n}\n\nreturn {\n  json: $json,\n  binary: {\n    data: {\n      data: base64,\n      mimeType: mimeType,\n      fileName: fileName,\n      fileExtension: 'pdf'\n    }\n  }\n};"
+      },
+      "name": "Base64 a Binary",
+      "type": "n8n-nodes-base.code",
+      "position": [-1376, 1088],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "resource": "document",
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-2.5-flash",
+          "mode": "list",
+          "cachedResultName": "models/gemini-2.5-flash"
+        },
+        "text": "Eres un experto en facturas colombianas. Analiza el PDF adjunto y devuelve SOLO un JSON válido con esta estructura exacta, sin texto adicional ni bloques markdown:\n\n{\n  \"proveedor_nit\": \"NIT del proveedor con dígito de verificación (ej 900238454-8)\",\n  \"proveedor_nombre\": \"Razón social del proveedor\",\n  \"numero_factura\": \"Número de la factura\",\n  \"cufe\": \"Código CUFE o null\",\n  \"fecha_factura\": \"YYYY-MM-DD\",\n  \"fecha_vencimiento\": \"YYYY-MM-DD o null\",\n  \"valor\": 123456,\n  \"observaciones\": \"Notas relevantes sobre la factura\"\n}\n\nReglas:\n- Si no encuentras un campo, ponlo como null.\n- \"valor\" debe ser número decimal sin separadores ni símbolo de moneda.\n- \"proveedor_nit\" debe incluir el dígito de verificación si está visible.\n- Responde SOLO con el JSON, sin texto antes ni después.",
+        "inputType": "binary",
+        "options": {}
+      },
+      "name": "Analyze document",
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1.1,
+      "position": [-1136, 1088],
+      "notes": "Al importar: asignar tu credencial Google Gemini (PaLM) API a este nodo."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const ctx = $('Extraer Contexto Tenant').item.json;\nconst response = $json || {};\n\n// Buscar el texto en las distintas estructuras posibles del nodo nativo Gemini\nlet text = '';\n\nif (typeof response === 'string') {\n  text = response;\n} else if (typeof response.content?.parts?.[0]?.text === 'string') {\n  text = response.content.parts[0].text;\n} else if (typeof response.candidates?.[0]?.content?.parts?.[0]?.text === 'string') {\n  text = response.candidates[0].content.parts[0].text;\n} else if (typeof response.text === 'string') {\n  text = response.text;\n} else if (typeof response.response === 'string') {\n  text = response.response;\n} else if (typeof response.output === 'string') {\n  text = response.output;\n} else if (typeof response.message?.content === 'string') {\n  text = response.message.content;\n}\n\ntry {\n  if (!text) {\n    throw new Error('No se encontró texto. Keys: ' + Object.keys(response).join(', '));\n  }\n\n  let jsonStr = text.trim();\n  const m = jsonStr.match(/```(?:json)?\\s*([\\s\\S]*?)```/);\n  if (m) jsonStr = m[1].trim();\n\n  const firstBrace = jsonStr.indexOf('{');\n  const lastBrace = jsonStr.lastIndexOf('}');\n  if (firstBrace >= 0 && lastBrace > firstBrace) {\n    jsonStr = jsonStr.substring(firstBrace, lastBrace + 1);\n  }\n\n  const datos = JSON.parse(jsonStr);\n\n  return {\n    ...datos,\n    url_factura: ctx.file_url || ctx.file_path || '',\n    apiKey: ctx.apiKey,\n    empresaId: ctx.empresaId,\n    source_filename: ctx.original_filename,\n    extraction_success: true\n  };\n} catch (error) {\n  return {\n    error: 'No se pudo parsear: ' + error.message,\n    raw_response: JSON.stringify(response).slice(0, 2000),\n    extracted_text: (text || '').toString().slice(0, 1000),\n    extraction_success: false,\n    apiKey: ctx.apiKey,\n    empresaId: ctx.empresaId\n  };\n}"
+      },
+      "name": "Parsear Respuesta IA",
+      "type": "n8n-nodes-base.code",
+      "position": [-896, 1088],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            { "value1": "={{$json.extraction_success}}", "value2": true }
+          ]
+        }
+      },
+      "name": "Extracción exitosa?",
+      "type": "n8n-nodes-base.if",
+      "position": [-688, 1088],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8000/api/facturas/crear-con-oficina",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-API-Key", "value": "={{ $json.apiKey || $('Webhook — Recibir Factura').item.json.apiKey || $('Webhook — Recibir Factura').item.json.body?.apiKey }}" },
+            { "name": "X-Empresa-Id", "value": "={{ $json.empresaId || $('Webhook — Recibir Factura').item.json.empresaId || $('Webhook — Recibir Factura').item.json.body?.empresaId }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  proveedor_nit: $json.proveedor_nit || null,\n  proveedor_nombre: $json.proveedor_nombre || null,\n  numero_factura: $json.numero_factura || null,\n  cufe: $json.cufe || null,\n  fecha_factura: $json.fecha_factura || null,\n  fecha_vencimiento: $json.fecha_vencimiento || null,\n  valor: Number($json.valor) || 0,\n  url_factura: $json.url_factura || '',\n  observaciones: $json.observaciones || 'Procesada con Gemini'\n}) }}",
+        "options": {}
+      },
+      "name": "API — Crear Factura",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [-448, 976],
+      "typeVersion": 4.2,
+      "notes": "URL hardcoded a 127.0.0.1:8000 porque N8N_BLOCK_ENV_ACCESS_IN_NODE bloquea $env.* en expresiones. Si tu backend está en otro host, edita este campo tras importar."
+    },
+    {
+      "parameters": { "options": {} },
+      "name": "Respuesta OK",
+      "type": "n8n-nodes-base.set",
+      "position": [-224, 976],
+      "typeVersion": 3
+    },
+    {
+      "parameters": { "options": {} },
+      "name": "Respuesta Error",
+      "type": "n8n-nodes-base.set",
+      "position": [-448, 1200],
+      "typeVersion": 3
+    },
+    {
+      "parameters": { "respondWith": "allIncomingItems", "options": {} },
+      "name": "Respond OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "position": [-16, 976],
+      "typeVersion": 1
+    },
+    {
+      "parameters": { "respondWith": "allIncomingItems", "options": { "responseCode": 422 } },
+      "name": "Respond Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "position": [-224, 1200],
+      "typeVersion": 1
+    },
+
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "procesar-adjunto",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "Webhook — Recibir Adjunto",
+      "type": "n8n-nodes-base.webhook",
+      "position": [-1920, 2064],
+      "typeVersion": 1,
+      "notes": "Recibe del backend cuando el usuario selecciona un adjunto del buscador. Payload:\n- apiKey, empresaId\n- openai_credential_id (o gemini_credential_id)\n- file_path, file_url, filename, original_filename\n- pdf_base64, pdf_mime_type\n- event = 'invoice_uploaded_via_search'"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Mismo patrón que 'Procesar Factura' — extraer contexto tenant.\nconst d = $json || {};\nreturn {\n  apiKey: d.apiKey || '',\n  empresaId: d.empresaId || null,\n  gemini_credential_id: d.openai_credential_id || d.gemini_credential_id || '',\n  file_path: d.file_path || '',\n  file_url: d.file_url || '',\n  filename: d.filename || '',\n  original_filename: d.original_filename || d.filename || '',\n  uploaded_at: d.uploaded_at || new Date().toISOString(),\n  pdf_base64: d.pdf_base64 || '',\n  pdf_mime_type: d.pdf_mime_type || 'application/pdf'\n};"
+      },
+      "name": "Extraer Contexto Tenant Adjunto",
+      "type": "n8n-nodes-base.code",
+      "position": [-1696, 2064],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const webhookData = $('Webhook — Recibir Adjunto').item.json;\nconst data = webhookData.body || webhookData;\n\nconst base64 = data.pdf_base64 || $json.pdf_base64 || '';\nconst mimeType = data.pdf_mime_type || $json.pdf_mime_type || 'application/pdf';\nconst fileName = data.original_filename || $json.original_filename || 'factura.pdf';\n\nif (!base64 || base64.length < 100) {\n  throw new Error(\n    `pdf_base64 vacío o muy corto (length=${base64.length}). ` +\n    `Verifica que el backend embeba el PDF en el payload del webhook.`\n  );\n}\n\nreturn {\n  json: $json,\n  binary: {\n    data: {\n      data: base64,\n      mimeType: mimeType,\n      fileName: fileName,\n      fileExtension: 'pdf'\n    }\n  }\n};"
+      },
+      "name": "Base64 a Binary Adjunto",
+      "type": "n8n-nodes-base.code",
+      "position": [-1472, 2064],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "resource": "document",
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-2.5-flash",
+          "mode": "list",
+          "cachedResultName": "models/gemini-2.5-flash"
+        },
+        "text": "Eres un experto en facturas colombianas. Analiza el PDF adjunto (capturado desde correo) y devuelve SOLO un JSON válido con esta estructura exacta, sin texto adicional ni bloques markdown:\n\n{\n  \"proveedor_nit\": \"NIT del proveedor con dígito de verificación (ej 900238454-8)\",\n  \"proveedor_nombre\": \"Razón social del proveedor\",\n  \"numero_factura\": \"Número de la factura\",\n  \"cufe\": \"Código CUFE o null\",\n  \"fecha_factura\": \"YYYY-MM-DD\",\n  \"fecha_vencimiento\": \"YYYY-MM-DD o null\",\n  \"valor\": 123456,\n  \"observaciones\": \"Notas relevantes sobre la factura\"\n}\n\nReglas:\n- Si no encuentras un campo, ponlo como null.\n- \"valor\" debe ser número decimal sin separadores ni símbolo de moneda.\n- \"proveedor_nit\" debe incluir el dígito de verificación si está visible.\n- Responde SOLO con el JSON, sin texto antes ni después.",
+        "inputType": "binary",
+        "options": {}
+      },
+      "name": "Analyze document Adjunto",
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1.1,
+      "position": [-1232, 2064],
+      "notes": "Al importar: asignar tu credencial Google Gemini (PaLM) API a este nodo."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const ctx = $('Extraer Contexto Tenant Adjunto').item.json;\nconst response = $json || {};\n\nlet text = '';\nif (typeof response === 'string') {\n  text = response;\n} else if (typeof response.content?.parts?.[0]?.text === 'string') {\n  text = response.content.parts[0].text;\n} else if (typeof response.candidates?.[0]?.content?.parts?.[0]?.text === 'string') {\n  text = response.candidates[0].content.parts[0].text;\n} else if (typeof response.text === 'string') {\n  text = response.text;\n} else if (typeof response.response === 'string') {\n  text = response.response;\n} else if (typeof response.output === 'string') {\n  text = response.output;\n} else if (typeof response.message?.content === 'string') {\n  text = response.message.content;\n}\n\ntry {\n  if (!text) {\n    throw new Error('No se encontró texto. Keys: ' + Object.keys(response).join(', '));\n  }\n\n  let jsonStr = text.trim();\n  const m = jsonStr.match(/```(?:json)?\\s*([\\s\\S]*?)```/);\n  if (m) jsonStr = m[1].trim();\n  const firstBrace = jsonStr.indexOf('{');\n  const lastBrace = jsonStr.lastIndexOf('}');\n  if (firstBrace >= 0 && lastBrace > firstBrace) {\n    jsonStr = jsonStr.substring(firstBrace, lastBrace + 1);\n  }\n\n  const datos = JSON.parse(jsonStr);\n\n  return {\n    ...datos,\n    url_factura: ctx.file_url || ctx.file_path || '',\n    apiKey: ctx.apiKey,\n    empresaId: ctx.empresaId,\n    source_filename: ctx.original_filename,\n    extraction_success: true\n  };\n} catch (error) {\n  return {\n    error: 'No se pudo parsear: ' + error.message,\n    raw_response: JSON.stringify(response).slice(0, 2000),\n    extracted_text: (text || '').toString().slice(0, 1000),\n    extraction_success: false,\n    apiKey: ctx.apiKey,\n    empresaId: ctx.empresaId\n  };\n}"
+      },
+      "name": "Parsear Respuesta IA Adjunto",
+      "type": "n8n-nodes-base.code",
+      "position": [-992, 2064],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            { "value1": "={{$json.extraction_success}}", "value2": true }
+          ]
+        }
+      },
+      "name": "Extracción exitosa Adjunto?",
+      "type": "n8n-nodes-base.if",
+      "position": [-784, 2064],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8000/api/facturas/crear-con-oficina",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-API-Key", "value": "={{ $json.apiKey || $('Webhook — Recibir Adjunto').item.json.apiKey || $('Webhook — Recibir Adjunto').item.json.body?.apiKey }}" },
+            { "name": "X-Empresa-Id", "value": "={{ $json.empresaId || $('Webhook — Recibir Adjunto').item.json.empresaId || $('Webhook — Recibir Adjunto').item.json.body?.empresaId }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  proveedor_nit: $json.proveedor_nit || null,\n  proveedor_nombre: $json.proveedor_nombre || null,\n  numero_factura: $json.numero_factura || null,\n  cufe: $json.cufe || null,\n  fecha_factura: $json.fecha_factura || null,\n  fecha_vencimiento: $json.fecha_vencimiento || null,\n  valor: Number($json.valor) || 0,\n  url_factura: $json.url_factura || '',\n  observaciones: $json.observaciones || 'Procesada vía buscador de correo con Gemini'\n}) }}",
+        "options": {}
+      },
+      "name": "API — Crear Factura Adjunto",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [-544, 1952],
+      "typeVersion": 4.2
+    },
+    {
+      "parameters": { "options": {} },
+      "name": "Respuesta OK Adjunto",
+      "type": "n8n-nodes-base.set",
+      "position": [-320, 1952],
+      "typeVersion": 3
+    },
+    {
+      "parameters": { "options": {} },
+      "name": "Respuesta Error Adjunto",
+      "type": "n8n-nodes-base.set",
+      "position": [-544, 2176],
+      "typeVersion": 3
+    },
+    {
+      "parameters": { "respondWith": "allIncomingItems", "options": {} },
+      "name": "Respond OK Adjunto",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "position": [-112, 1952],
+      "typeVersion": 1
+    },
+    {
+      "parameters": { "respondWith": "allIncomingItems", "options": { "responseCode": 422 } },
+      "name": "Respond Error Adjunto",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "position": [-320, 2176],
+      "typeVersion": 1
+    },
+
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "buscar-facturas",
+        "options": { "responseData": "allEntries" }
+      },
+      "name": "Webhook — Recibir Búsqueda",
+      "type": "n8n-nodes-base.webhook",
+      "position": [-1744, 1600],
+      "typeVersion": 1,
+      "notes": "Recibe del backend (POST /asistente/search): requestId, apiKey, empresaId, startDate, endDate, email (opcional), email_provider ('outlook'|'gmail'), credential_email_id, callbackUrl (opcional override)."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// El webhook entrega el payload en $json.body (n8n lo anida bajo 'body'\n// cuando el Content-Type es application/json). Aceptamos ambos por robustez.\nconst raw = $json || {};\nconst d = raw.body || raw;\nconst provider = (d.email_provider || 'outlook').toLowerCase();\n\n// $env.* está bloqueado por N8N_BLOCK_ENV_ACCESS_IN_NODE. El fallback\n// del callback va hardcoded. El backend puede sobreescribir enviando 'callbackUrl'.\nreturn {\n  requestId: d.requestId || '',\n  apiKey: d.apiKey || '',\n  empresaId: d.empresaId || null,\n  startDate: d.startDate || '',\n  endDate: d.endDate || '',\n  email: d.email || '',\n  email_provider: provider,\n  credential_email_id: d.credential_email_id || '',\n  callbackUrl: d.callbackUrl || 'http://127.0.0.1:8000/api/asistente/callback/search-results'\n};"
+      },
+      "name": "Extraer Contexto",
+      "type": "n8n-nodes-base.code",
+      "position": [-1552, 1600],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "dataType": "string",
+        "value1": "={{$json.email_provider}}",
+        "rules": {
+          "rules": [
+            { "value2": "outlook" },
+            { "value2": "gmail" }
+          ]
+        },
+        "fallbackOutput": 0
+      },
+      "name": "Switch · Provider",
+      "type": "n8n-nodes-base.switch",
+      "position": [-1328, 1600],
+      "typeVersion": 2,
+      "notes": "Solo Outlook y Gmail están soportados. fallbackOutput=0 envía cualquier valor desconocido a Outlook."
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://graph.microsoft.com/v1.0/me/messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "microsoftOutlookOAuth2Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "$filter", "value": "=hasAttachments eq true and receivedDateTime ge {{$('Extraer Contexto').item.json.startDate}}T00:00:00Z and receivedDateTime le {{$('Extraer Contexto').item.json.endDate}}T23:59:59Z{{$('Extraer Contexto').item.json.email ? \" and from/emailAddress/address eq '\" + $('Extraer Contexto').item.json.email + \"'\" : ''}}" },
+            { "name": "$expand", "value": "attachments" },
+            { "name": "$select", "value": "id,conversationId,subject,receivedDateTime,from,hasAttachments" },
+            { "name": "$top", "value": "25" }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Outlook · Buscar",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [-1104, 1440],
+      "typeVersion": 4.2,
+      "notes": "HTTP Request directo a Microsoft Graph con $expand=attachments. Garantiza que attachments[].contentBytes venga en base64. Al importar: en Authentication → Predefined Credential Type → seleccionar tu credencial Microsoft Outlook OAuth2."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Graph responde { value: [ ...messages ] } en un solo item. Lo expandimos\n// en items individuales para que 'Normalizar Adjuntos' procese cada correo\n// con la misma lógica que las otras ramas.\nconst raw = $json || {};\nconst messages = raw.value || raw || [];\nif (!Array.isArray(messages)) {\n  return [{ empty: true, error: 'Respuesta Graph inesperada', raw: JSON.stringify(raw).slice(0, 500) }];\n}\nif (messages.length === 0) {\n  return [{ empty: true }];\n}\nreturn messages;"
+      },
+      "name": "Expandir mensajes Outlook",
+      "type": "n8n-nodes-base.code",
+      "position": [-960, 1440],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "limit": 100,
+        "filters": {
+          "includeSpamTrash": false,
+          "q": "={{ 'has:attachment after:' + $('Extraer Contexto').item.json.startDate + ' before:' + $('Extraer Contexto').item.json.endDate + ($('Extraer Contexto').item.json.email ? ' from:' + $('Extraer Contexto').item.json.email : '') }}"
+        }
+      },
+      "name": "Gmail · Buscar",
+      "type": "n8n-nodes-base.gmail",
+      "position": [-1104, 1600],
+      "typeVersion": 2,
+      "notes": "Al importar: asignar tu credencial Gmail OAuth2 API. Requiere que la Gmail API esté habilitada en el proyecto de Google Cloud (ver SETUP_N8N.md)."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normaliza la salida de cualquiera de los providers a un esquema único.\n// Cada item de entrada es un correo; emitimos un item por cada adjunto PDF/ZIP.\n// Incluye el contenido base64 del adjunto para que el backend pueda procesarlo\n// sin necesidad de descargarlo por separado.\nconst ctx = $('Extraer Contexto').first().json;\nconst results = [];\n\nfor (const item of $input.all()) {\n  const email = item.json || {};\n  let subject, from, date, attachments, messageId, provider;\n\n  // Outlook Graph (detectar por conversationId, único de MS Graph)\n  if (email.conversationId) {\n    provider = 'outlook';\n    subject = email.subject || 'Sin asunto';\n    from = email.from?.emailAddress?.address\n        || email.from?.address\n        || (typeof email.from === 'string' ? email.from : '')\n        || '';\n    date = email.receivedDateTime || '';\n    attachments = email.attachments || [];\n    messageId = email.id;\n  }\n  // Gmail\n  else if (email.payload?.headers) {\n    provider = 'gmail';\n    const headers = email.payload.headers || [];\n    subject = headers.find(h => h.name === 'Subject')?.value || 'Sin asunto';\n    from = headers.find(h => h.name === 'From')?.value || '';\n    date = headers.find(h => h.name === 'Date')?.value || '';\n    const walk = (parts) => {\n      const out = [];\n      for (const p of (parts || [])) {\n        if (p.filename && p.body?.attachmentId) {\n          out.push({ name: p.filename, mimeType: p.mimeType, attachmentId: p.body.attachmentId, size: p.body.size });\n        }\n        if (p.parts) out.push(...walk(p.parts));\n      }\n      return out;\n    };\n    attachments = walk(email.payload.parts);\n    messageId = email.id;\n  }\n  else {\n    // Formato desconocido → salta\n    continue;\n  }\n\n  for (const att of attachments) {\n    const name = att.name || att.filename || 'archivo';\n    const ext = (name.split('.').pop() || '').toLowerCase();\n    if (ext !== 'pdf' && ext !== 'zip') continue;\n\n    // Outlook con $expand=attachments trae contentBytes ya en base64.\n    // Gmail requiere descarga aparte con attachmentId — la haría el backend.\n    const contentB64 = att.contentBytes\n      || att.content\n      || att.data\n      || '';\n\n    results.push({\n      filename: name,\n      size: att.size || (contentB64 ? Math.floor(contentB64.length * 3 / 4) : 0),\n      date,\n      sender: from,\n      subject,\n      contentType: att.contentType || att.mimeType || '',\n      storage_path: name,\n      messageId,\n      attachmentId: att.id || att.attachmentId || '',\n      sourceId: messageId + '::' + name,\n      provider,\n      content_base64: contentB64,\n      ...ctx\n    });\n  }\n}\n\nif (results.length === 0) {\n  return [{ empty: true, ...ctx }];\n}\nreturn results;"
+      },
+      "name": "Normalizar Adjuntos",
+      "type": "n8n-nodes-base.code",
+      "position": [-848, 1600],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            { "value1": "={{$json.empty}}", "operation": "notEqual", "value2": true }
+          ]
+        }
+      },
+      "name": "¿Hubo adjuntos?",
+      "type": "n8n-nodes-base.if",
+      "position": [-624, 1600],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Extraer Contexto').item.json.callbackUrl }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-API-Key", "value": "={{ $('Extraer Contexto').item.json.apiKey }}" },
+            { "name": "X-Empresa-Id", "value": "={{ $('Extraer Contexto').item.json.empresaId }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ requestId: $('Extraer Contexto').item.json.requestId, files: $input.all().map(i => i.json) }) }}",
+        "options": {}
+      },
+      "name": "Callback · Con resultados",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [-400, 1504],
+      "typeVersion": 4.2
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Extraer Contexto').item.json.callbackUrl }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-API-Key", "value": "={{ $('Extraer Contexto').item.json.apiKey }}" },
+            { "name": "X-Empresa-Id", "value": "={{ $('Extraer Contexto').item.json.empresaId }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ requestId: $('Extraer Contexto').item.json.requestId, files: [] }) }}",
+        "options": {}
+      },
+      "name": "Callback · Vacío",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [-400, 1712],
+      "typeVersion": 4.2
+    }
+  ],
+  "connections": {
+    "Webhook — Recibir Factura": { "main": [[{ "node": "Extraer Contexto Tenant", "type": "main", "index": 0 }]] },
+    "Extraer Contexto Tenant": { "main": [[{ "node": "Base64 a Binary", "type": "main", "index": 0 }]] },
+    "Base64 a Binary": { "main": [[{ "node": "Analyze document", "type": "main", "index": 0 }]] },
+    "Analyze document": { "main": [[{ "node": "Parsear Respuesta IA", "type": "main", "index": 0 }]] },
+    "Parsear Respuesta IA": { "main": [[{ "node": "Extracción exitosa?", "type": "main", "index": 0 }]] },
+    "Extracción exitosa?": {
+      "main": [
+        [{ "node": "API — Crear Factura", "type": "main", "index": 0 }],
+        [{ "node": "Respuesta Error", "type": "main", "index": 0 }]
+      ]
+    },
+    "API — Crear Factura": { "main": [[{ "node": "Respuesta OK", "type": "main", "index": 0 }]] },
+    "Respuesta OK": { "main": [[{ "node": "Respond OK", "type": "main", "index": 0 }]] },
+    "Respuesta Error": { "main": [[{ "node": "Respond Error", "type": "main", "index": 0 }]] },
+
+    "Webhook — Recibir Adjunto": { "main": [[{ "node": "Extraer Contexto Tenant Adjunto", "type": "main", "index": 0 }]] },
+    "Extraer Contexto Tenant Adjunto": { "main": [[{ "node": "Base64 a Binary Adjunto", "type": "main", "index": 0 }]] },
+    "Base64 a Binary Adjunto": { "main": [[{ "node": "Analyze document Adjunto", "type": "main", "index": 0 }]] },
+    "Analyze document Adjunto": { "main": [[{ "node": "Parsear Respuesta IA Adjunto", "type": "main", "index": 0 }]] },
+    "Parsear Respuesta IA Adjunto": { "main": [[{ "node": "Extracción exitosa Adjunto?", "type": "main", "index": 0 }]] },
+    "Extracción exitosa Adjunto?": {
+      "main": [
+        [{ "node": "API — Crear Factura Adjunto", "type": "main", "index": 0 }],
+        [{ "node": "Respuesta Error Adjunto", "type": "main", "index": 0 }]
+      ]
+    },
+    "API — Crear Factura Adjunto": { "main": [[{ "node": "Respuesta OK Adjunto", "type": "main", "index": 0 }]] },
+    "Respuesta OK Adjunto": { "main": [[{ "node": "Respond OK Adjunto", "type": "main", "index": 0 }]] },
+    "Respuesta Error Adjunto": { "main": [[{ "node": "Respond Error Adjunto", "type": "main", "index": 0 }]] },
+
+    "Webhook — Recibir Búsqueda": { "main": [[{ "node": "Extraer Contexto", "type": "main", "index": 0 }]] },
+    "Extraer Contexto": { "main": [[{ "node": "Switch · Provider", "type": "main", "index": 0 }]] },
+    "Switch · Provider": {
+      "main": [
+        [{ "node": "Outlook · Buscar", "type": "main", "index": 0 }],
+        [{ "node": "Gmail · Buscar", "type": "main", "index": 0 }]
+      ]
+    },
+    "Outlook · Buscar": { "main": [[{ "node": "Expandir mensajes Outlook", "type": "main", "index": 0 }]] },
+    "Expandir mensajes Outlook": { "main": [[{ "node": "Normalizar Adjuntos", "type": "main", "index": 0 }]] },
+    "Gmail · Buscar": { "main": [[{ "node": "Normalizar Adjuntos", "type": "main", "index": 0 }]] },
+    "Normalizar Adjuntos": { "main": [[{ "node": "¿Hubo adjuntos?", "type": "main", "index": 0 }]] },
+    "¿Hubo adjuntos?": {
+      "main": [
+        [{ "node": "Callback · Con resultados", "type": "main", "index": 0 }],
+        [{ "node": "Callback · Vacío", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "tags": [
+    { "name": "facturacion-saas" },
+    { "name": "multi-tenant" },
+    { "name": "gemini-nativo" }
+  ]
+}

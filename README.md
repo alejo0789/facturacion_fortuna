@@ -239,13 +239,14 @@ todos los tenants. Cada empresa registra su propia credencial Google Gemini
 `/app/integraciones`. El backend inyecta ese ID en cada payload y el
 workflow lo usa como `credentialId` dinámico.
 
-Workflows en `n8n/` (todos con Google Gemini nativo):
+Workflow único en `n8n/` (Google Gemini nativo, Outlook + Gmail):
 
-| Archivo | Rol |
-|---------|-----|
-| `workflow_procesar_factura_gemini.json` | Upload manual de PDF (probado end-to-end) |
-| `workflow_buscar_facturas_template.json` | Fase 2: buscar correos con adjuntos (Outlook/Gmail/Yahoo/IMAP) |
-| `workflow_procesar_adjunto_template.json` | Fase 2: procesar el adjunto seleccionado |
+| Archivo | Endpoints webhook |
+|---------|-------------------|
+| `workflow_facturacion_saas.json` | `/webhook/procesar-factura`, `/webhook/buscar-facturas`, `/webhook/procesar-adjunto` |
+
+Un solo import en n8n crea los 3 sub-flujos aislados: upload manual con IA,
+buscador de correo Outlook/Gmail, y procesamiento del adjunto seleccionado.
 
 Autenticación del callback del workflow al backend:
 
@@ -852,10 +853,8 @@ facturacion_fortuna/
 │   │   └── App.tsx                # Router con lazy() + Suspense
 │   ├── vite.config.ts
 │   └── package.json
-├── n8n/                           # Workflows compartidos + README de integración
-│   ├── workflow_procesar_factura_gemini.json           # ← probado end-to-end
-│   ├── workflow_buscar_facturas_template.json          # fase 2 correo
-│   ├── workflow_procesar_adjunto_template.json         # fase 2 correo (Gemini)
+├── n8n/                           # Workflow único consolidado + README de integración
+│   ├── workflow_facturacion_saas.json  # 3 sub-flujos: procesar-factura + buscar + procesar-adjunto
 │   └── README_INTEGRACION.md
 ├── apache_config_production.conf  # Reverse proxy HTTPS
 ├── SETUP_N8N.md                   # Guía end-to-end del setup de n8n
