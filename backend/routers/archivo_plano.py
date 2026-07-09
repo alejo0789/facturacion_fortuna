@@ -373,12 +373,18 @@ async def generate_rows_for_oficina(
         if factura_total_valor > 0:
             ratio = valor / factura_total_valor
             valor_iva = round(factura_iva * ratio, 0)
-            valor_base = valor - valor_iva
+            
+            if proveedor_nit == "901110526":
+                # REGLA ESPECIAL SIMECT: El valor ingresado es el Neto (con retefuente descontada).
+                # Base = (Neto - IVA) / (1 - 0.04)
+                valor_base = round((valor - valor_iva) / 0.96, 0)
+            else:
+                valor_base = valor - valor_iva
         else:
             valor_base = valor
             valor_iva = 0
     elif tiene_iva:
-        if proveedor_nit == "901073256":
+        if proveedor_nit in ["901073256", "901110526"]:
             # REGLA ESPECIAL: T = B * 1.15 (Base + 19% IVA - 4% Rete)
             # Bruto (B) = T / 1.15, IVA = B * 0.19
             valor_base = round(valor / 1.15, 0)
