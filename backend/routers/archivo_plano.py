@@ -374,7 +374,8 @@ async def generate_rows_for_oficina(
             ratio = valor / factura_total_valor
             valor_iva = round(factura_iva * ratio, 0)
             
-            if proveedor_nit == "901110526":
+            nit_str = str(proveedor_nit).strip()
+            if "901110526" in nit_str:
                 # REGLA ESPECIAL SIMECT: El valor ingresado es el Neto (con retefuente descontada).
                 # Base = (Neto - IVA) / (1 - 0.04)
                 valor_base = round((valor - valor_iva) / 0.96, 0)
@@ -384,7 +385,8 @@ async def generate_rows_for_oficina(
             valor_base = valor
             valor_iva = 0
     elif tiene_iva:
-        if proveedor_nit in ["901073256", "901110526"]:
+        nit_str = str(proveedor_nit).strip()
+        if "901073256" in nit_str or "901110526" in nit_str:
             # REGLA ESPECIAL: T = B * 1.15 (Base + 19% IVA - 4% Rete)
             # Bruto (B) = T / 1.15, IVA = B * 0.19
             valor_base = round(valor / 1.15, 0)
@@ -897,12 +899,19 @@ async def preview_causacion_manager(request: CausacionManagerPreviewRequest):
                 if factura_total_valor > 0:
                     ratio = valor / factura_total_valor
                     valor_iva = round(iva_global * ratio, 0)
-                    valor_base = valor - valor_iva
+                    
+                    nit_str = str(request.proveedor_nit).strip()
+                    if "901110526" in nit_str:
+                        # REGLA ESPECIAL SIMECT: El valor ingresado es el Neto (con retefuente descontada).
+                        valor_base = round((valor - valor_iva) / 0.96, 0)
+                    else:
+                        valor_base = valor - valor_iva
                 else:
                     valor_base = valor
                     valor_iva = 0
             elif request.tiene_iva:
-                if request.proveedor_nit == "901073256":
+                nit_str = str(request.proveedor_nit).strip()
+                if "901073256" in nit_str or "901110526" in nit_str:
                     # REGLA ESPECIAL: Bruto (B) = T / 1.15, IVA = B * 0.19
                     valor_base = round(valor / 1.15, 0)
                     valor_iva = round(valor_base * 0.19, 0)
