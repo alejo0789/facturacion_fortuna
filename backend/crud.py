@@ -376,7 +376,11 @@ async def get_facturas(db: AsyncSession, skip: int = 0, limit: int = 100,
                 models.Proveedor.nit.ilike(f"%{search}%"),
                 models.Oficina.nombre.ilike(f"%{search}%"),
                 models.Factura.numero_factura.ilike(f"%{search}%"),
-                models.Factura.cufe.ilike(f"%{search}%")
+                models.Factura.cufe.ilike(f"%{search}%"),
+                models.Factura.contrato.has(models.Contrato.num_contrato.ilike(f"%{search}%")),
+                models.Factura.oficinas_asignadas.any(
+                    models.FacturaOficina.contrato.has(models.Contrato.num_contrato.ilike(f"%{search}%"))
+                )
             )
         )
     

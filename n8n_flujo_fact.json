@@ -490,7 +490,7 @@
                         {
                             "name": "url_factura",
                             "valueProvider": "fieldValue",
-                            "value": "={{ (\"file://192.168.2.20//Facturas/\" + $('Loop Over Items1').item.json.mes + \"/\" + $('Loop Over Items1').item.json.dia + \"/\" + String($('Loop Over Items1').item.json.name.toLowerCase().endsWith('.zip') ? $('Loop Over Items1').item.binary.data.fileName + '.pdf' : $('Loop Over Items1').item.json.name)).trim() }}"
+                            "value": "={{ (\"file://192.168.2.20//Facturas/\" + $('Loop Over Items1').item.json.mes + \"/\" + $('Loop Over Items1').item.json.dia + \"/\" + String($('Loop Over Items1').item.json.name.toLowerCase().endsWith('.zip') ? ($('Loop Over Items1').item.binary.data.fileName.toLowerCase().endsWith('.pdf') ? $('Loop Over Items1').item.binary.data.fileName : $('Loop Over Items1').item.binary.data.fileName + '.pdf') : $('Loop Over Items1').item.json.name)).trim() }}"
                         },
                         {
                             "name": "observaciones",
@@ -1514,7 +1514,7 @@
                             {
                                 "name": "url_factura",
                                 "valueProvider": "fieldValue",
-                                "value": "={{ (\"file://192.168.2.20//Facturas/\" + $('Loop Over Items1').item.json.mes + \"/\" + $('Loop Over Items1').item.json.dia + \"/\" + String($('Loop Over Items1').item.json.name.toLowerCase().endsWith('.zip') ? $('Loop Over Items1').item.binary.data.fileName + '.pdf' : $('Loop Over Items1').item.json.name)).trim() }}"
+                                "value": "={{ (\"file://192.168.2.20//Facturas/\" + $('Loop Over Items1').item.json.mes + \"/\" + $('Loop Over Items1').item.json.dia + \"/\" + String($('Loop Over Items1').item.json.name.toLowerCase().endsWith('.zip') ? ($('Loop Over Items1').item.binary.data.fileName.toLowerCase().endsWith('.pdf') ? $('Loop Over Items1').item.binary.data.fileName : $('Loop Over Items1').item.binary.data.fileName + '.pdf') : $('Loop Over Items1').item.json.name)).trim() }}"
                             },
                             {
                                 "name": "observaciones",

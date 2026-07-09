@@ -333,7 +333,7 @@
                         {
                             "name": "url_factura",
                             "valueProvider": "fieldValue",
-                            "value": "=file://192.168.2.20//Facturas/{{ $('obtener_fecha').item.json.mes }}/{{ $('obtener_fecha').item.json.dia }}/{{ $if($(\"Code2\").isExecuted, $('Code2').item.binary.data.fileName + '.pdf', $('Loop Over Items1').item.json.name) }}"
+                            "value": "=file://192.168.2.20//Facturas/{{ $('obtener_fecha').item.json.mes }}/{{ $('obtener_fecha').item.json.dia }}/{{ $if($(\"Code2\").isExecuted, ($('Code2').item.binary.data.fileName.toLowerCase().endsWith('.pdf') ? $('Code2').item.binary.data.fileName : $('Code2').item.binary.data.fileName + '.pdf'), $('Loop Over Items1').item.json.name) }}"
                         },
                         {
                             "name": "observaciones",
