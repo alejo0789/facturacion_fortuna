@@ -27,10 +27,30 @@ class SearchResult(BaseModel):
     data: Optional[List[dict]] = None
     error: Optional[str] = None
     created_at: datetime
+    empresa_id: Optional[int] = None
 
 # In-memory storage for simplicity (could be Redis/DB in prod)
 # Cleanup strategy: manually clear or TTL (omitted for brevity)
 search_cache: Dict[str, SearchResult] = {}
+
+# Set de sourceIds ya procesados por empresa. Sirve para marcar los adjuntos
+# como "already_processed" al reincidir en una búsqueda y evitar procesar 2x.
+# empresa_id → set de sourceIds (formato "messageId::filename").
+# In-memory: se pierde al reiniciar el backend. Suficiente para la sesión
+# de trabajo actual; para persistencia real hay que migrar a columna en
+# tabla facturas.
+processed_source_ids: Dict[int, set] = {}
+
+
+def _mark_files_with_processed_flag(files: list, empresa_id: Optional[int]) -> list:
+    """Anota cada file con `already_processed: bool` según processed_source_ids."""
+    if empresa_id is None:
+        return files
+    processed_set = processed_source_ids.get(empresa_id, set())
+    for f in files:
+        sid = f.get("sourceId") or ""
+        f["already_processed"] = sid in processed_set
+    return files
 
 # Precedencia:
 #   1. Empresa override (modo self-hosted): empresa.n8n_search_webhook / n8n_process_webhook
@@ -90,6 +110,7 @@ async def search_emails_async(
         request_id=request_id,
         status="processing",
         created_at=datetime.now(),
+        empresa_id=empresa.id,
     )
 
     # Sumar un día para incluir todo el día final (boundary exclusivo en n8n)
@@ -122,7 +143,13 @@ async def search_emails_async(
 async def get_search_result(request_id: str):
     if request_id not in search_cache:
         raise HTTPException(status_code=404, detail="Request ID not found")
-    return search_cache[request_id]
+    sr = search_cache[request_id]
+    # Recalcula el flag already_processed cada vez que se consulta —
+    # así, si el usuario procesó un archivo en otra pestaña, la lista
+    # se actualiza al hacer refresh sin tener que re-buscar.
+    if sr.data:
+        _mark_files_with_processed_flag(sr.data, sr.empresa_id)
+    return sr
 
 import json
 
@@ -159,6 +186,9 @@ async def receive_search_results(payload: dict, request: Request):
             files = json.loads(files)
         except json.JSONDecodeError:
             files = []
+
+    # Marcar cada file con already_processed antes de guardarlo en el cache
+    _mark_files_with_processed_flag(files, search_cache[req_id].empresa_id)
 
     search_cache[req_id].status = "completed"
     search_cache[req_id].data = files
@@ -227,10 +257,13 @@ async def process_single_file_task(
 
         if response.status_code >= 400:
             print(f"Error de n8n para {filename}: Status {response.status_code} - {response.text[:200]}")
+            return False
         else:
             print(f"Archivo {filename} enviado correctamente. Status: {response.status_code}")
+            return True
     except Exception as e:
         print(f"Excepción al enviar {filename} a n8n: {e}")
+        return False
 
 
 async def process_files_sequentially_task(
@@ -298,7 +331,7 @@ async def process_files_sequentially_task(
     print("Iniciando fase 2: Notificando a n8n secuencialmente...")
     async with httpx.AsyncClient(timeout=120.0) as client:
         for file_info in ready_files:
-            await process_single_file_task(
+            ok = await process_single_file_task(
                 file_info,
                 webhook_url=webhook_url,
                 api_key=api_key,
@@ -306,6 +339,13 @@ async def process_files_sequentially_task(
                 openai_credential_id=openai_credential_id,
                 client=client,
             )
+            # Solo marcar como procesado si el envío al webhook fue exitoso.
+            # (el procesamiento posterior en n8n puede fallar, pero al menos
+            # evitamos re-enviar lo que ya el usuario mandó a procesar).
+            if ok:
+                sid = file_info.get("sourceId") or ""
+                if sid:
+                    processed_source_ids.setdefault(empresa_id, set()).add(sid)
             await asyncio.sleep(1.5)
 
     print("Todo el lote ha sido procesado.")
@@ -367,18 +407,43 @@ import os
 @router.get("/asistente/preview/{filename}")
 async def preview_temp_file(filename: str):
     """
-    Serve a temporary PDF file for preview.
+    Serve a temporary PDF file for preview. Dos caminos:
+      1. Nuevo (OAuth Outlook/Gmail): busca en search_cache un file con
+         content_base64 y lo devuelve como stream inline.
+      2. Legacy: si el archivo está en TEMPORAL_FILES_PATH (buscador viejo
+         que copiaba adjuntos a una carpeta compartida), lo sirve.
     """
-    # Security: Prevent path traversal
+    from fastapi.responses import Response
+
     if ".." in filename or "/" in filename or "\\" in filename:
-         raise HTTPException(status_code=400, detail="Invalid filename")
+        raise HTTPException(status_code=400, detail="Invalid filename")
 
-    file_path = os.path.join(TEMPORAL_FILES_PATH, filename)
-    
-    if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="File not found or expired")
+    # Camino 1: buscar en el cache de resultados de búsqueda.
+    for req in search_cache.values():
+        for f in (req.data or []):
+            f_name = (f.get("filename") or "").split("\\")[-1].split("/")[-1]
+            if f_name == filename and f.get("content_base64"):
+                try:
+                    pdf_bytes = base64.b64decode(f["content_base64"])
+                except Exception:
+                    continue
+                return Response(
+                    content=pdf_bytes,
+                    media_type="application/pdf",
+                    headers={"Content-Disposition": f'inline; filename="{filename}"'},
+                )
 
-    return FileResponse(file_path, media_type="application/pdf", filename=filename, content_disposition_type="inline")
+    # Camino 2: buscar en disco (legacy).
+    file_path = os.path.join(TEMPORAL_FILES_PATH_FALLBACK, filename)
+    if os.path.exists(file_path):
+        return FileResponse(
+            file_path,
+            media_type="application/pdf",
+            filename=filename,
+            content_disposition_type="inline",
+        )
+
+    raise HTTPException(status_code=404, detail="File not found or expired")
 
 @router.delete("/asistente/cleanup/{request_id}")
 async def cleanup_temp_files(request_id: str):
