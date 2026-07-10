@@ -296,7 +296,7 @@
     {
       "parameters": {
         "method": "GET",
-        "url": "=https://graph.microsoft.com/v1.0/me/messages",
+        "url": "=https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages",
         "authentication": "predefinedCredentialType",
         "nodeCredentialType": "microsoftOutlookOAuth2Api",
         "sendQuery": true,
@@ -327,18 +327,99 @@
     },
     {
       "parameters": {
-        "operation": "getAll",
-        "limit": 100,
-        "filters": {
-          "includeSpamTrash": false,
-          "q": "={{ 'has:attachment after:' + $('Extraer Contexto').item.json.startDate + ' before:' + $('Extraer Contexto').item.json.endDate + ($('Extraer Contexto').item.json.email ? ' from:' + $('Extraer Contexto').item.json.email : '') }}"
-        }
+        "method": "GET",
+        "url": "=https://gmail.googleapis.com/gmail/v1/users/me/messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "gmailOAuth2",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "q", "value": "={{ 'in:inbox has:attachment after:' + $('Extraer Contexto').item.json.startDate + ' before:' + $('Extraer Contexto').item.json.endDate + ($('Extraer Contexto').item.json.email ? ' from:' + $('Extraer Contexto').item.json.email : '') }}" },
+            { "name": "maxResults", "value": "25" }
+          ]
+        },
+        "options": {}
       },
       "name": "Gmail · Buscar",
-      "type": "n8n-nodes-base.gmail",
+      "type": "n8n-nodes-base.httpRequest",
       "position": [-1104, 1600],
-      "typeVersion": 2,
-      "notes": "Al importar: asignar tu credencial Gmail OAuth2 API. Requiere que la Gmail API esté habilitada en el proyecto de Google Cloud (ver SETUP_N8N.md)."
+      "typeVersion": 4.2,
+      "notes": "HTTP Request directo a Gmail API. Devuelve solo IDs de mensajes ({ messages: [{ id, threadId }] }). El siguiente nodo hace Get de cada uno con format=full para tener payload.parts. Al importar: en Authentication → Predefined Credential Type → seleccionar tu credencial Gmail OAuth2."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Gmail API responde { messages: [{ id, threadId }, ...] } en 1 solo item.\n// Expandimos a items individuales para que el siguiente Get de mensaje\n// procese cada uno por separado.\nconst raw = $json || {};\nconst messages = raw.messages || [];\nif (!Array.isArray(messages) || messages.length === 0) {\n  const ctx = $('Extraer Contexto').first().json;\n  return [{ empty: true, ...ctx }];\n}\nreturn messages;"
+      },
+      "name": "Expandir Mensajes Gmail",
+      "type": "n8n-nodes-base.code",
+      "position": [-960, 1440],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://gmail.googleapis.com/gmail/v1/users/me/messages/{{ $json.id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "gmailOAuth2",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "format", "value": "full" }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Gmail · Get Message",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [-800, 1440],
+      "typeVersion": 4.2,
+      "notes": "GET de cada mensaje con format=full para obtener payload.headers[] y payload.parts[] (donde vienen los attachmentIds). El siguiente Code node los extrae."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Recibe mensajes Gmail con payload.headers y payload.parts.\n// Emite 1 item por cada PDF/ZIP adjunto, con messageId + attachmentId +\n// metadata (sender, subject, date) + contexto tenant. NO descarga el binario\n// (eso lo hace el siguiente HTTP Request a Gmail API).\nconst ctx = $('Extraer Contexto').first().json;\nconst results = [];\n\nconst walk = (parts, out) => {\n  for (const p of (parts || [])) {\n    if (p.filename && p.body?.attachmentId) {\n      out.push({\n        name: p.filename,\n        mimeType: p.mimeType,\n        attachmentId: p.body.attachmentId,\n        size: p.body.size\n      });\n    }\n    if (p.parts) walk(p.parts, out);\n  }\n};\n\nfor (const item of $input.all()) {\n  const email = item.json || {};\n  const headers = email.payload?.headers || [];\n  const subject = headers.find(h => h.name === 'Subject')?.value || 'Sin asunto';\n  const from = headers.find(h => h.name === 'From')?.value || '';\n  const date = headers.find(h => h.name === 'Date')?.value || '';\n  const messageId = email.id;\n\n  const attachments = [];\n  walk(email.payload?.parts, attachments);\n\n  for (const att of attachments) {\n    const ext = (att.name.split('.').pop() || '').toLowerCase();\n    if (ext !== 'pdf' && ext !== 'zip') continue;\n\n    results.push({\n      messageId,\n      attachmentId: att.attachmentId,\n      filename: att.name,\n      mimeType: att.mimeType,\n      size: att.size,\n      sender: from,\n      subject,\n      date,\n      provider: 'gmail',\n      ...ctx\n    });\n  }\n}\n\nif (results.length === 0) {\n  return [{ empty: true, ...ctx }];\n}\nreturn results;"
+      },
+      "name": "Extraer Metadata Gmail",
+      "type": "n8n-nodes-base.code",
+      "position": [-960, 1600],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            { "value1": "={{$json.empty}}", "operation": "notEqual", "value2": true }
+          ]
+        }
+      },
+      "name": "¿Hubo adjuntos Gmail?",
+      "type": "n8n-nodes-base.if",
+      "position": [-800, 1600],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://gmail.googleapis.com/gmail/v1/users/me/messages/{{ $json.messageId }}/attachments/{{ $json.attachmentId }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "gmailOAuth2",
+        "options": {}
+      },
+      "name": "Gmail · Descargar Attachment",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [-640, 1520],
+      "typeVersion": 4.2,
+      "notes": "HTTP Request directo a Gmail API. Descarga cada attachment por (messageId, attachmentId). Retorna { size, data } donde data es base64 URL-safe (RFC 4648 §5). Usa la MISMA credencial Gmail OAuth2 via Predefined Credential Type."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Toma el metadata previo (Extraer Metadata Gmail) y el response del\n// HTTP Request (data en base64 URL-safe). Convierte a base64 estándar y\n// emite el item final con content_base64 + ctx.\n//\n// Uso $itemIndex + .all() para acceder al metadata correspondiente al\n// item actual — el pairedItem se rompe cuando un HTTP Request procesa 1×N,\n// pero el orden de items se preserva.\nconst idx = $itemIndex;\nconst allMeta = $('Extraer Metadata Gmail').all();\nconst meta = allMeta[idx]?.json || {};\nconst raw = $json || {};\nconst urlSafeB64 = raw.data || '';\n\n// Base64 URL-safe → estándar: reemplaza -/_ por +// y añade padding si falta\nlet b64 = urlSafeB64.replace(/-/g, '+').replace(/_/g, '/');\nb64 = b64 + '='.repeat((4 - b64.length % 4) % 4);\n\nreturn {\n  filename: meta.filename,\n  size: raw.size || meta.size,\n  date: meta.date,\n  sender: meta.sender,\n  subject: meta.subject,\n  contentType: meta.mimeType,\n  storage_path: meta.filename,\n  messageId: meta.messageId,\n  attachmentId: meta.attachmentId,\n  sourceId: meta.messageId + '::' + meta.filename,\n  provider: 'gmail',\n  content_base64: b64,\n  // Contexto tenant\n  requestId: meta.requestId,\n  apiKey: meta.apiKey,\n  empresaId: meta.empresaId,\n  email: meta.email,\n  email_provider: meta.email_provider,\n  credential_email_id: meta.credential_email_id,\n  callbackUrl: meta.callbackUrl,\n  startDate: meta.startDate,\n  endDate: meta.endDate\n};"
+      },
+      "name": "Ensamblar Item Gmail",
+      "type": "n8n-nodes-base.code",
+      "position": [-480, 1520],
+      "typeVersion": 2
     },
     {
       "parameters": {
@@ -365,40 +446,41 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ $('Extraer Contexto').item.json.callbackUrl }}",
+        "url": "={{ $('Extraer Contexto').first().json.callbackUrl }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "X-API-Key", "value": "={{ $('Extraer Contexto').item.json.apiKey }}" },
-            { "name": "X-Empresa-Id", "value": "={{ $('Extraer Contexto').item.json.empresaId }}" },
+            { "name": "X-API-Key", "value": "={{ $('Extraer Contexto').first().json.apiKey }}" },
+            { "name": "X-Empresa-Id", "value": "={{ $('Extraer Contexto').first().json.empresaId }}" },
             { "name": "Content-Type", "value": "application/json" }
           ]
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ requestId: $('Extraer Contexto').item.json.requestId, files: $input.all().map(i => i.json) }) }}",
+        "jsonBody": "={{ JSON.stringify({ requestId: $('Extraer Contexto').first().json.requestId, files: $input.all().map(i => i.json) }) }}",
         "options": {}
       },
       "name": "Callback · Con resultados",
       "type": "n8n-nodes-base.httpRequest",
       "position": [-400, 1504],
-      "typeVersion": 4.2
+      "typeVersion": 4.2,
+      "notes": "Uso .first() en lugar de .item porque Extraer Contexto emite 1 solo item pero este Callback puede recibir N desde la rama Gmail — n8n no puede parear .item cuando la cardinalidad difiere."
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ $('Extraer Contexto').item.json.callbackUrl }}",
+        "url": "={{ $('Extraer Contexto').first().json.callbackUrl }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "X-API-Key", "value": "={{ $('Extraer Contexto').item.json.apiKey }}" },
-            { "name": "X-Empresa-Id", "value": "={{ $('Extraer Contexto').item.json.empresaId }}" },
+            { "name": "X-API-Key", "value": "={{ $('Extraer Contexto').first().json.apiKey }}" },
+            { "name": "X-Empresa-Id", "value": "={{ $('Extraer Contexto').first().json.empresaId }}" },
             { "name": "Content-Type", "value": "application/json" }
           ]
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ requestId: $('Extraer Contexto').item.json.requestId, files: [] }) }}",
+        "jsonBody": "={{ JSON.stringify({ requestId: $('Extraer Contexto').first().json.requestId, files: [] }) }}",
         "options": {}
       },
       "name": "Callback · Vacío",
@@ -448,14 +530,25 @@
     },
     "Outlook · Buscar": { "main": [[{ "node": "Expandir mensajes Outlook", "type": "main", "index": 0 }]] },
     "Expandir mensajes Outlook": { "main": [[{ "node": "Normalizar Adjuntos", "type": "main", "index": 0 }]] },
-    "Gmail · Buscar": { "main": [[{ "node": "Normalizar Adjuntos", "type": "main", "index": 0 }]] },
     "Normalizar Adjuntos": { "main": [[{ "node": "¿Hubo adjuntos?", "type": "main", "index": 0 }]] },
     "¿Hubo adjuntos?": {
       "main": [
         [{ "node": "Callback · Con resultados", "type": "main", "index": 0 }],
         [{ "node": "Callback · Vacío", "type": "main", "index": 0 }]
       ]
-    }
+    },
+    "Gmail · Buscar": { "main": [[{ "node": "Expandir Mensajes Gmail", "type": "main", "index": 0 }]] },
+    "Expandir Mensajes Gmail": { "main": [[{ "node": "Gmail · Get Message", "type": "main", "index": 0 }]] },
+    "Gmail · Get Message": { "main": [[{ "node": "Extraer Metadata Gmail", "type": "main", "index": 0 }]] },
+    "Extraer Metadata Gmail": { "main": [[{ "node": "¿Hubo adjuntos Gmail?", "type": "main", "index": 0 }]] },
+    "¿Hubo adjuntos Gmail?": {
+      "main": [
+        [{ "node": "Gmail · Descargar Attachment", "type": "main", "index": 0 }],
+        [{ "node": "Callback · Vacío", "type": "main", "index": 0 }]
+      ]
+    },
+    "Gmail · Descargar Attachment": { "main": [[{ "node": "Ensamblar Item Gmail", "type": "main", "index": 0 }]] },
+    "Ensamblar Item Gmail": { "main": [[{ "node": "Callback · Con resultados", "type": "main", "index": 0 }]] }
   },
   "settings": {
     "executionOrder": "v1",
