@@ -23,6 +23,8 @@ interface SearchResult {
     sourceId: string;
     date: string;
     storage_path?: string;
+    already_processed?: boolean;
+    sender?: string;
 }
 
 export default function AsistenteBuscadorPage() {
@@ -37,9 +39,42 @@ export default function AsistenteBuscadorPage() {
     const [error, setError] = useState<string | null>(null);
     const [successMsg, setSuccessMsg] = useState<string | null>(null);
     const [previewFile, setPreviewFile] = useState<string | null>(null);
+    const [previewLoading, setPreviewLoading] = useState(false);
 
     const pollingRef = useRef<number | null>(null);
     const currentRequestIdRef = useRef<string | null>(null);
+
+    // Descarga el PDF con auth (JWT) y crea una blob URL local para el iframe.
+    // El iframe no puede enviar headers Authorization, por eso no basta con
+    // apuntar src= directo al endpoint del backend.
+    const openPreview = async (filename: string) => {
+        setPreviewLoading(true);
+        try {
+            const res = await authFetch(`${API_URL}/asistente/preview/${encodeURIComponent(filename)}`);
+            if (!res.ok) {
+                setError(`No se pudo previsualizar: HTTP ${res.status}`);
+                return;
+            }
+            const blob = await res.blob();
+            const blobUrl = URL.createObjectURL(blob);
+            setPreviewFile(blobUrl);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Error al abrir preview');
+        } finally {
+            setPreviewLoading(false);
+        }
+    };
+
+    // Al cerrar el modal (o al desmontar el componente), liberar la blob URL.
+    const closePreview = () => {
+        if (previewFile) URL.revokeObjectURL(previewFile);
+        setPreviewFile(null);
+    };
+    useEffect(() => {
+        return () => {
+            if (previewFile) URL.revokeObjectURL(previewFile);
+        };
+    }, [previewFile]);
 
     // Verificar config de integraciones para mostrar banner
     const [integ, setInteg] = useState<IntegracionesMin | null>(null);
@@ -149,7 +184,12 @@ export default function AsistenteBuscadorPage() {
             if (selected.size === results.length) {
                 setSelected(new Set());
             } else {
-                setSelected(new Set(results.map((r) => r.sourceId + r.filename)));
+                // Seleccionar todo, pero saltando los ya procesados.
+                setSelected(new Set(
+                    results
+                        .filter((r) => !r.already_processed)
+                        .map((r) => r.sourceId + r.filename)
+                ));
             }
         } else {
             const newSelected = new Set(selected);
@@ -173,6 +213,20 @@ export default function AsistenteBuscadorPage() {
             });
             if (!res.ok) throw new Error('Error al iniciar procesamiento');
             setSuccessMsg(`Se enviaron ${filesToProcess.length} archivos a procesar.`);
+
+            // Marca localmente los archivos enviados como "ya procesados" para
+            // que aparezcan con badge en la misma lista, y así no se puedan
+            // seleccionar de nuevo. La verdad final la tiene el backend
+            // (processed_source_ids) — al reincidir en una búsqueda futura
+            // volverán a llegar marcados.
+            const sentIds = new Set(filesToProcess.map((f) => f.sourceId + f.filename));
+            setResults((prev) =>
+                prev.map((r) =>
+                    sentIds.has(r.sourceId + r.filename)
+                        ? { ...r, already_processed: true }
+                        : r
+                )
+            );
             setSelected(new Set());
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Error');
@@ -377,40 +431,57 @@ export default function AsistenteBuscadorPage() {
                                                     type="checkbox"
                                                     checked={selected.has(key)}
                                                     onChange={() => toggleSelect(key)}
-                                                    className="h-4 w-4 rounded"
+                                                    disabled={file.already_processed}
+                                                    className="h-4 w-4 rounded disabled:cursor-not-allowed disabled:opacity-40"
                                                     style={{ accentColor: 'var(--accent)' }}
+                                                    title={file.already_processed ? 'Ya procesada' : 'Seleccionar'}
                                                 />
                                             </td>
                                             <td className="p-4 font-medium">
-                                                <div className="flex items-center gap-2">
+                                                <div className="flex items-center gap-2 flex-wrap">
                                                     <svg className="w-4 h-4 shrink-0" style={{ color: 'var(--negative)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
                                                     </svg>
                                                     {file.storage_path ? (
                                                         <button
-                                                            onClick={() => setPreviewFile(`${API_URL}/asistente/preview/${encodeURIComponent(file.storage_path!.split('\\').pop() || '')}`)}
-                                                            className="hover:underline text-left truncate transition-colors"
-                                                            style={{ color: 'var(--ink)' }}
+                                                            onClick={() => openPreview(file.storage_path!.split('\\').pop() || '')}
+                                                            className="hover:underline text-left truncate transition-colors disabled:opacity-60"
+                                                            style={{ color: file.already_processed ? 'var(--ink-mute)' : 'var(--ink)' }}
                                                             onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--accent)')}
-                                                            onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--ink)')}
+                                                            onMouseLeave={(e) => (e.currentTarget.style.color = file.already_processed ? 'var(--ink-mute)' : 'var(--ink)')}
                                                             title="Ver PDF"
+                                                            disabled={previewLoading}
                                                         >
                                                             {file.filename}
                                                         </button>
                                                     ) : (
                                                         <span className="truncate">{file.filename}</span>
                                                     )}
+                                                    {file.already_processed && (
+                                                        <span
+                                                            className="text-[10px] px-2 py-0.5 rounded-sm font-medium uppercase tracking-wider"
+                                                            style={{
+                                                                background: 'var(--gold-soft, #fef3c7)',
+                                                                color: 'var(--gold, #92400e)',
+                                                                border: '1px solid var(--gold, #92400e)',
+                                                            }}
+                                                            title="Esta factura ya fue enviada a procesar"
+                                                        >
+                                                            Ya procesada
+                                                        </span>
+                                                    )}
                                                 </div>
                                             </td>
                                             <td className="p-4 w-10">
                                                 {file.storage_path ? (
                                                     <button
-                                                        onClick={() => setPreviewFile(`${API_URL}/asistente/preview/${encodeURIComponent(file.storage_path!.split('\\').pop() || '')}`)}
-                                                        className="transition-colors"
+                                                        onClick={() => openPreview(file.storage_path!.split('\\').pop() || '')}
+                                                        className="transition-colors disabled:opacity-50"
                                                         style={{ color: 'var(--ink-faint)' }}
                                                         onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--accent)')}
                                                         onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--ink-faint)')}
                                                         title="Ver PDF"
+                                                        disabled={previewLoading}
                                                     >
                                                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -438,7 +509,7 @@ export default function AsistenteBuscadorPage() {
                 <div
                     className="fixed inset-0 z-50 flex items-center justify-center p-4 anim-fade-in"
                     style={{ background: 'rgba(11, 15, 25, 0.55)', backdropFilter: 'blur(4px)' }}
-                    onClick={() => setPreviewFile(null)}
+                    onClick={closePreview}
                 >
                     <div className="surface-raised w-full max-w-5xl h-[90vh] flex flex-col overflow-hidden anim-fade-up" onClick={(e) => e.stopPropagation()}>
                         <div
@@ -449,7 +520,7 @@ export default function AsistenteBuscadorPage() {
                                 Vista previa
                             </h3>
                             <button
-                                onClick={() => setPreviewFile(null)}
+                                onClick={closePreview}
                                 className="text-2xl transition-colors"
                                 style={{ color: 'var(--ink-mute)' }}
                                 onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--ink)')}
