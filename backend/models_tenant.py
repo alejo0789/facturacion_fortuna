@@ -95,6 +95,28 @@ class Empresa(Base):
     n8n_credential_email_id = Column(String(100))
     n8n_email_provider = Column(String(20))  # outlook|gmail|yahoo|imap
 
+    # OAuth Gmail multi-tenant (migración 008)
+    # Modelo A (default): 'saas' → usa GOOGLE_OAUTH_CLIENT_ID/SECRET globales del backend.
+    # Modelo B (avanzado): 'custom' → la empresa registró su propia OAuth app.
+    gmail_oauth_mode = Column(String(10), default="saas")
+    gmail_client_id = Column(String(500))                 # solo custom mode
+    gmail_client_secret_enc = Column(Text)                # solo custom mode, encriptado
+    gmail_refresh_token_enc = Column(Text)                # OAuth refresh token, encriptado
+    gmail_email = Column(String(255))                     # correo autorizado (display)
+    gmail_connected_at = Column(DateTime)
+
+    # Gemini API key per-tenant (override opcional del GEMINI_API_KEY_GLOBAL)
+    gemini_api_key_enc = Column(Text)                     # encriptado
+
+    # OAuth Outlook multi-tenant (migración 009). Mismo patrón que Gmail.
+    outlook_oauth_mode = Column(String(10), default="saas")
+    outlook_client_id = Column(String(500))
+    outlook_client_secret_enc = Column(Text)
+    outlook_refresh_token_enc = Column(Text)
+    outlook_email = Column(String(255))
+    outlook_connected_at = Column(DateTime)
+    outlook_tenant_id = Column(String(255), default="common")
+
     # Estado del último test del webhook (UI)
     n8n_webhook_last_test = Column(DateTime)
     n8n_webhook_last_status = Column(String(10))  # 'ok'|'error'

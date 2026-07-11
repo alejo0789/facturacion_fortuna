@@ -8,8 +8,12 @@ import uuid
 from datetime import date, datetime, timedelta
 
 from core.config import settings
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from core.dependencies import get_current_empresa, get_current_user
+from database import get_db
 from services.integraciones_n8n import LEGACY_INVOICE_PATH
+from services import google_oauth, microsoft_oauth
 
 router = APIRouter()
 
@@ -87,6 +91,7 @@ async def search_emails_async(
     query: SearchQuery,
     empresa=Depends(get_current_empresa),
     current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Inicia búsqueda asíncrona de correos vía n8n. Multi-tenant.
@@ -116,17 +121,44 @@ async def search_emails_async(
     # Sumar un día para incluir todo el día final (boundary exclusivo en n8n)
     end_date_inclusive = query.end_date + timedelta(days=1)
 
+    # OAuth multi-tenant: refrescar el access_token del provider correcto
+    # antes de disparar el webhook. n8n lo usará como header Authorization
+    # dinámico en vez de una credencial guardada. Si no hay refresh_token o
+    # el refresh falla, el token queda None y n8n devolverá 401 → el frontend
+    # debe mostrar que hay que reconectar.
+    gmail_access_token = None
+    outlook_access_token = None
+    email_provider = getattr(empresa, "n8n_email_provider", None) or "gmail"
+    if email_provider == "gmail":
+        gmail_access_token = await google_oauth.refresh_access_token(empresa)
+    elif email_provider == "outlook":
+        outlook_access_token = await microsoft_oauth.refresh_access_token(empresa)
+        # Microsoft ocasionalmente rota el refresh_token: microsoft_oauth ya lo
+        # asignó a la instancia empresa si vino uno nuevo; solo falta persistir.
+        await db.commit()
+
+    # Gemini API key: per-tenant override → global fallback.
+    gemini_api_key = google_oauth.resolve_gemini_api_key(empresa)
+
     payload = {
         "requestId": request_id,
         "email": query.email,
         "startDate": query.start_date.isoformat(),
         "endDate": end_date_inclusive.isoformat(),
-        # Multi-tenant: estos campos los lee el workflow para escoger la
-        # credencial correcta y autenticar el callback al backend.
+        # Multi-tenant: estos campos los lee el workflow para autenticar el
+        # callback al backend y para hacer los HTTP requests a Gmail/Gemini.
         "apiKey": api_key,
         "empresaId": empresa.id,
         "credential_email_id": getattr(empresa, "n8n_credential_email_id", None),
-        "email_provider": getattr(empresa, "n8n_email_provider", None),
+        "email_provider": email_provider,
+        # OAuth tokens dinámicos: en vez de Predefined Credential Type en n8n,
+        # el workflow arma "Authorization: Bearer {access_token}" en cada nodo
+        # HTTP. El backend refresca el token del provider correcto.
+        "gmail_access_token": gmail_access_token,
+        "gmail_email": getattr(empresa, "gmail_email", None),
+        "outlook_access_token": outlook_access_token,
+        "outlook_email": getattr(empresa, "outlook_email", None),
+        "gemini_api_key": gemini_api_key,
     }
 
     try:
@@ -246,6 +278,10 @@ async def process_single_file_task(
             "openai_credential_id": openai_credential_id,
             "pdf_base64": pdf_base64,
             "pdf_mime_type": pdf_mime_type,
+            # gemini_api_key dinámica también aquí (Checkpoint 3): el nodo
+            # Analyze document Adjunto ahora es HTTP Request a Gemini API,
+            # no el nodo nativo con credential guardada.
+            "gemini_api_key": file_info.get("gemini_api_key"),
         }
 
         headers = {"Content-Type": "application/json"}
@@ -380,6 +416,12 @@ async def process_documents(
     storage_path = getattr(empresa, "storage_path", None) or LEGACY_INVOICE_PATH
     temporal_path = TEMPORAL_FILES_PATH_FALLBACK  # TODO: hacer también per-tenant
     openai_credential_id = getattr(empresa, "n8n_credential_openai_id", None)
+
+    # Gemini API key resuelta para inyectar en cada file_info y llegar hasta
+    # el nodo Analyze document del workflow procesar-adjunto.
+    gemini_api_key = google_oauth.resolve_gemini_api_key(empresa)
+    for f in valid_files:
+        f["gemini_api_key"] = gemini_api_key
 
     if not os.path.exists(storage_path):
         try:

@@ -29,6 +29,11 @@ PUBLIC_ROUTES = {
     "/api/auth/login",
     "/api/auth/register",
     "/api/auth/refresh",
+    # OAuth callback: Google no puede mandar Authorization headers cuando
+    # redirige de vuelta. La autenticación se hace validando el `state`
+    # opaco contra un cache en memoria en el propio router.
+    "/api/oauth/gmail/callback",
+    "/api/oauth/outlook/callback",
 }
 
 PUBLIC_SUFFIXES = ("/ver", "/pdf")

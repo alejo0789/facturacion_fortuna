@@ -34,6 +34,7 @@ from routers import (
     reportes, oficinas_oracle, archivo_plano, feedback, asistente,
     auth, empresas, usuarios,
     contabilidad, impuestos, bancario, dian,
+    oauth,
 )
 from middleware.auth_dual import AuthDualMiddleware
 from populate_puc import clonar_puc
@@ -197,6 +198,7 @@ app.include_router(oficinas_oracle.router, prefix="/api", tags=["oficinas-oracle
 app.include_router(archivo_plano.router, prefix="/api", tags=["archivo-plano"])
 app.include_router(feedback.router, prefix="/api", tags=["feedback"])
 app.include_router(asistente.router, prefix="/api", tags=["asistente"])
+app.include_router(oauth.router, prefix="/api", tags=["oauth"])
 
 # ---- Módulo contable (Iteración 2 + Fase 3/4) ----
 app.include_router(contabilidad.router, prefix="/api", tags=["contabilidad"])
