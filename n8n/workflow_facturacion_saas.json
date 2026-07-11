@@ -10,18 +10,27 @@
       },
       "name": "Webhook — Recibir Factura",
       "type": "n8n-nodes-base.webhook",
-      "position": [-1824, 1088],
-      "typeVersion": 1
+      "position": [
+        -2448,
+        3856
+      ],
+      "typeVersion": 1,
+      "id": "c33c41eb-bb8e-4567-ad55-578160847241",
+      "webhookId": "fe5298d8-b97e-4f04-be04-2f3a7fdd9ae5"
     },
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "const d = $json || {};\nreturn {\n  apiKey: d.apiKey || '',\n  empresaId: d.empresaId || null,\n  gemini_credential_id: d.openai_credential_id || d.gemini_credential_id || '',\n  file_path: d.file_path || '',\n  file_url: d.file_url || '',\n  filename: d.filename || '',\n  original_filename: d.original_filename || d.filename || '',\n  uploaded_at: d.uploaded_at || new Date().toISOString(),\n  pdf_base64: d.pdf_base64 || '',\n  pdf_mime_type: d.pdf_mime_type || 'application/pdf'\n};"
+        "jsCode": "// n8n a veces anida el payload del webhook bajo .body (Content-Type\n// application/json). Aceptamos ambos por robustez. Además, si el payload\n// viene en $json directamente pero también existe body, priorizamos body.\nconst raw = $json || {};\nconst webhook = $('Webhook — Recibir Factura').item?.json || {};\nconst d = raw.body || webhook.body || raw || webhook;\nreturn {\n  apiKey: d.apiKey || '',\n  empresaId: d.empresaId || null,\n  gemini_credential_id: d.openai_credential_id || d.gemini_credential_id || '',\n  gemini_api_key: d.gemini_api_key || '',\n  file_path: d.file_path || '',\n  file_url: d.file_url || '',\n  filename: d.filename || '',\n  original_filename: d.original_filename || d.filename || '',\n  uploaded_at: d.uploaded_at || new Date().toISOString(),\n  pdf_base64: d.pdf_base64 || '',\n  pdf_mime_type: d.pdf_mime_type || 'application/pdf'\n};"
       },
       "name": "Extraer Contexto Tenant",
       "type": "n8n-nodes-base.code",
-      "position": [-1600, 1088],
-      "typeVersion": 2
+      "position": [
+        -2224,
+        3856
+      ],
+      "typeVersion": 2,
+      "id": "e7e8d3fa-10b9-4498-8b56-fc689c879f26"
     },
     {
       "parameters": {
@@ -30,8 +39,12 @@
       },
       "name": "Base64 a Binary",
       "type": "n8n-nodes-base.code",
-      "position": [-1376, 1088],
-      "typeVersion": 2
+      "position": [
+        -2000,
+        3856
+      ],
+      "typeVersion": 2,
+      "id": "1a6ac053-ee04-44ae-a32f-eecd1bfd8ae7"
     },
     {
       "parameters": {
@@ -49,8 +62,12 @@
       "name": "Analyze document",
       "type": "@n8n/n8n-nodes-langchain.googleGemini",
       "typeVersion": 1.1,
-      "position": [-1136, 1088],
-      "notes": "Al importar: asignar tu credencial Google Gemini (PaLM) API a este nodo."
+      "position": [
+        -1760,
+        3856
+      ],
+      "id": "7c6e3664-7107-4cc2-bc6c-cf2a120aef08",
+      "notes": "Extracción IA como servicio del SaaS: usa una credencial Google Gemini(PaLM) API guardada en n8n (operador del SaaS paga los créditos). Al importar: asignar la credencial en este nodo."
     },
     {
       "parameters": {
@@ -59,21 +76,32 @@
       },
       "name": "Parsear Respuesta IA",
       "type": "n8n-nodes-base.code",
-      "position": [-896, 1088],
-      "typeVersion": 2
+      "position": [
+        -1520,
+        3856
+      ],
+      "typeVersion": 2,
+      "id": "331f7c62-9256-4ece-b34a-47e530bfec9a"
     },
     {
       "parameters": {
         "conditions": {
           "boolean": [
-            { "value1": "={{$json.extraction_success}}", "value2": true }
+            {
+              "value1": "={{$json.extraction_success}}",
+              "value2": true
+            }
           ]
         }
       },
       "name": "Extracción exitosa?",
       "type": "n8n-nodes-base.if",
-      "position": [-688, 1088],
-      "typeVersion": 1
+      "position": [
+        -1312,
+        3856
+      ],
+      "typeVersion": 1,
+      "id": "92cb0715-ceed-43af-ad7e-3c70e93d00ef"
     },
     {
       "parameters": {
@@ -82,9 +110,18 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "X-API-Key", "value": "={{ $json.apiKey || $('Webhook — Recibir Factura').item.json.apiKey || $('Webhook — Recibir Factura').item.json.body?.apiKey }}" },
-            { "name": "X-Empresa-Id", "value": "={{ $json.empresaId || $('Webhook — Recibir Factura').item.json.empresaId || $('Webhook — Recibir Factura').item.json.body?.empresaId }}" },
-            { "name": "Content-Type", "value": "application/json" }
+            {
+              "name": "X-API-Key",
+              "value": "={{ $json.apiKey || $('Webhook — Recibir Factura').item.json.apiKey || $('Webhook — Recibir Factura').item.json.body?.apiKey }}"
+            },
+            {
+              "name": "X-Empresa-Id",
+              "value": "={{ $json.empresaId || $('Webhook — Recibir Factura').item.json.empresaId || $('Webhook — Recibir Factura').item.json.body?.empresaId }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
@@ -94,39 +131,70 @@
       },
       "name": "API — Crear Factura",
       "type": "n8n-nodes-base.httpRequest",
-      "position": [-448, 976],
+      "position": [
+        -1072,
+        3744
+      ],
       "typeVersion": 4.2,
+      "id": "a3cb2c95-c36c-4119-b558-e22a5e8a2310",
       "notes": "URL hardcoded a 127.0.0.1:8000 porque N8N_BLOCK_ENV_ACCESS_IN_NODE bloquea $env.* en expresiones. Si tu backend está en otro host, edita este campo tras importar."
     },
     {
-      "parameters": { "options": {} },
+      "parameters": {
+        "options": {}
+      },
       "name": "Respuesta OK",
       "type": "n8n-nodes-base.set",
-      "position": [-224, 976],
-      "typeVersion": 3
+      "position": [
+        -848,
+        3744
+      ],
+      "typeVersion": 3,
+      "id": "388a1149-114e-4ccf-9629-36884464578d"
     },
     {
-      "parameters": { "options": {} },
+      "parameters": {
+        "options": {}
+      },
       "name": "Respuesta Error",
       "type": "n8n-nodes-base.set",
-      "position": [-448, 1200],
-      "typeVersion": 3
+      "position": [
+        -1072,
+        3968
+      ],
+      "typeVersion": 3,
+      "id": "77eea6b7-2dd7-4cb3-85fc-0b6f83837a49"
     },
     {
-      "parameters": { "respondWith": "allIncomingItems", "options": {} },
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      },
       "name": "Respond OK",
       "type": "n8n-nodes-base.respondToWebhook",
-      "position": [-16, 976],
-      "typeVersion": 1
+      "position": [
+        -640,
+        3744
+      ],
+      "typeVersion": 1,
+      "id": "b403bf2c-6091-450a-a4de-7457c4851386"
     },
     {
-      "parameters": { "respondWith": "allIncomingItems", "options": { "responseCode": 422 } },
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {
+          "responseCode": 422
+        }
+      },
       "name": "Respond Error",
       "type": "n8n-nodes-base.respondToWebhook",
-      "position": [-224, 1200],
-      "typeVersion": 1
+      "position": [
+        -848,
+        3968
+      ],
+      "typeVersion": 1,
+      "id": "e0f9cef6-8f17-468f-b78e-82cdb0c89cb8"
     },
-
     {
       "parameters": {
         "httpMethod": "POST",
@@ -136,19 +204,28 @@
       },
       "name": "Webhook — Recibir Adjunto",
       "type": "n8n-nodes-base.webhook",
-      "position": [-1920, 2064],
+      "position": [
+        -2544,
+        4832
+      ],
       "typeVersion": 1,
+      "id": "fa7f87fe-ae79-48a9-8c20-17be79ab3f3a",
+      "webhookId": "6e5dcdf1-4f2c-43ce-8730-ca502ac6682a",
       "notes": "Recibe del backend cuando el usuario selecciona un adjunto del buscador. Payload:\n- apiKey, empresaId\n- openai_credential_id (o gemini_credential_id)\n- file_path, file_url, filename, original_filename\n- pdf_base64, pdf_mime_type\n- event = 'invoice_uploaded_via_search'"
     },
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "// Mismo patrón que 'Procesar Factura' — extraer contexto tenant.\nconst d = $json || {};\nreturn {\n  apiKey: d.apiKey || '',\n  empresaId: d.empresaId || null,\n  gemini_credential_id: d.openai_credential_id || d.gemini_credential_id || '',\n  file_path: d.file_path || '',\n  file_url: d.file_url || '',\n  filename: d.filename || '',\n  original_filename: d.original_filename || d.filename || '',\n  uploaded_at: d.uploaded_at || new Date().toISOString(),\n  pdf_base64: d.pdf_base64 || '',\n  pdf_mime_type: d.pdf_mime_type || 'application/pdf'\n};"
+        "jsCode": "// Mismo patrón que 'Procesar Factura' — extraer contexto tenant, aceptando\n// tanto payload plano como anidado bajo .body.\nconst raw = $json || {};\nconst webhook = $('Webhook — Recibir Adjunto').item?.json || {};\nconst d = raw.body || webhook.body || raw || webhook;\nreturn {\n  apiKey: d.apiKey || '',\n  empresaId: d.empresaId || null,\n  gemini_credential_id: d.openai_credential_id || d.gemini_credential_id || '',\n  gemini_api_key: d.gemini_api_key || '',\n  file_path: d.file_path || '',\n  file_url: d.file_url || '',\n  filename: d.filename || '',\n  original_filename: d.original_filename || d.filename || '',\n  uploaded_at: d.uploaded_at || new Date().toISOString(),\n  pdf_base64: d.pdf_base64 || '',\n  pdf_mime_type: d.pdf_mime_type || 'application/pdf'\n};"
       },
       "name": "Extraer Contexto Tenant Adjunto",
       "type": "n8n-nodes-base.code",
-      "position": [-1696, 2064],
-      "typeVersion": 2
+      "position": [
+        -2320,
+        4832
+      ],
+      "typeVersion": 2,
+      "id": "bd3b2aaa-897e-4d83-90f2-bbdde0456df9"
     },
     {
       "parameters": {
@@ -157,8 +234,12 @@
       },
       "name": "Base64 a Binary Adjunto",
       "type": "n8n-nodes-base.code",
-      "position": [-1472, 2064],
-      "typeVersion": 2
+      "position": [
+        -2096,
+        4832
+      ],
+      "typeVersion": 2,
+      "id": "b886f2cb-880d-484f-bfcc-d364d4625747"
     },
     {
       "parameters": {
@@ -176,8 +257,12 @@
       "name": "Analyze document Adjunto",
       "type": "@n8n/n8n-nodes-langchain.googleGemini",
       "typeVersion": 1.1,
-      "position": [-1232, 2064],
-      "notes": "Al importar: asignar tu credencial Google Gemini (PaLM) API a este nodo."
+      "position": [
+        -1856,
+        4832
+      ],
+      "id": "d06479ec-f624-4b87-b377-38683c7ae450",
+      "notes": "Extracción IA como servicio del SaaS: usa la misma credencial Gemini que 'Analyze document' del flujo procesar-factura."
     },
     {
       "parameters": {
@@ -186,21 +271,32 @@
       },
       "name": "Parsear Respuesta IA Adjunto",
       "type": "n8n-nodes-base.code",
-      "position": [-992, 2064],
-      "typeVersion": 2
+      "position": [
+        -1616,
+        4832
+      ],
+      "typeVersion": 2,
+      "id": "ddefbb1d-5b59-461a-b1c0-d2fe4167c2b8"
     },
     {
       "parameters": {
         "conditions": {
           "boolean": [
-            { "value1": "={{$json.extraction_success}}", "value2": true }
+            {
+              "value1": "={{$json.extraction_success}}",
+              "value2": true
+            }
           ]
         }
       },
       "name": "Extracción exitosa Adjunto?",
       "type": "n8n-nodes-base.if",
-      "position": [-784, 2064],
-      "typeVersion": 1
+      "position": [
+        -1408,
+        4832
+      ],
+      "typeVersion": 1,
+      "id": "2c12fd1e-5787-4f63-9342-9b17e319eeed"
     },
     {
       "parameters": {
@@ -209,9 +305,18 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "X-API-Key", "value": "={{ $json.apiKey || $('Webhook — Recibir Adjunto').item.json.apiKey || $('Webhook — Recibir Adjunto').item.json.body?.apiKey }}" },
-            { "name": "X-Empresa-Id", "value": "={{ $json.empresaId || $('Webhook — Recibir Adjunto').item.json.empresaId || $('Webhook — Recibir Adjunto').item.json.body?.empresaId }}" },
-            { "name": "Content-Type", "value": "application/json" }
+            {
+              "name": "X-API-Key",
+              "value": "={{ $json.apiKey || $('Webhook — Recibir Adjunto').item.json.apiKey || $('Webhook — Recibir Adjunto').item.json.body?.apiKey }}"
+            },
+            {
+              "name": "X-Empresa-Id",
+              "value": "={{ $json.empresaId || $('Webhook — Recibir Adjunto').item.json.empresaId || $('Webhook — Recibir Adjunto').item.json.body?.empresaId }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
@@ -221,59 +326,101 @@
       },
       "name": "API — Crear Factura Adjunto",
       "type": "n8n-nodes-base.httpRequest",
-      "position": [-544, 1952],
-      "typeVersion": 4.2
+      "position": [
+        -1168,
+        4720
+      ],
+      "typeVersion": 4.2,
+      "id": "cb07f409-071c-4571-a93a-40b852337be2"
     },
     {
-      "parameters": { "options": {} },
+      "parameters": {
+        "options": {}
+      },
       "name": "Respuesta OK Adjunto",
       "type": "n8n-nodes-base.set",
-      "position": [-320, 1952],
-      "typeVersion": 3
+      "position": [
+        -944,
+        4720
+      ],
+      "typeVersion": 3,
+      "id": "579c3222-8f62-4626-9eaa-a1164d22b77f"
     },
     {
-      "parameters": { "options": {} },
+      "parameters": {
+        "options": {}
+      },
       "name": "Respuesta Error Adjunto",
       "type": "n8n-nodes-base.set",
-      "position": [-544, 2176],
-      "typeVersion": 3
+      "position": [
+        -1168,
+        4944
+      ],
+      "typeVersion": 3,
+      "id": "433d126e-0bad-4775-a122-1ab255780916"
     },
     {
-      "parameters": { "respondWith": "allIncomingItems", "options": {} },
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      },
       "name": "Respond OK Adjunto",
       "type": "n8n-nodes-base.respondToWebhook",
-      "position": [-112, 1952],
-      "typeVersion": 1
+      "position": [
+        -736,
+        4720
+      ],
+      "typeVersion": 1,
+      "id": "e9a99ef1-2a96-49d9-b259-8123c77435a0"
     },
     {
-      "parameters": { "respondWith": "allIncomingItems", "options": { "responseCode": 422 } },
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {
+          "responseCode": 422
+        }
+      },
       "name": "Respond Error Adjunto",
       "type": "n8n-nodes-base.respondToWebhook",
-      "position": [-320, 2176],
-      "typeVersion": 1
+      "position": [
+        -944,
+        4944
+      ],
+      "typeVersion": 1,
+      "id": "ce40bd76-2f6c-46f2-8dc2-540b3a346d42"
     },
-
     {
       "parameters": {
         "httpMethod": "POST",
         "path": "buscar-facturas",
-        "options": { "responseData": "allEntries" }
+        "options": {
+          "responseData": "allEntries"
+        }
       },
       "name": "Webhook — Recibir Búsqueda",
       "type": "n8n-nodes-base.webhook",
-      "position": [-1744, 1600],
+      "position": [
+        -2560,
+        4352
+      ],
       "typeVersion": 1,
+      "id": "9385aa0a-56b6-428b-b702-d91c9531724f",
+      "webhookId": "2b2842c4-c517-4c86-98d0-cbd807ded944",
       "notes": "Recibe del backend (POST /asistente/search): requestId, apiKey, empresaId, startDate, endDate, email (opcional), email_provider ('outlook'|'gmail'), credential_email_id, callbackUrl (opcional override)."
     },
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "// El webhook entrega el payload en $json.body (n8n lo anida bajo 'body'\n// cuando el Content-Type es application/json). Aceptamos ambos por robustez.\nconst raw = $json || {};\nconst d = raw.body || raw;\nconst provider = (d.email_provider || 'outlook').toLowerCase();\n\n// $env.* está bloqueado por N8N_BLOCK_ENV_ACCESS_IN_NODE. El fallback\n// del callback va hardcoded. El backend puede sobreescribir enviando 'callbackUrl'.\nreturn {\n  requestId: d.requestId || '',\n  apiKey: d.apiKey || '',\n  empresaId: d.empresaId || null,\n  startDate: d.startDate || '',\n  endDate: d.endDate || '',\n  email: d.email || '',\n  email_provider: provider,\n  credential_email_id: d.credential_email_id || '',\n  callbackUrl: d.callbackUrl || 'http://127.0.0.1:8000/api/asistente/callback/search-results'\n};"
+        "jsCode": "// El webhook entrega el payload en $json.body (n8n lo anida bajo 'body'\n// cuando el Content-Type es application/json). Aceptamos ambos por robustez.\nconst raw = $json || {};\nconst d = raw.body || raw;\nconst provider = (d.email_provider || 'outlook').toLowerCase();\n\n// $env.* está bloqueado por N8N_BLOCK_ENV_ACCESS_IN_NODE. El fallback\n// del callback va hardcoded. El backend puede sobreescribir enviando 'callbackUrl'.\nreturn {\n  requestId: d.requestId || '',\n  apiKey: d.apiKey || '',\n  empresaId: d.empresaId || null,\n  startDate: d.startDate || '',\n  endDate: d.endDate || '',\n  email: d.email || '',\n  email_provider: provider,\n  credential_email_id: d.credential_email_id || '',\n  // OAuth multi-tenant: access_token refrescado por el backend en cada búsqueda.\n  // Los nodos HTTP Gmail/Outlook lo usan como Bearer token en vez de una\n  // Predefined Credential guardada en n8n.\n  gmail_access_token: d.gmail_access_token || '',\n  gmail_email: d.gmail_email || '',\n  outlook_access_token: d.outlook_access_token || '',\n  outlook_email: d.outlook_email || '',\n  // Gemini API key resuelta (per-tenant override → global fallback).\n  gemini_api_key: d.gemini_api_key || '',\n  callbackUrl: d.callbackUrl || 'http://127.0.0.1:8000/api/asistente/callback/search-results'\n};"
       },
       "name": "Extraer Contexto",
       "type": "n8n-nodes-base.code",
-      "position": [-1552, 1600],
-      "typeVersion": 2
+      "position": [
+        -2368,
+        4352
+      ],
+      "typeVersion": 2,
+      "id": "e676e36d-58d9-48ff-8c38-31aa1dfbea9f"
     },
     {
       "parameters": {
@@ -281,40 +428,70 @@
         "value1": "={{$json.email_provider}}",
         "rules": {
           "rules": [
-            { "value2": "outlook" },
-            { "value2": "gmail" }
+            {
+              "value2": "outlook"
+            },
+            {
+              "value2": "gmail"
+            }
           ]
         },
         "fallbackOutput": 0
       },
       "name": "Switch · Provider",
       "type": "n8n-nodes-base.switch",
-      "position": [-1328, 1600],
+      "position": [
+        -2176,
+        4352
+      ],
       "typeVersion": 2,
+      "id": "1bad66b1-5328-4408-9db9-98f81074088b",
       "notes": "Solo Outlook y Gmail están soportados. fallbackOutput=0 envía cualquier valor desconocido a Outlook."
     },
     {
       "parameters": {
-        "method": "GET",
         "url": "=https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "microsoftOutlookOAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Extraer Contexto').first().json.outlook_access_token }}"
+            }
+          ]
+        },
         "sendQuery": true,
         "queryParameters": {
           "parameters": [
-            { "name": "$filter", "value": "=hasAttachments eq true and receivedDateTime ge {{$('Extraer Contexto').item.json.startDate}}T00:00:00Z and receivedDateTime le {{$('Extraer Contexto').item.json.endDate}}T23:59:59Z{{$('Extraer Contexto').item.json.email ? \" and from/emailAddress/address eq '\" + $('Extraer Contexto').item.json.email + \"'\" : ''}}" },
-            { "name": "$expand", "value": "attachments" },
-            { "name": "$select", "value": "id,conversationId,subject,receivedDateTime,from,hasAttachments" },
-            { "name": "$top", "value": "25" }
+            {
+              "name": "$filter",
+              "value": "=hasAttachments eq true and receivedDateTime ge {{$('Extraer Contexto').item.json.startDate}}T00:00:00Z and receivedDateTime le {{$('Extraer Contexto').item.json.endDate}}T23:59:59Z{{$('Extraer Contexto').item.json.email ? \" and from/emailAddress/address eq '\" + $('Extraer Contexto').item.json.email + \"'\" : ''}}"
+            },
+            {
+              "name": "$expand",
+              "value": "attachments"
+            },
+            {
+              "name": "$select",
+              "value": "id,conversationId,subject,receivedDateTime,from,hasAttachments"
+            },
+            {
+              "name": "$top",
+              "value": "25"
+            }
           ]
         },
         "options": {}
       },
       "name": "Outlook · Buscar",
       "type": "n8n-nodes-base.httpRequest",
-      "position": [-1104, 1440],
+      "position": [
+        -1792,
+        4208
+      ],
       "typeVersion": 4.2,
-      "notes": "HTTP Request directo a Microsoft Graph con $expand=attachments. Garantiza que attachments[].contentBytes venga en base64. Al importar: en Authentication → Predefined Credential Type → seleccionar tu credencial Microsoft Outlook OAuth2."
+      "id": "63af3183-1d1b-41a5-a278-0b385a6d942c",
+      "notes": "HTTP Request directo a Microsoft Graph con $expand=attachments y Bearer token dinámico del payload (outlook_access_token). El backend lo refresca en cada búsqueda. No requiere credencial guardada en n8n."
     },
     {
       "parameters": {
@@ -322,29 +499,49 @@
       },
       "name": "Expandir mensajes Outlook",
       "type": "n8n-nodes-base.code",
-      "position": [-960, 1440],
-      "typeVersion": 2
+      "position": [
+        -1584,
+        4208
+      ],
+      "typeVersion": 2,
+      "id": "a55cfd9b-d619-4440-b050-9c7a8d281e1a"
     },
     {
       "parameters": {
-        "method": "GET",
         "url": "=https://gmail.googleapis.com/gmail/v1/users/me/messages",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "gmailOAuth2",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Extraer Contexto').first().json.gmail_access_token }}"
+            }
+          ]
+        },
         "sendQuery": true,
         "queryParameters": {
           "parameters": [
-            { "name": "q", "value": "={{ 'in:inbox has:attachment after:' + $('Extraer Contexto').item.json.startDate + ' before:' + $('Extraer Contexto').item.json.endDate + ($('Extraer Contexto').item.json.email ? ' from:' + $('Extraer Contexto').item.json.email : '') }}" },
-            { "name": "maxResults", "value": "25" }
+            {
+              "name": "q",
+              "value": "={{ 'in:inbox has:attachment after:' + $('Extraer Contexto').item.json.startDate + ' before:' + $('Extraer Contexto').item.json.endDate + ($('Extraer Contexto').item.json.email ? ' from:' + $('Extraer Contexto').item.json.email : '') }}"
+            },
+            {
+              "name": "maxResults",
+              "value": "25"
+            }
           ]
         },
         "options": {}
       },
       "name": "Gmail · Buscar",
       "type": "n8n-nodes-base.httpRequest",
-      "position": [-1104, 1600],
+      "position": [
+        -1952,
+        4448
+      ],
       "typeVersion": 4.2,
-      "notes": "HTTP Request directo a Gmail API. Devuelve solo IDs de mensajes ({ messages: [{ id, threadId }] }). El siguiente nodo hace Get de cada uno con format=full para tener payload.parts. Al importar: en Authentication → Predefined Credential Type → seleccionar tu credencial Gmail OAuth2."
+      "id": "77bb8af5-113d-44fc-8878-709f23563448",
+      "notes": "HTTP Request directo a Gmail API con Bearer token dinámico del payload (gmail_access_token). El backend lo refresca en cada búsqueda usando el refresh_token guardado en BD. No requiere credencial guardada en n8n."
     },
     {
       "parameters": {
@@ -352,28 +549,45 @@
       },
       "name": "Expandir Mensajes Gmail",
       "type": "n8n-nodes-base.code",
-      "position": [-960, 1440],
-      "typeVersion": 2
+      "position": [
+        -1776,
+        4464
+      ],
+      "typeVersion": 2,
+      "id": "3a8ac4dd-66a5-4dd6-bda2-50e99313923d"
     },
     {
       "parameters": {
-        "method": "GET",
         "url": "=https://gmail.googleapis.com/gmail/v1/users/me/messages/{{ $json.id }}",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "gmailOAuth2",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Extraer Contexto').first().json.gmail_access_token }}"
+            }
+          ]
+        },
         "sendQuery": true,
         "queryParameters": {
           "parameters": [
-            { "name": "format", "value": "full" }
+            {
+              "name": "format",
+              "value": "full"
+            }
           ]
         },
         "options": {}
       },
       "name": "Gmail · Get Message",
       "type": "n8n-nodes-base.httpRequest",
-      "position": [-800, 1440],
+      "position": [
+        -1600,
+        4464
+      ],
       "typeVersion": 4.2,
-      "notes": "GET de cada mensaje con format=full para obtener payload.headers[] y payload.parts[] (donde vienen los attachmentIds). El siguiente Code node los extrae."
+      "id": "6914f732-8c27-4c27-950d-cc5503b4ec9f",
+      "notes": "GET de cada mensaje con format=full. Bearer token dinámico del payload."
     },
     {
       "parameters": {
@@ -381,35 +595,57 @@
       },
       "name": "Extraer Metadata Gmail",
       "type": "n8n-nodes-base.code",
-      "position": [-960, 1600],
-      "typeVersion": 2
+      "position": [
+        -1424,
+        4464
+      ],
+      "typeVersion": 2,
+      "id": "0c60be28-85a5-4539-88a9-101318ddb822"
     },
     {
       "parameters": {
         "conditions": {
           "boolean": [
-            { "value1": "={{$json.empty}}", "operation": "notEqual", "value2": true }
+            {
+              "value1": "={{$json.empty}}",
+              "operation": "notEqual",
+              "value2": true
+            }
           ]
         }
       },
       "name": "¿Hubo adjuntos Gmail?",
       "type": "n8n-nodes-base.if",
-      "position": [-800, 1600],
-      "typeVersion": 1
+      "position": [
+        -1248,
+        4464
+      ],
+      "typeVersion": 1,
+      "id": "095fced2-33e7-4dec-9daf-6e466d4c9aee"
     },
     {
       "parameters": {
-        "method": "GET",
         "url": "=https://gmail.googleapis.com/gmail/v1/users/me/messages/{{ $json.messageId }}/attachments/{{ $json.attachmentId }}",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "gmailOAuth2",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Extraer Contexto').first().json.gmail_access_token }}"
+            }
+          ]
+        },
         "options": {}
       },
       "name": "Gmail · Descargar Attachment",
       "type": "n8n-nodes-base.httpRequest",
-      "position": [-640, 1520],
+      "position": [
+        -1040,
+        4368
+      ],
       "typeVersion": 4.2,
-      "notes": "HTTP Request directo a Gmail API. Descarga cada attachment por (messageId, attachmentId). Retorna { size, data } donde data es base64 URL-safe (RFC 4648 §5). Usa la MISMA credencial Gmail OAuth2 via Predefined Credential Type."
+      "id": "fdcdc1e1-d64d-4461-a5c6-678c5e3a2159",
+      "notes": "Descarga cada attachment por (messageId, attachmentId). Retorna { size, data } donde data es base64 URL-safe. Bearer token dinámico del payload — no requiere credencial guardada."
     },
     {
       "parameters": {
@@ -418,8 +654,12 @@
       },
       "name": "Ensamblar Item Gmail",
       "type": "n8n-nodes-base.code",
-      "position": [-480, 1520],
-      "typeVersion": 2
+      "position": [
+        -864,
+        4384
+      ],
+      "typeVersion": 2,
+      "id": "7f522f22-5b35-4a69-b306-6581dec11d59"
     },
     {
       "parameters": {
@@ -427,21 +667,33 @@
       },
       "name": "Normalizar Adjuntos",
       "type": "n8n-nodes-base.code",
-      "position": [-848, 1600],
-      "typeVersion": 2
+      "position": [
+        -1328,
+        4208
+      ],
+      "typeVersion": 2,
+      "id": "82623f74-fb31-4ec2-bbef-5d37aab435d8"
     },
     {
       "parameters": {
         "conditions": {
           "boolean": [
-            { "value1": "={{$json.empty}}", "operation": "notEqual", "value2": true }
+            {
+              "value1": "={{$json.empty}}",
+              "operation": "notEqual",
+              "value2": true
+            }
           ]
         }
       },
       "name": "¿Hubo adjuntos?",
       "type": "n8n-nodes-base.if",
-      "position": [-624, 1600],
-      "typeVersion": 1
+      "position": [
+        -1040,
+        4208
+      ],
+      "typeVersion": 1,
+      "id": "2f764bf9-59d8-4d53-ba6a-c2aef45c8afc"
     },
     {
       "parameters": {
@@ -450,9 +702,18 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "X-API-Key", "value": "={{ $('Extraer Contexto').first().json.apiKey }}" },
-            { "name": "X-Empresa-Id", "value": "={{ $('Extraer Contexto').first().json.empresaId }}" },
-            { "name": "Content-Type", "value": "application/json" }
+            {
+              "name": "X-API-Key",
+              "value": "={{ $('Extraer Contexto').first().json.apiKey }}"
+            },
+            {
+              "name": "X-Empresa-Id",
+              "value": "={{ $('Extraer Contexto').first().json.empresaId }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
@@ -462,8 +723,12 @@
       },
       "name": "Callback · Con resultados",
       "type": "n8n-nodes-base.httpRequest",
-      "position": [-400, 1504],
+      "position": [
+        -464,
+        4128
+      ],
       "typeVersion": 4.2,
+      "id": "73d24f8e-b62b-4c8e-99d8-634c5d593ea8",
       "notes": "Uso .first() en lugar de .item porque Extraer Contexto emite 1 solo item pero este Callback puede recibir N desde la rama Gmail — n8n no puede parear .item cuando la cardinalidad difiere."
     },
     {
@@ -473,9 +738,18 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "X-API-Key", "value": "={{ $('Extraer Contexto').first().json.apiKey }}" },
-            { "name": "X-Empresa-Id", "value": "={{ $('Extraer Contexto').first().json.empresaId }}" },
-            { "name": "Content-Type", "value": "application/json" }
+            {
+              "name": "X-API-Key",
+              "value": "={{ $('Extraer Contexto').first().json.apiKey }}"
+            },
+            {
+              "name": "X-Empresa-Id",
+              "value": "={{ $('Extraer Contexto').first().json.empresaId }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
@@ -485,78 +759,457 @@
       },
       "name": "Callback · Vacío",
       "type": "n8n-nodes-base.httpRequest",
-      "position": [-400, 1712],
-      "typeVersion": 4.2
+      "position": [
+        -416,
+        4464
+      ],
+      "typeVersion": 4.2,
+      "id": "fbe63ca3-3fcc-4a55-ad9f-50ef51415a25"
     }
   ],
+  "pinData": {},
   "connections": {
-    "Webhook — Recibir Factura": { "main": [[{ "node": "Extraer Contexto Tenant", "type": "main", "index": 0 }]] },
-    "Extraer Contexto Tenant": { "main": [[{ "node": "Base64 a Binary", "type": "main", "index": 0 }]] },
-    "Base64 a Binary": { "main": [[{ "node": "Analyze document", "type": "main", "index": 0 }]] },
-    "Analyze document": { "main": [[{ "node": "Parsear Respuesta IA", "type": "main", "index": 0 }]] },
-    "Parsear Respuesta IA": { "main": [[{ "node": "Extracción exitosa?", "type": "main", "index": 0 }]] },
+    "Webhook — Recibir Factura": {
+      "main": [
+        [
+          {
+            "node": "Extraer Contexto Tenant",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extraer Contexto Tenant": {
+      "main": [
+        [
+          {
+            "node": "Base64 a Binary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Base64 a Binary": {
+      "main": [
+        [
+          {
+            "node": "Analyze document",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze document": {
+      "main": [
+        [
+          {
+            "node": "Parsear Respuesta IA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parsear Respuesta IA": {
+      "main": [
+        [
+          {
+            "node": "Extracción exitosa?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "Extracción exitosa?": {
       "main": [
-        [{ "node": "API — Crear Factura", "type": "main", "index": 0 }],
-        [{ "node": "Respuesta Error", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "API — Crear Factura",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respuesta Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
-    "API — Crear Factura": { "main": [[{ "node": "Respuesta OK", "type": "main", "index": 0 }]] },
-    "Respuesta OK": { "main": [[{ "node": "Respond OK", "type": "main", "index": 0 }]] },
-    "Respuesta Error": { "main": [[{ "node": "Respond Error", "type": "main", "index": 0 }]] },
-
-    "Webhook — Recibir Adjunto": { "main": [[{ "node": "Extraer Contexto Tenant Adjunto", "type": "main", "index": 0 }]] },
-    "Extraer Contexto Tenant Adjunto": { "main": [[{ "node": "Base64 a Binary Adjunto", "type": "main", "index": 0 }]] },
-    "Base64 a Binary Adjunto": { "main": [[{ "node": "Analyze document Adjunto", "type": "main", "index": 0 }]] },
-    "Analyze document Adjunto": { "main": [[{ "node": "Parsear Respuesta IA Adjunto", "type": "main", "index": 0 }]] },
-    "Parsear Respuesta IA Adjunto": { "main": [[{ "node": "Extracción exitosa Adjunto?", "type": "main", "index": 0 }]] },
+    "API — Crear Factura": {
+      "main": [
+        [
+          {
+            "node": "Respuesta OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respuesta OK": {
+      "main": [
+        [
+          {
+            "node": "Respond OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respuesta Error": {
+      "main": [
+        [
+          {
+            "node": "Respond Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook — Recibir Adjunto": {
+      "main": [
+        [
+          {
+            "node": "Extraer Contexto Tenant Adjunto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extraer Contexto Tenant Adjunto": {
+      "main": [
+        [
+          {
+            "node": "Base64 a Binary Adjunto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Base64 a Binary Adjunto": {
+      "main": [
+        [
+          {
+            "node": "Analyze document Adjunto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze document Adjunto": {
+      "main": [
+        [
+          {
+            "node": "Parsear Respuesta IA Adjunto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parsear Respuesta IA Adjunto": {
+      "main": [
+        [
+          {
+            "node": "Extracción exitosa Adjunto?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "Extracción exitosa Adjunto?": {
       "main": [
-        [{ "node": "API — Crear Factura Adjunto", "type": "main", "index": 0 }],
-        [{ "node": "Respuesta Error Adjunto", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "API — Crear Factura Adjunto",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respuesta Error Adjunto",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
-    "API — Crear Factura Adjunto": { "main": [[{ "node": "Respuesta OK Adjunto", "type": "main", "index": 0 }]] },
-    "Respuesta OK Adjunto": { "main": [[{ "node": "Respond OK Adjunto", "type": "main", "index": 0 }]] },
-    "Respuesta Error Adjunto": { "main": [[{ "node": "Respond Error Adjunto", "type": "main", "index": 0 }]] },
-
-    "Webhook — Recibir Búsqueda": { "main": [[{ "node": "Extraer Contexto", "type": "main", "index": 0 }]] },
-    "Extraer Contexto": { "main": [[{ "node": "Switch · Provider", "type": "main", "index": 0 }]] },
+    "API — Crear Factura Adjunto": {
+      "main": [
+        [
+          {
+            "node": "Respuesta OK Adjunto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respuesta OK Adjunto": {
+      "main": [
+        [
+          {
+            "node": "Respond OK Adjunto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respuesta Error Adjunto": {
+      "main": [
+        [
+          {
+            "node": "Respond Error Adjunto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook — Recibir Búsqueda": {
+      "main": [
+        [
+          {
+            "node": "Extraer Contexto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extraer Contexto": {
+      "main": [
+        [
+          {
+            "node": "Switch · Provider",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "Switch · Provider": {
       "main": [
-        [{ "node": "Outlook · Buscar", "type": "main", "index": 0 }],
-        [{ "node": "Gmail · Buscar", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Outlook · Buscar",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Gmail · Buscar",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
-    "Outlook · Buscar": { "main": [[{ "node": "Expandir mensajes Outlook", "type": "main", "index": 0 }]] },
-    "Expandir mensajes Outlook": { "main": [[{ "node": "Normalizar Adjuntos", "type": "main", "index": 0 }]] },
-    "Normalizar Adjuntos": { "main": [[{ "node": "¿Hubo adjuntos?", "type": "main", "index": 0 }]] },
+    "Outlook · Buscar": {
+      "main": [
+        [
+          {
+            "node": "Expandir mensajes Outlook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Expandir mensajes Outlook": {
+      "main": [
+        [
+          {
+            "node": "Normalizar Adjuntos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar Adjuntos": {
+      "main": [
+        [
+          {
+            "node": "¿Hubo adjuntos?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "¿Hubo adjuntos?": {
       "main": [
-        [{ "node": "Callback · Con resultados", "type": "main", "index": 0 }],
-        [{ "node": "Callback · Vacío", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Callback · Con resultados",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Callback · Vacío",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
-    "Gmail · Buscar": { "main": [[{ "node": "Expandir Mensajes Gmail", "type": "main", "index": 0 }]] },
-    "Expandir Mensajes Gmail": { "main": [[{ "node": "Gmail · Get Message", "type": "main", "index": 0 }]] },
-    "Gmail · Get Message": { "main": [[{ "node": "Extraer Metadata Gmail", "type": "main", "index": 0 }]] },
-    "Extraer Metadata Gmail": { "main": [[{ "node": "¿Hubo adjuntos Gmail?", "type": "main", "index": 0 }]] },
+    "Gmail · Buscar": {
+      "main": [
+        [
+          {
+            "node": "Expandir Mensajes Gmail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Expandir Mensajes Gmail": {
+      "main": [
+        [
+          {
+            "node": "Gmail · Get Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail · Get Message": {
+      "main": [
+        [
+          {
+            "node": "Extraer Metadata Gmail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extraer Metadata Gmail": {
+      "main": [
+        [
+          {
+            "node": "¿Hubo adjuntos Gmail?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "¿Hubo adjuntos Gmail?": {
       "main": [
-        [{ "node": "Gmail · Descargar Attachment", "type": "main", "index": 0 }],
-        [{ "node": "Callback · Vacío", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Gmail · Descargar Attachment",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Callback · Vacío",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
-    "Gmail · Descargar Attachment": { "main": [[{ "node": "Ensamblar Item Gmail", "type": "main", "index": 0 }]] },
-    "Ensamblar Item Gmail": { "main": [[{ "node": "Callback · Con resultados", "type": "main", "index": 0 }]] }
+    "Gmail · Descargar Attachment": {
+      "main": [
+        [
+          {
+            "node": "Ensamblar Item Gmail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ensamblar Item Gmail": {
+      "main": [
+        [
+          {
+            "node": "Callback · Con resultados",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
+  "active": true,
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate"
   },
+  "versionId": "d5a31019-2160-4868-a9a6-0f5841c0cc8d",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "3be74c86aa96a44c46be7d998ea6101d0c509c880182afe18b836c8f43e8f796"
+  },
+  "id": "1qAxjsHtWcUtgAzy",
   "tags": [
-    { "name": "facturacion-saas" },
-    { "name": "multi-tenant" },
-    { "name": "gemini-nativo" }
+    {
+      "updatedAt": "2026-06-19T18:56:12.996Z",
+      "createdAt": "2026-06-19T18:56:12.996Z",
+      "id": "7YRT11SIVC8UYcXR",
+      "name": "buscar-correo"
+    },
+    {
+      "updatedAt": "2026-06-20T10:40:32.539Z",
+      "createdAt": "2026-06-20T10:40:32.539Z",
+      "id": "Dj8iRLLqNnTX6YLU",
+      "name": "gemini-nativo"
+    },
+    {
+      "updatedAt": "2026-06-19T18:51:54.302Z",
+      "createdAt": "2026-06-19T18:51:54.302Z",
+      "id": "PDGSkyBToi0UPyuq",
+      "name": "multi-tenant"
+    },
+    {
+      "updatedAt": "2026-06-19T22:26:57.531Z",
+      "createdAt": "2026-06-19T22:26:57.531Z",
+      "id": "RBwzcMr98Gdkf4qC",
+      "name": "gemini"
+    },
+    {
+      "updatedAt": "2026-06-19T18:57:05.926Z",
+      "createdAt": "2026-06-19T18:57:05.926Z",
+      "id": "V8uAghNjjgWsUPV3",
+      "name": "procesar-adjunto"
+    },
+    {
+      "updatedAt": "2026-06-19T18:51:54.280Z",
+      "createdAt": "2026-06-19T18:51:54.280Z",
+      "id": "hORyfnvtwEhZaUEg",
+      "name": "facturacion-saas"
+    },
+    {
+      "updatedAt": "2026-06-20T12:19:27.797Z",
+      "createdAt": "2026-06-20T12:19:27.797Z",
+      "id": "igBwmtbd741aJw5F",
+      "name": "FINAL"
+    }
   ]
 }
