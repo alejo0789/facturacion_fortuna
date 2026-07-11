@@ -12,7 +12,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { apiGet, apiPut, apiPost, ApiError } from '../utils/apiClient';
 
-type EmailProvider = 'outlook' | 'gmail' | 'yahoo' | 'imap';
+type EmailProvider = 'outlook' | 'gmail';
 type Mode = 'saas_managed' | 'self_hosted';
 
 interface Integraciones {
@@ -41,11 +41,26 @@ interface TestResult {
     elapsed_ms: number | null;
 }
 
+interface GmailStatus {
+    connected: boolean;
+    email: string | null;
+    connected_at: string | null;
+    mode: 'saas' | 'custom';
+    has_custom_client: boolean;
+    gemini_configured: boolean;
+}
+
+interface OutlookStatus {
+    connected: boolean;
+    email: string | null;
+    connected_at: string | null;
+    mode: 'saas' | 'custom';
+    has_custom_client: boolean;
+}
+
 const PROVIDER_LABEL: Record<EmailProvider, string> = {
-    outlook: 'Microsoft Outlook (OAuth2)',
-    gmail: 'Gmail (OAuth2)',
-    yahoo: 'Yahoo Mail (IMAP)',
-    imap: 'IMAP genérico (otros proveedores)',
+    outlook: 'Microsoft Outlook',
+    gmail: 'Gmail',
 };
 
 export default function IntegracionesPage() {
@@ -60,14 +75,29 @@ export default function IntegracionesPage() {
     // Toggle UI entre modo SaaS-managed (default) y self-hosted (avanzado)
     const [showAdvanced, setShowAdvanced] = useState(false);
 
-    // Campos editables
+    // Campos editables (solo self-hosted / operador)
     const [webhookUrl, setWebhookUrl] = useState('');
     const [searchWebhook, setSearchWebhook] = useState('');
     const [processWebhook, setProcessWebhook] = useState('');
-    const [openaiCredId, setOpenaiCredId] = useState('');
-    const [emailCredId, setEmailCredId] = useState('');
-    const [emailProvider, setEmailProvider] = useState<EmailProvider | ''>('');
     const [storagePath, setStoragePath] = useState('');
+
+    // Provider activo — se persiste automáticamente al cambiar en el selector,
+    // no se guarda en el submit del form.
+    const [emailProvider, setEmailProvider] = useState<EmailProvider | ''>('');
+
+    // ---- OAuth multi-tenant (Checkpoint 2) ----
+    const [gmailStatus, setGmailStatus] = useState<GmailStatus | null>(null);
+    const [gmailMode, setGmailMode] = useState<'saas' | 'custom'>('saas');
+    const [gmailCustomClientId, setGmailCustomClientId] = useState('');
+    const [gmailCustomClientSecret, setGmailCustomClientSecret] = useState('');
+    const [gmailBusy, setGmailBusy] = useState(false);
+
+    const [outlookStatus, setOutlookStatus] = useState<OutlookStatus | null>(null);
+    const [outlookMode, setOutlookMode] = useState<'saas' | 'custom'>('saas');
+    const [outlookCustomClientId, setOutlookCustomClientId] = useState('');
+    const [outlookCustomClientSecret, setOutlookCustomClientSecret] = useState('');
+    const [outlookCustomTenantId, setOutlookCustomTenantId] = useState('common');
+    const [outlookBusy, setOutlookBusy] = useState(false);
 
     const cargar = async () => {
         setLoading(true);
@@ -78,8 +108,6 @@ export default function IntegracionesPage() {
             setWebhookUrl(cfg.n8n_webhook_url ?? '');
             setSearchWebhook(cfg.n8n_search_webhook ?? '');
             setProcessWebhook(cfg.n8n_process_webhook ?? '');
-            setOpenaiCredId(cfg.n8n_credential_openai_id ?? '');
-            setEmailCredId(cfg.n8n_credential_email_id ?? '');
             setEmailProvider((cfg.n8n_email_provider as EmailProvider) ?? '');
             setStoragePath(cfg.storage_path ?? '');
             setShowAdvanced(cfg.mode === 'self_hosted');
@@ -90,7 +118,233 @@ export default function IntegracionesPage() {
         }
     };
 
-    useEffect(() => { cargar(); }, []);
+    const cargarGmailStatus = async () => {
+        try {
+            const s = await apiGet<GmailStatus>('/oauth/gmail/status');
+            setGmailStatus(s);
+            setGmailMode(s.mode);
+        } catch { /* no crítico */ }
+    };
+
+    const cargarOutlookStatus = async () => {
+        try {
+            const s = await apiGet<OutlookStatus>('/oauth/outlook/status');
+            setOutlookStatus(s);
+            setOutlookMode(s.mode);
+        } catch { /* no crítico */ }
+    };
+
+    useEffect(() => { cargar(); cargarGmailStatus(); cargarOutlookStatus(); }, []);
+
+    // Auto-set del provider activo cuando cambian los statuses.
+    // Regla: si solo hay 1 conectado, se auto-selecciona. Si hay ambos, se
+    // respeta lo que el usuario tenga guardado (o se pide con la card selector).
+    useEffect(() => {
+        const gc = gmailStatus?.connected;
+        const oc = outlookStatus?.connected;
+        if (gc && !oc && emailProvider !== 'gmail') {
+            setEmailProvider('gmail');
+            apiPut('/empresas/me/integraciones', { n8n_email_provider: 'gmail' }).catch(() => {});
+        } else if (oc && !gc && emailProvider !== 'outlook') {
+            setEmailProvider('outlook');
+            apiPut('/empresas/me/integraciones', { n8n_email_provider: 'outlook' }).catch(() => {});
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [gmailStatus?.connected, outlookStatus?.connected]);
+
+    // Persistir el provider activo cuando el usuario lo cambia manualmente (radio).
+    const cambiarProviderActivo = (p: EmailProvider) => {
+        setEmailProvider(p);
+        apiPut('/empresas/me/integraciones', { n8n_email_provider: p }).catch((e) => {
+            setError(e instanceof ApiError ? e.message : 'Error guardando provider activo');
+        });
+    };
+
+    // Escucha postMessage del popup OAuth para refrescar el estado al cerrar.
+    useEffect(() => {
+        const handleMessage = (event: MessageEvent) => {
+            const t = event.data?.type;
+            if (t === 'gmail_oauth_complete') {
+                if (event.data.success) {
+                    setSuccess(event.data.message || 'Gmail conectado.');
+                    setTimeout(() => setSuccess(null), 3000);
+                } else {
+                    setError(event.data.message || 'Error autorizando Gmail.');
+                }
+                cargarGmailStatus();
+            } else if (t === 'outlook_oauth_complete') {
+                if (event.data.success) {
+                    setSuccess(event.data.message || 'Outlook conectado.');
+                    setTimeout(() => setSuccess(null), 3000);
+                } else {
+                    setError(event.data.message || 'Error autorizando Outlook.');
+                }
+                cargarOutlookStatus();
+            }
+        };
+        window.addEventListener('message', handleMessage);
+        return () => window.removeEventListener('message', handleMessage);
+    }, []);
+
+    const conectarGmail = async () => {
+        setGmailBusy(true);
+        setError(null);
+        try {
+            const { authorize_url } = await apiGet<{ authorize_url: string }>(
+                '/oauth/gmail/authorize'
+            );
+            // Popup centrado para no perder el contexto de la app
+            const w = 520;
+            const h = 640;
+            const left = window.screenX + (window.outerWidth - w) / 2;
+            const top = window.screenY + (window.outerHeight - h) / 2;
+            window.open(
+                authorize_url,
+                'gmail_oauth',
+                `width=${w},height=${h},left=${left},top=${top},resizable=yes,scrollbars=yes`
+            );
+        } catch (e) {
+            setError(e instanceof ApiError ? e.message : 'Error iniciando OAuth');
+        } finally {
+            setGmailBusy(false);
+        }
+    };
+
+    const desconectarGmail = async () => {
+        if (!confirm('¿Desconectar Gmail? Esta empresa dejará de recibir facturas de este buzón hasta que reconectes.')) return;
+        setGmailBusy(true);
+        try {
+            await apiPost('/oauth/gmail/disconnect');
+            setSuccess('Gmail desconectado.');
+            setTimeout(() => setSuccess(null), 2400);
+            await cargarGmailStatus();
+        } catch (e) {
+            setError(e instanceof ApiError ? e.message : 'Error desconectando');
+        } finally {
+            setGmailBusy(false);
+        }
+    };
+
+    const guardarGmailModoCustom = async () => {
+        if (!gmailCustomClientId || !gmailCustomClientSecret) {
+            setError('En modo custom, Client ID y Client Secret son obligatorios.');
+            return;
+        }
+        setGmailBusy(true);
+        try {
+            await apiPut('/oauth/gmail/config', {
+                mode: 'custom',
+                client_id: gmailCustomClientId,
+                client_secret: gmailCustomClientSecret,
+            });
+            setGmailCustomClientSecret(''); // limpiar el input por seguridad
+            setSuccess('Credenciales OAuth custom guardadas. Ahora pulsa "Conectar Gmail".');
+            setTimeout(() => setSuccess(null), 3000);
+            await cargarGmailStatus();
+        } catch (e) {
+            setError(e instanceof ApiError ? e.message : 'Error guardando');
+        } finally {
+            setGmailBusy(false);
+        }
+    };
+
+    const cambiarAModoSaas = async () => {
+        if (!confirm('¿Cambiar al modo SaaS-managed? Esto desconecta la sesión actual y limpia el Client ID/Secret custom.')) return;
+        setGmailBusy(true);
+        try {
+            await apiPut('/oauth/gmail/config', { mode: 'saas' });
+            setGmailCustomClientId('');
+            setGmailCustomClientSecret('');
+            setSuccess('Modo cambiado a SaaS-managed.');
+            setTimeout(() => setSuccess(null), 2400);
+            await cargarGmailStatus();
+        } catch (e) {
+            setError(e instanceof ApiError ? e.message : 'Error cambiando modo');
+        } finally {
+            setGmailBusy(false);
+        }
+    };
+
+    // --- Outlook handlers (paralelos a los de Gmail) ---
+
+    const conectarOutlook = async () => {
+        setOutlookBusy(true);
+        setError(null);
+        try {
+            const { authorize_url } = await apiGet<{ authorize_url: string }>(
+                '/oauth/outlook/authorize'
+            );
+            const w = 520, h = 640;
+            const left = window.screenX + (window.outerWidth - w) / 2;
+            const top = window.screenY + (window.outerHeight - h) / 2;
+            window.open(
+                authorize_url,
+                'outlook_oauth',
+                `width=${w},height=${h},left=${left},top=${top},resizable=yes,scrollbars=yes`
+            );
+        } catch (e) {
+            setError(e instanceof ApiError ? e.message : 'Error iniciando OAuth Outlook');
+        } finally {
+            setOutlookBusy(false);
+        }
+    };
+
+    const desconectarOutlook = async () => {
+        if (!confirm('¿Desconectar Outlook? Esta empresa dejará de recibir facturas de este buzón hasta que reconectes.')) return;
+        setOutlookBusy(true);
+        try {
+            await apiPost('/oauth/outlook/disconnect');
+            setSuccess('Outlook desconectado.');
+            setTimeout(() => setSuccess(null), 2400);
+            await cargarOutlookStatus();
+        } catch (e) {
+            setError(e instanceof ApiError ? e.message : 'Error desconectando');
+        } finally {
+            setOutlookBusy(false);
+        }
+    };
+
+    const guardarOutlookModoCustom = async () => {
+        if (!outlookCustomClientId || !outlookCustomClientSecret) {
+            setError('En modo custom, Client ID y Client Secret son obligatorios.');
+            return;
+        }
+        setOutlookBusy(true);
+        try {
+            await apiPut('/oauth/outlook/config', {
+                mode: 'custom',
+                client_id: outlookCustomClientId,
+                client_secret: outlookCustomClientSecret,
+                tenant_id: outlookCustomTenantId || 'common',
+            });
+            setOutlookCustomClientSecret('');
+            setSuccess('Credenciales OAuth Outlook custom guardadas. Ahora pulsa "Conectar Outlook".');
+            setTimeout(() => setSuccess(null), 3000);
+            await cargarOutlookStatus();
+        } catch (e) {
+            setError(e instanceof ApiError ? e.message : 'Error guardando');
+        } finally {
+            setOutlookBusy(false);
+        }
+    };
+
+    const cambiarOutlookAModoSaas = async () => {
+        if (!confirm('¿Cambiar Outlook al modo SaaS-managed? Esto desconecta la sesión actual y limpia el Client ID/Secret custom.')) return;
+        setOutlookBusy(true);
+        try {
+            await apiPut('/oauth/outlook/config', { mode: 'saas' });
+            setOutlookCustomClientId('');
+            setOutlookCustomClientSecret('');
+            setOutlookCustomTenantId('common');
+            setSuccess('Modo Outlook cambiado a SaaS-managed.');
+            setTimeout(() => setSuccess(null), 2400);
+            await cargarOutlookStatus();
+        } catch (e) {
+            setError(e instanceof ApiError ? e.message : 'Error cambiando modo');
+        } finally {
+            setOutlookBusy(false);
+        }
+    };
 
     const guardar = async (e: FormEvent) => {
         e.preventDefault();
@@ -98,15 +352,15 @@ export default function IntegracionesPage() {
         setError(null);
         setSuccess(null);
         try {
+            // Ya NO se envían n8n_credential_openai_id ni n8n_credential_email_id.
+            // El modelo actual usa OAuth directo desde el backend (Gmail/Outlook)
+            // + credencial Gemini del SaaS. n8n_email_provider se persiste
+            // desde el radio del selector "Buzón activo" cuando se cambia
+            // (auto-guardado), no desde este submit.
             const updated = await apiPut<Integraciones>('/empresas/me/integraciones', {
-                // En modo SaaS-managed forzamos las URLs override a null para que
-                // el backend siempre use la URL compartida.
                 n8n_webhook_url: showAdvanced ? (webhookUrl || null) : null,
                 n8n_search_webhook: showAdvanced ? (searchWebhook || null) : null,
                 n8n_process_webhook: showAdvanced ? (processWebhook || null) : null,
-                n8n_credential_openai_id: openaiCredId || null,
-                n8n_credential_email_id: emailCredId || null,
-                n8n_email_provider: emailProvider || null,
                 storage_path: storagePath || null,
             });
             setData(updated);
@@ -252,57 +506,396 @@ export default function IntegracionesPage() {
                     </div>
                 </div>
 
-                {/* Credential IDs — siempre per-tenant */}
+                {/* ---------- Extracción IA — servicio del SaaS ---------- */}
                 <div className="surface p-6">
-                    <div className="kicker-accent mb-1">Credenciales en n8n</div>
-                    <h2 className="font-display text-[1.3rem] tracking-tight mb-1">
-                        IDs de tus credenciales
-                    </h2>
-                    <p className="text-[12px] mb-5" style={{ color: 'var(--ink-faint)' }}>
-                        Crea tus credenciales en n8n (OpenAI, Outlook/Gmail…). Después copia los IDs
-                        del URL al editar cada credencial y pégalos aquí. El backend los inyecta en
-                        cada payload como <span className="font-mono">credentialId</span> dinámico.
-                    </p>
+                    <div className="flex items-baseline justify-between mb-2">
+                        <div>
+                            <div className="kicker-accent mb-1">Extracción IA · Google Gemini</div>
+                            <h2 className="font-display text-[1.3rem] tracking-tight">
+                                Incluido en tu plan
+                            </h2>
+                        </div>
+                        <span
+                            className="text-[11px] px-2 py-1 rounded-sm font-medium uppercase tracking-wider"
+                            style={{
+                                background: 'var(--positive-soft)',
+                                color: 'var(--positive)',
+                                border: '1px solid var(--positive)',
+                            }}
+                        >
+                            ✓ Activo
+                        </span>
+                    </div>
 
-                    <div className="grid md:grid-cols-2 gap-4">
+                    <p className="text-[13px]" style={{ color: 'var(--ink-soft)' }}>
+                        La extracción de datos de facturas PDF se procesa con Google Gemini como
+                        parte del servicio SaaS. <strong>No necesitas configurar API keys ni pagar
+                        créditos por tu cuenta</strong> — el consumo lo gestiona el operador del
+                        SaaS.
+                    </p>
+                    <p className="text-[11px] mt-2" style={{ color: 'var(--ink-faint)' }}>
+                        ¿Volumen alto o necesitas usar tu propia cuenta de Google Cloud?
+                        Contacta a soporte para habilitar override per-tenant.
+                    </p>
+                </div>
+
+                {/* ---------- OAuth Gmail (nuevo — Checkpoint 2) ---------- */}
+                <div className="surface p-6">
+                    <div className="flex items-baseline justify-between mb-4">
                         <div>
-                            <label className="kicker block mb-1.5">Credential ID de OpenAI</label>
-                            <input
-                                type="text"
-                                className="input-field font-mono text-[13px]"
-                                placeholder="Ej: 1a2b3c4d-5e6f-7a8b"
-                                value={openaiCredId}
-                                onChange={(e) => setOpenaiCredId(e.target.value)}
-                            />
-                            <p className="text-[11px] mt-1.5" style={{ color: 'var(--ink-faint)' }}>
-                                Requerido para extracción IA de la factura PDF.
-                            </p>
+                            <div className="kicker-accent mb-1">Buzón de correo · OAuth 2.0</div>
+                            <h2 className="font-display text-[1.3rem] tracking-tight">
+                                Gmail conectado
+                            </h2>
                         </div>
-                        <div>
-                            <label className="kicker block mb-1.5">Proveedor de correo (fase 2)</label>
-                            <select
-                                className="input-field text-[13px]"
-                                value={emailProvider}
-                                onChange={(e) => setEmailProvider((e.target.value as EmailProvider) || '')}
+                        {gmailStatus?.connected ? (
+                            <span
+                                className="text-[11px] px-2 py-1 rounded-sm font-medium uppercase tracking-wider"
+                                style={{
+                                    background: 'var(--positive-soft)',
+                                    color: 'var(--positive)',
+                                    border: '1px solid var(--positive)',
+                                }}
                             >
-                                <option value="">No configurado</option>
-                                {(Object.keys(PROVIDER_LABEL) as EmailProvider[]).map((k) => (
-                                    <option key={k} value={k}>{PROVIDER_LABEL[k]}</option>
-                                ))}
-                            </select>
+                                ✓ Conectado
+                            </span>
+                        ) : (
+                            <span
+                                className="text-[11px] px-2 py-1 rounded-sm font-medium uppercase tracking-wider"
+                                style={{
+                                    background: 'var(--paper-tinted)',
+                                    color: 'var(--ink-faint)',
+                                    border: '1px solid var(--rule-soft)',
+                                }}
+                            >
+                                No conectado
+                            </span>
+                        )}
+                    </div>
+
+                    {gmailStatus?.connected ? (
+                        <div className="mb-5">
+                            <div className="text-[13px] mb-1">
+                                <span style={{ color: 'var(--ink-faint)' }}>Cuenta autorizada:</span>{' '}
+                                <span className="font-mono" style={{ color: 'var(--ink)' }}>{gmailStatus.email}</span>
+                            </div>
+                            {gmailStatus.connected_at && (
+                                <div className="text-[11px]" style={{ color: 'var(--ink-faint)' }}>
+                                    Conectado el {new Date(gmailStatus.connected_at).toLocaleString('es-CO')}
+                                </div>
+                            )}
                         </div>
-                        <div className="md:col-span-2">
-                            <label className="kicker block mb-1.5">Credential ID del correo</label>
-                            <input
-                                type="text"
-                                className="input-field font-mono text-[13px]"
-                                placeholder="Ej: 9z8y7x6w-5v4u"
-                                value={emailCredId}
-                                onChange={(e) => setEmailCredId(e.target.value)}
-                            />
+                    ) : (
+                        <p className="text-[12px] mb-5" style={{ color: 'var(--ink-faint)' }}>
+                            Conecta tu cuenta de Gmail para que el asistente pueda buscar facturas en tu buzón. Solo lectura — el SaaS nunca envía ni modifica correos.
+                        </p>
+                    )}
+
+                    {/* Selector modo saas / custom */}
+                    <div
+                        className="mb-4 p-4 rounded-md"
+                        style={{ background: 'var(--paper-tinted)', border: '1px solid var(--rule-soft)' }}
+                    >
+                        <div className="kicker mb-3">Modo de OAuth</div>
+                        <div className="flex flex-col sm:flex-row gap-3">
+                            <label className="flex items-start gap-2 cursor-pointer flex-1">
+                                <input
+                                    type="radio"
+                                    name="gmailMode"
+                                    checked={gmailMode === 'saas'}
+                                    onChange={() => {
+                                        if (gmailStatus?.mode === 'custom') cambiarAModoSaas();
+                                        else setGmailMode('saas');
+                                    }}
+                                    className="mt-1"
+                                    style={{ accentColor: 'var(--accent)' }}
+                                />
+                                <div>
+                                    <div className="font-medium text-[13px]">SaaS-managed (recomendado)</div>
+                                    <div className="text-[11px]" style={{ color: 'var(--ink-faint)' }}>
+                                        Autoriza con un click usando la app OAuth del SaaS.
+                                    </div>
+                                </div>
+                            </label>
+                            <label className="flex items-start gap-2 cursor-pointer flex-1">
+                                <input
+                                    type="radio"
+                                    name="gmailMode"
+                                    checked={gmailMode === 'custom'}
+                                    onChange={() => setGmailMode('custom')}
+                                    className="mt-1"
+                                    style={{ accentColor: 'var(--accent)' }}
+                                />
+                                <div>
+                                    <div className="font-medium text-[13px]">Custom (avanzado)</div>
+                                    <div className="text-[11px]" style={{ color: 'var(--ink-faint)' }}>
+                                        Usa tu propia OAuth app registrada en Google Cloud.
+                                    </div>
+                                </div>
+                            </label>
+                        </div>
+
+                        {gmailMode === 'custom' && (
+                            <div className="mt-4 space-y-3">
+                                <div>
+                                    <label className="kicker block mb-1.5">Client ID</label>
+                                    <input
+                                        type="text"
+                                        className="input-field font-mono text-[13px]"
+                                        placeholder="XXXX.apps.googleusercontent.com"
+                                        value={gmailCustomClientId}
+                                        onChange={(e) => setGmailCustomClientId(e.target.value)}
+                                        autoComplete="off"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="kicker block mb-1.5">Client Secret</label>
+                                    <input
+                                        type="password"
+                                        className="input-field font-mono text-[13px]"
+                                        placeholder="GOCSPX-..."
+                                        value={gmailCustomClientSecret}
+                                        onChange={(e) => setGmailCustomClientSecret(e.target.value)}
+                                        autoComplete="off"
+                                    />
+                                    <p className="text-[11px] mt-1.5" style={{ color: 'var(--ink-faint)' }}>
+                                        Se guarda encriptado. El secret nunca vuelve a mostrarse.
+                                    </p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={guardarGmailModoCustom}
+                                    disabled={gmailBusy}
+                                    className="btn-secondary text-[13px] disabled:opacity-50"
+                                >
+                                    {gmailBusy ? 'Guardando…' : 'Guardar credenciales custom'}
+                                </button>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="flex gap-3">
+                        {gmailStatus?.connected ? (
+                            <>
+                                <button
+                                    type="button"
+                                    onClick={conectarGmail}
+                                    disabled={gmailBusy}
+                                    className="btn-secondary text-[13px] disabled:opacity-50"
+                                    title="Reconectar (cambio de cuenta)"
+                                >
+                                    Reconectar
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={desconectarGmail}
+                                    disabled={gmailBusy}
+                                    className="text-[13px] px-4 py-2 rounded-md disabled:opacity-50 transition-colors"
+                                    style={{ color: 'var(--negative)', border: '1px solid var(--negative)' }}
+                                >
+                                    Desconectar
+                                </button>
+                            </>
+                        ) : (
+                            <button
+                                type="button"
+                                onClick={conectarGmail}
+                                disabled={gmailBusy}
+                                className="btn-primary text-[13px] disabled:opacity-50 flex items-center gap-2"
+                            >
+                                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M12 5c1.617 0 3.108.554 4.293 1.481L19.755 3C17.717 1.15 15.017 0 12 0 7.392 0 3.397 2.6 1.386 6.373l4.028 3.117C6.365 6.68 8.94 5 12 5z" fill="#EA4335"/>
+                                    <path d="M23.49 12.275c0-.79-.07-1.54-.194-2.275H12v4.51h6.457c-.288 1.44-1.14 2.67-2.412 3.5l3.72 2.87c2.148-1.985 3.725-4.9 3.725-8.605z" fill="#4285F4"/>
+                                    <path d="M5.414 14.51A6.98 6.98 0 015 12c0-.888.15-1.735.42-2.526L1.386 6.357C.51 8.03 0 9.955 0 12s.51 3.97 1.386 5.643l4.028-3.133z" fill="#FBBC05"/>
+                                    <path d="M12 24c3.24 0 5.955-1.065 7.94-2.905l-3.72-2.87c-1.037.7-2.36 1.11-4.22 1.11-3.06 0-5.635-1.68-6.586-4.49L1.386 17.98C3.397 21.4 7.392 24 12 24z" fill="#34A853"/>
+                                </svg>
+                                {gmailBusy ? 'Iniciando…' : 'Conectar Gmail'}
+                            </button>
+                        )}
+                    </div>
+
+                    {gmailMode === 'custom' && !gmailStatus?.has_custom_client && (
+                        <p className="text-[11px] mt-3" style={{ color: 'var(--gold)' }}>
+                            ⚠ Guarda primero tus credenciales custom antes de conectar.
+                        </p>
+                    )}
+                </div>
+
+                {/* ---------- OAuth Outlook (Modelo A/B — paralelo a Gmail) ---------- */}
+                <div className="surface p-6">
+                    <div className="flex items-baseline justify-between mb-4">
+                        <div>
+                            <div className="kicker-accent mb-1">Buzón de correo · OAuth 2.0</div>
+                            <h2 className="font-display text-[1.3rem] tracking-tight">
+                                Outlook conectado
+                            </h2>
+                        </div>
+                        {outlookStatus?.connected ? (
+                            <span className="text-[11px] px-2 py-1 rounded-sm font-medium uppercase tracking-wider"
+                                style={{ background: 'var(--positive-soft)', color: 'var(--positive)', border: '1px solid var(--positive)' }}>
+                                ✓ Conectado
+                            </span>
+                        ) : (
+                            <span className="text-[11px] px-2 py-1 rounded-sm font-medium uppercase tracking-wider"
+                                style={{ background: 'var(--paper-tinted)', color: 'var(--ink-faint)', border: '1px solid var(--rule-soft)' }}>
+                                No conectado
+                            </span>
+                        )}
+                    </div>
+
+                    {outlookStatus?.connected ? (
+                        <div className="mb-5">
+                            <div className="text-[13px] mb-1">
+                                <span style={{ color: 'var(--ink-faint)' }}>Cuenta autorizada:</span>{' '}
+                                <span className="font-mono" style={{ color: 'var(--ink)' }}>{outlookStatus.email}</span>
+                            </div>
+                            {outlookStatus.connected_at && (
+                                <div className="text-[11px]" style={{ color: 'var(--ink-faint)' }}>
+                                    Conectado el {new Date(outlookStatus.connected_at).toLocaleString('es-CO')}
+                                </div>
+                            )}
+                        </div>
+                    ) : (
+                        <p className="text-[12px] mb-5" style={{ color: 'var(--ink-faint)' }}>
+                            Conecta tu cuenta Microsoft (Outlook / M365) para que el asistente busque facturas en tu Inbox. Solo lectura.
+                        </p>
+                    )}
+
+                    <div className="mb-4 p-4 rounded-md" style={{ background: 'var(--paper-tinted)', border: '1px solid var(--rule-soft)' }}>
+                        <div className="kicker mb-3">Modo de OAuth</div>
+                        <div className="flex flex-col sm:flex-row gap-3">
+                            <label className="flex items-start gap-2 cursor-pointer flex-1">
+                                <input type="radio" name="outlookMode"
+                                    checked={outlookMode === 'saas'}
+                                    onChange={() => {
+                                        if (outlookStatus?.mode === 'custom') cambiarOutlookAModoSaas();
+                                        else setOutlookMode('saas');
+                                    }}
+                                    className="mt-1" style={{ accentColor: 'var(--accent)' }} />
+                                <div>
+                                    <div className="font-medium text-[13px]">SaaS-managed (recomendado)</div>
+                                    <div className="text-[11px]" style={{ color: 'var(--ink-faint)' }}>
+                                        Autoriza con un click usando la app OAuth del SaaS.
+                                    </div>
+                                </div>
+                            </label>
+                            <label className="flex items-start gap-2 cursor-pointer flex-1">
+                                <input type="radio" name="outlookMode"
+                                    checked={outlookMode === 'custom'}
+                                    onChange={() => setOutlookMode('custom')}
+                                    className="mt-1" style={{ accentColor: 'var(--accent)' }} />
+                                <div>
+                                    <div className="font-medium text-[13px]">Custom (avanzado)</div>
+                                    <div className="text-[11px]" style={{ color: 'var(--ink-faint)' }}>
+                                        Usa tu propia app registrada en Azure Portal.
+                                    </div>
+                                </div>
+                            </label>
+                        </div>
+
+                        {outlookMode === 'custom' && (
+                            <div className="mt-4 space-y-3">
+                                <div>
+                                    <label className="kicker block mb-1.5">Client ID (Application ID)</label>
+                                    <input type="text" className="input-field font-mono text-[13px]"
+                                        placeholder="00000000-0000-0000-0000-000000000000"
+                                        value={outlookCustomClientId}
+                                        onChange={(e) => setOutlookCustomClientId(e.target.value)}
+                                        autoComplete="off" />
+                                </div>
+                                <div>
+                                    <label className="kicker block mb-1.5">Client Secret (Value)</label>
+                                    <input type="password" className="input-field font-mono text-[13px]"
+                                        placeholder="Secret VALUE (no Secret ID)"
+                                        value={outlookCustomClientSecret}
+                                        onChange={(e) => setOutlookCustomClientSecret(e.target.value)}
+                                        autoComplete="off" />
+                                </div>
+                                <div>
+                                    <label className="kicker block mb-1.5">Tenant ID (opcional)</label>
+                                    <input type="text" className="input-field font-mono text-[13px]"
+                                        placeholder="common (para multi-tenant + personal accounts)"
+                                        value={outlookCustomTenantId}
+                                        onChange={(e) => setOutlookCustomTenantId(e.target.value)}
+                                        autoComplete="off" />
+                                    <p className="text-[11px] mt-1.5" style={{ color: 'var(--ink-faint)' }}>
+                                        Usa <span className="font-mono">common</span> para permitir cuentas personales + org. Otro UUID → tu Entra ID específico.
+                                    </p>
+                                </div>
+                                <button type="button" onClick={guardarOutlookModoCustom}
+                                    disabled={outlookBusy}
+                                    className="btn-secondary text-[13px] disabled:opacity-50">
+                                    {outlookBusy ? 'Guardando…' : 'Guardar credenciales custom'}
+                                </button>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="flex gap-3">
+                        {outlookStatus?.connected ? (
+                            <>
+                                <button type="button" onClick={conectarOutlook}
+                                    disabled={outlookBusy}
+                                    className="btn-secondary text-[13px] disabled:opacity-50">
+                                    Reconectar
+                                </button>
+                                <button type="button" onClick={desconectarOutlook}
+                                    disabled={outlookBusy}
+                                    className="text-[13px] px-4 py-2 rounded-md disabled:opacity-50"
+                                    style={{ color: 'var(--negative)', border: '1px solid var(--negative)' }}>
+                                    Desconectar
+                                </button>
+                            </>
+                        ) : (
+                            <button type="button" onClick={conectarOutlook}
+                                disabled={outlookBusy}
+                                className="btn-primary text-[13px] disabled:opacity-50 flex items-center gap-2">
+                                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none">
+                                    <rect x="1" y="1" width="10" height="10" fill="#F25022"/>
+                                    <rect x="13" y="1" width="10" height="10" fill="#7FBA00"/>
+                                    <rect x="1" y="13" width="10" height="10" fill="#00A4EF"/>
+                                    <rect x="13" y="13" width="10" height="10" fill="#FFB900"/>
+                                </svg>
+                                {outlookBusy ? 'Iniciando…' : 'Conectar Outlook'}
+                            </button>
+                        )}
+                    </div>
+
+                    {outlookMode === 'custom' && !outlookStatus?.has_custom_client && (
+                        <p className="text-[11px] mt-3" style={{ color: 'var(--gold)' }}>
+                            ⚠ Guarda primero tus credenciales custom antes de conectar.
+                        </p>
+                    )}
+                </div>
+
+                {/* Selector de buzón activo — solo visible si hay más de uno conectado */}
+                {(gmailStatus?.connected && outlookStatus?.connected) && (
+                    <div className="surface p-6">
+                        <div className="kicker-accent mb-1">Buzón activo</div>
+                        <h2 className="font-display text-[1.3rem] tracking-tight mb-1">
+                            ¿Cuál usar para el buscador?
+                        </h2>
+                        <p className="text-[12px] mb-4" style={{ color: 'var(--ink-faint)' }}>
+                            Tienes ambos buzones conectados. Escoge cuál usar cuando ejecutes búsquedas de facturas.
+                        </p>
+                        <div className="flex gap-4">
+                            <label className="flex items-center gap-2 cursor-pointer">
+                                <input type="radio" name="activeProvider"
+                                    checked={emailProvider === 'gmail'}
+                                    onChange={() => cambiarProviderActivo('gmail')}
+                                    style={{ accentColor: 'var(--accent)' }} />
+                                <span className="text-[13px]">Gmail ({gmailStatus.email})</span>
+                            </label>
+                            <label className="flex items-center gap-2 cursor-pointer">
+                                <input type="radio" name="activeProvider"
+                                    checked={emailProvider === 'outlook'}
+                                    onChange={() => cambiarProviderActivo('outlook')}
+                                    style={{ accentColor: 'var(--accent)' }} />
+                                <span className="text-[13px]">Outlook ({outlookStatus.email})</span>
+                            </label>
                         </div>
                     </div>
-                </div>
+                )}
 
                 {/* URL del webhook efectivo */}
                 <div className="surface p-6">

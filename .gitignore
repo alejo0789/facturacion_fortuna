@@ -229,3 +229,7 @@ backup_db/
 
 # Config local del sandbox de Claude Code (preview server, etc.)
 .claude/
+
+# Backups y exports locales de workflows n8n. Solo el canónico va al repo.
+n8n/*.json
+!n8n/workflow_facturacion_saas.json
