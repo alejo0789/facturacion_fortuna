@@ -30,6 +30,7 @@ from database import get_db
 from core.dependencies import get_current_empresa, get_current_user
 from services.causacion import crear_asiento_causacion_factura
 from services.pago import crear_asiento_pago_factura, CUENTA_PROVEEDORES_DEFAULT
+from services import google_oauth
 from services.integraciones_n8n import (
     get_upload_config,
     build_upload_payload,
@@ -636,12 +637,16 @@ def enrich_factura_with_file_info(factura: models.Factura) -> schemas.Factura:
 
     url = factura_schema.url_factura
     unc_path = ""
-    
-    # Logic copied from ver_factura
+
     if url.startswith("file://"):
-        path_part = url[7:]
-        path_part = unquote(path_part)
-        unc_path = "\\\\" + path_part.replace("/", "\\")
+        path_part = unquote(url[7:])
+        # Distinguir drive letter local (ej. C:/Users/...) vs UNC (//server/share):
+        # - Windows drive letter: 2do char es ":" → path local, NO prefijar con "\\".
+        # - Otro caso (share, path relativo) → tratar como UNC con prefijo "\\".
+        if len(path_part) >= 2 and path_part[1] == ":":
+            unc_path = path_part.replace("/", "\\")
+        else:
+            unc_path = "\\\\" + path_part.replace("/", "\\")
     elif url.startswith("\\\\"):
         unc_path = unquote(url)
     else:
@@ -946,15 +951,15 @@ async def ver_factura(factura_id: int, db: AsyncSession = Depends(get_db)):
     
     url = factura.url_factura
     
-    # Convert file:// URL to UNC path for Windows
-    # file://192.168.2.20/Facturas/... -> \\192.168.2.20\Facturas\...
+    # Convert file:// URL to Windows path.
+    # - file://C:/Users/... → C:\Users\... (drive letter local, sin prefijo UNC)
+    # - file://192.168.2.20/Facturas/... → \\192.168.2.20\Facturas\... (share UNC)
     if url.startswith("file://"):
-        # Remove file:// prefix and convert to UNC path
-        path_part = url[7:]  # Remove "file://"
-        # URL decode (handle %20 -> space, etc.)
-        path_part = unquote(path_part)
-        # Convert forward slashes to backslashes for Windows UNC
-        unc_path = "\\\\" + path_part.replace("/", "\\")
+        path_part = unquote(url[7:])
+        if len(path_part) >= 2 and path_part[1] == ":":
+            unc_path = path_part.replace("/", "\\")
+        else:
+            unc_path = "\\\\" + path_part.replace("/", "\\")
     elif url.startswith("\\\\"):
         # Already a UNC path
         unc_path = unquote(url)
@@ -1457,6 +1462,10 @@ async def upload_factura_pdf(
             original_filename=file.filename,
             uploaded_at_iso=datetime.now().isoformat(),
             pdf_bytes=pdf_bytes_for_n8n,
+            # Checkpoint 3: Gemini API key resuelta (per-tenant o global) para
+            # que el workflow n8n use HTTP Request a Gemini con key dinámica
+            # en lugar del nodo nativo con credencial guardada.
+            extras={"gemini_api_key": google_oauth.resolve_gemini_api_key(empresa)},
         )
         response = await call_upload_webhook(cfg, webhook_data, timeout=120.0)
 
