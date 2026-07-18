@@ -715,6 +715,7 @@ Migraciones actuales:
 | `009_oauth_outlook_multitenant.sql` | Idem para Outlook (Microsoft Graph) |
 | `010_conciliacion_dian.sql` | `documentos_dian` + `dian_sync_jobs` para Conciliación DIAN |
 | `011_dian_multi_metodo_auth.sql` | Método de auth DIAN + credenciales por método (encriptadas) |
+| `012_security_hardening.sql` | `rate_limit_events`, `token_blacklist`, `audit_log` |
 
 Si la base está vacía, sáltate este paso — el `lifespan` del backend
 crea todo desde cero con `Base.metadata.create_all` (equivalente a aplicar

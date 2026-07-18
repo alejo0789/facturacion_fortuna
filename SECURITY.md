@@ -102,33 +102,82 @@ Antes de hacer `PRODUCTION_MODE=True` en el `.env`:
 - [ ] Dependencias actualizadas: `pip list --outdated`, `pip-audit`.
 - [ ] Instalar Playwright browser en el server: `playwright install chromium`.
 
+## Segunda pasada — controles añadidos
+
+La revisión de julio 2026 añadió:
+
+### Rate limiter multi-worker (Postgres-backed)
+
+- `services/rate_limit_db.py` reemplaza el limiter in-memory.
+- Buckets por IP + email en `/login`, por IP en `/register`, por empresa en `/dian/sync/start`.
+- Ventana deslizante en tabla `rate_limit_events`, con GC lazy (2% de requests).
+- Sobrevive a restarts y funciona con N workers.
+
+### JWT revocation (jti + blacklist)
+
+- Cada token trae `jti` (32 hex chars) generado con `secrets.token_hex(16)`.
+- `services/token_blacklist.py` con cache in-memory de 30s TTL para no golpear Postgres cada request.
+- Endpoint `POST /api/auth/logout` (autenticado) revoca el token del usuario.
+- Cache invalida automáticamente cuando el token expira de todas formas.
+- Escala: 1 lookup a Postgres por token cada ≤30s.
+
+### File upload validation por magic bytes
+
+- `services/upload_validation.py` valida por PDF/JPEG/PNG magic bytes.
+- Aplicado en `POST /contratos/{id}/upload-pdf`.
+- Rechaza archivos vacíos, demasiado grandes (20MB default), o de tipo no permitido.
+- El header `Content-Type` sigue siendo informativo — se ignora.
+
+### Audit log estructurado
+
+- Tabla `audit_log` con: `ts`, `empresa_id`, `user_id`, `action`, `resource_type/id`, `ip`, `user_agent`, `result`, `details` (JSONB).
+- `services/audit.py` con `log_action()` helper — nunca falla, si Postgres se cae solo loguea a stderr.
+- Hooks:
+  - `auth.login`, `auth.login_failed`, `auth.logout`, `auth.register`
+  - `dian.config_update`, `dian.sync_start`
+- Pendiente hookear: `oauth.*.connect/disconnect`, `usuario.role_change`, `empresa.api_key_rotated`.
+
+### Signed URLs — migración completa del frontend
+
+- Endpoints nuevos: `GET /api/facturas/{id}/pdf-url` y `GET /api/contratos/{id}/pdf-url` (autenticados, devuelven URL firmada con TTL 5min).
+- Helper frontend `utils/pdfUrl.ts` centraliza las llamadas.
+- Migrados 5 sitios: `FacturasPage` (dos), `PagosPage`, `Dashboard`, `ContractModal`.
+- Cuando confirmes que todo funciona, activa `REQUIRE_SIGNED_PDF_URLS=True` en prod para exigir el token siempre.
+
+### API_KEY legada — warning al arrancar
+
+- Si `settings.API_KEY` está seteada, el startup emite un warning explícito recomendando migrar a api_key por empresa.
+
+### Script CI `scripts/security-audit.sh`
+
+- `pip-audit` sobre `requirements.txt`.
+- `npm audit --production --audit-level=high` sobre frontend.
+- `git grep` de patrones sensibles + `git ls-files` de `.env`.
+- Exit code 0/1 para uso en pipelines.
+
+---
+
 ## Amenazas conocidas pendientes
 
 Ver `docs/security-backlog.md` (por crear) para el detalle.
 
-### Rate limiter en memoria
-
-**Impacto**: no escala a múltiples workers de uvicorn/gunicorn. Cada worker tiene su propio contador, un atacante puede saltarse el límite pegándole a distintos workers en round-robin.
-
-**Mitigación futura**: Redis como backend del rate limiter (o extraer a un cliente como `slowapi` + `redis-py`).
-
-### JWT sin revocación
-
-**Impacto**: si un JWT se filtra, sirve hasta la expiración (60 min access, 7d refresh).
-
-**Mitigación**: TTL corto en el access (60 min es razonable). Para revocación real requiere una blacklist en Redis o similar.
-
 ### File uploads sin AV scan
 
-**Impacto**: usuarios podrían subir malware disfrazado de PDF.
+**Impacto**: usuarios podrían subir malware disfrazado de PDF válido (magic bytes correctos pero payload interior malicioso).
 
-**Mitigación**: validar MIME por magic number (no solo header), integración futura con ClamAV o VirusTotal API.
+**Mitigación futura**: integración con ClamAV (server-side) o VirusTotal API.
 
-### Sin auditoría estructurada
+### 2FA para admins
 
-**Impacto**: no queda log estructurado de acciones sensibles (cambios de rol, cambios de credenciales, exports masivos).
+**Impacto**: cuentas con rol ADMIN sin segundo factor. Si se compromete el password, no hay backup.
 
-**Mitigación futura**: tabla `audit_log` con eventos + endpoint admin de consulta.
+**Mitigación futura**: TOTP con `pyotp` + QR de setup.
+
+### Rate limiter — GC lazy puede acumular en Postgres
+
+**Impacto**: si hay pico de tráfico, la tabla `rate_limit_events` puede crecer hasta que corra un GC de un request. En steady state se estabiliza.
+
+**Mitigación**: cron nocturno `DELETE FROM rate_limit_events WHERE attempted_at < NOW() - INTERVAL '2 hours'` o extender el GC lazy.
 
 ## Reporte de vulnerabilidades
 
