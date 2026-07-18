@@ -55,6 +55,7 @@ const ImpuestosPage = lazy(() => import('./pages/ImpuestosPage'));
 const CuentasBancariasPage = lazy(() => import('./pages/CuentasBancariasPage'));
 const ConciliacionBancariaPage = lazy(() => import('./pages/ConciliacionBancariaPage'));
 const MediosMagneticosPage = lazy(() => import('./pages/MediosMagneticosPage'));
+const ConciliacionDianPage = lazy(() => import('./pages/ConciliacionDianPage'));
 const IntegracionesPage = lazy(() => import('./pages/IntegracionesPage'));
 
 function LoadingFallback() {
@@ -94,6 +95,7 @@ function AppShell() {
                         <Route path="cuentas-bancarias" element={<CuentasBancariasPage />} />
                         <Route path="conciliacion" element={<ConciliacionBancariaPage />} />
                         <Route path="medios-magneticos" element={<MediosMagneticosPage />} />
+                        <Route path="conciliacion-dian" element={<ConciliacionDianPage />} />
                         <Route path="integraciones" element={<IntegracionesPage />} />
                         <Route path="*" element={<Navigate to="/app" replace />} />
                     </Routes>
