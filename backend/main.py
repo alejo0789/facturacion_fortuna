@@ -9,8 +9,16 @@ Esta versión agrega la capa SaaS multi-tenant sobre la aplicación existente:
   el superadmin del .env. Además se ejecuta el backfill de `empresa_id`
   sobre las tablas existentes que aún no lo tienen asignado.
 """
+import asyncio
 import logging
+import sys
 from contextlib import asynccontextmanager
+
+# Windows + Playwright: el default SelectorEventLoop no soporta subprocess,
+# lo que hace que playwright.chromium.launch() falle con NotImplementedError.
+# Setear la policy ANTES de que uvicorn cree su event loop.
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 import uvicorn
 from fastapi import FastAPI
@@ -28,13 +36,14 @@ import models  # noqa: F401  (registra modelos existentes en Base.metadata)
 import models_tenant  # noqa: F401  (registra Firma/Empresa/Usuario/UsuarioEmpresa)
 import models_contabilidad  # noqa: F401  (registra PUC/Periodos/Asientos/Banca)
 import models_impuestos  # noqa: F401  (registra ConfigImpuesto/Tarifa/Retencion)
+import models_dian  # noqa: F401  (registra DocumentoDian/DianSyncJob)
 
 from routers import (
     contracts, payments, pagos, facturas, consolidado,
     reportes, oficinas_oracle, archivo_plano, feedback, asistente,
     auth, empresas, usuarios,
     contabilidad, impuestos, bancario, dian,
-    oauth,
+    oauth, dian_conciliacion,
 )
 from middleware.auth_dual import AuthDualMiddleware
 from populate_puc import clonar_puc
@@ -199,6 +208,7 @@ app.include_router(archivo_plano.router, prefix="/api", tags=["archivo-plano"])
 app.include_router(feedback.router, prefix="/api", tags=["feedback"])
 app.include_router(asistente.router, prefix="/api", tags=["asistente"])
 app.include_router(oauth.router, prefix="/api", tags=["oauth"])
+app.include_router(dian_conciliacion.router, prefix="/api", tags=["dian-conciliacion"])
 
 # ---- Módulo contable (Iteración 2 + Fase 3/4) ----
 app.include_router(contabilidad.router, prefix="/api", tags=["contabilidad"])
