@@ -121,8 +121,8 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
         });
     };
 
-    const handleLogout = () => {
-        logout();
+    const handleLogout = async () => {
+        await logout();
         navigate('/login', { replace: true });
     };
 

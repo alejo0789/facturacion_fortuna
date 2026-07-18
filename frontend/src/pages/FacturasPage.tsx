@@ -5,6 +5,7 @@ import Modal, { FormField, inputClassName } from '../components/Modal';
 import UploadFacturaModal from '../components/UploadFacturaModal';
 import { formatCOP } from '../utils/format';
 import { apiFetch } from '../utils/apiClient';
+import { getSignedPdfUrl } from '../utils/pdfUrl';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
@@ -1780,9 +1781,12 @@ export default function FacturasPage() {
                                     {/* View Invoice Button */}
                                     {f.url_factura && (
                                         <button
-                                            onClick={() => {
-                                                setPdfUrl(`${API_URL}/facturas/${f.id}/ver`);
-                                                setIsPdfModalOpen(true);
+                                            onClick={async () => {
+                                                try {
+                                                    const url = await getSignedPdfUrl('factura', f.id);
+                                                    setPdfUrl(url);
+                                                    setIsPdfModalOpen(true);
+                                                } catch { /* silencioso */ }
                                             }}
                                             className="flex items-center justify-center gap-1 px-3 py-2 text-sm bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors"
                                         >
@@ -2509,9 +2513,12 @@ export default function FacturasPage() {
                                                     })()}
                                                     {hf.url_factura && (
                                                         <button
-                                                            onClick={() => {
-                                                                setPdfUrl(`${API_URL}/facturas/${hf.id}/ver`);
-                                                                setIsPdfModalOpen(true);
+                                                            onClick={async () => {
+                                                                try {
+                                                                    const url = await getSignedPdfUrl('factura', hf.id);
+                                                                    setPdfUrl(url);
+                                                                    setIsPdfModalOpen(true);
+                                                                } catch { /* silencioso */ }
                                                             }}
                                                             className="text-sm text-blue-600 hover:underline"
                                                         >

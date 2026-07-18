@@ -3,6 +3,7 @@ import type { Contrato, Proveedor, Oficina } from '../types';
 import Modal, { FormField, inputClassName } from './Modal';
 
 import { apiFetch } from '../utils/apiClient';
+import { getSignedPdfUrl } from '../utils/pdfUrl';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
@@ -320,9 +321,13 @@ export default function ContractModal({ isOpen, onClose, onSave, contract }: Con
         }
     };
 
-    const handleViewPdf = () => {
-        if (contract?.id) {
-            window.open(`${API_URL}/contratos/${contract.id}/pdf`, '_blank');
+    const handleViewPdf = async () => {
+        if (!contract?.id) return;
+        try {
+            const url = await getSignedPdfUrl('contrato', contract.id);
+            window.open(url, '_blank');
+        } catch {
+            // Backend caído u otro error — no abrimos nada. El usuario reintentará.
         }
     };
 

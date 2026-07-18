@@ -92,7 +92,7 @@ interface AuthContextValue {
     isLoading: boolean;
     login: (email: string, password: string) => Promise<void>;
     register: (payload: RegisterPayload) => Promise<void>;
-    logout: () => void;
+    logout: () => Promise<void>;
     switchEmpresa: (empresaId: number) => void;
     refreshEmpresas: () => Promise<void>;
 }
@@ -193,7 +193,19 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
     };
 
     // ---- logout ----
-    const logout = useCallback(() => {
+    // Llama al backend para revocar el JWT (por jti). El fetch va con el
+    // token actual — si falla (offline, backend caído), limpiamos el storage
+    // igual: mejor limpiar el cliente que dejarlo en un estado zombie.
+    const logout = useCallback(async () => {
+        const token = authStorage.getAccessToken();
+        if (token) {
+            try {
+                await fetch(`${API_URL}/api/auth/logout`, {
+                    method: 'POST',
+                    headers: { Authorization: `Bearer ${token}` },
+                });
+            } catch { /* offline OK — limpieza local sigue */ }
+        }
         authStorage.clear();
         setUser(null);
         setEmpresas([]);

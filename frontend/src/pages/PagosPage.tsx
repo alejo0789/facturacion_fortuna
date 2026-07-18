@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { formatCOP } from '../utils/format';
 
 import { apiFetch } from '../utils/apiClient';
+import { getSignedPdfUrl } from '../utils/pdfUrl';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
@@ -909,10 +910,13 @@ export default function PagosPage() {
                                                             </span>
                                                             {f.url_factura && (
                                                                 <button
-                                                                    onClick={(e) => {
+                                                                    onClick={async (e) => {
                                                                         e.stopPropagation();
-                                                                        setPdfUrl(`${API_URL}/facturas/${f.id}/ver`);
-                                                                        setIsPdfModalOpen(true);
+                                                                        try {
+                                                                            const url = await getSignedPdfUrl('factura', f.id);
+                                                                            setPdfUrl(url);
+                                                                            setIsPdfModalOpen(true);
+                                                                        } catch { /* silencioso */ }
                                                                     }}
                                                                     style={{
                                                                         display: 'flex', alignItems: 'center', gap: '4px',

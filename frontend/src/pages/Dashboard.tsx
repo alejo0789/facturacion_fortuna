@@ -4,6 +4,7 @@ import ContractModal from '../components/ContractModal';
 import { formatCOP } from '../utils/format';
 
 import { apiFetch } from '../utils/apiClient';
+import { getSignedPdfUrl } from '../utils/pdfUrl';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
@@ -263,7 +264,12 @@ export default function Dashboard() {
                                         </button>
                                         {c.archivo_contrato && (
                                             <button
-                                                onClick={() => window.open(`${API_URL}/contratos/${c.id}/pdf`, '_blank')}
+                                                onClick={async () => {
+                                                    try {
+                                                        const url = await getSignedPdfUrl('contrato', c.id);
+                                                        window.open(url, '_blank');
+                                                    } catch { /* silencioso */ }
+                                                }}
                                                 className="btn-ghost text-[12px]"
                                                 style={{ color: 'var(--accent)' }}
                                             >
