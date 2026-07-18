@@ -46,6 +46,7 @@ from routers import (
     oauth, dian_conciliacion,
 )
 from middleware.auth_dual import AuthDualMiddleware
+from middleware.security_headers import SecurityHeadersMiddleware
 from populate_puc import clonar_puc
 
 logger = logging.getLogger(__name__)
@@ -169,6 +170,11 @@ async def _seed_defaults():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Guard de producción: aborta si detecta credenciales por defecto,
+    # FERNET_KEY sin configurar, o JWT_SECRET_KEY genérica.
+    from core.config import enforce_production_readiness
+    enforce_production_readiness()
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     await _seed_defaults()
@@ -226,9 +232,11 @@ def read_root():
     return {"message": f"{settings.APP_NAME} v{settings.APP_VERSION}"}
 
 
-# Envolvemos la app con el middleware ASGI dual (JWT + API Key).
+# Envolvemos la app con los middlewares ASGI en orden:
+#   Security headers (más externo) → Auth dual (más interno) → app FastAPI
+# Los security headers se aplican al RESPONSE final; auth se ejecuta antes.
 # Uvicorn debe apuntar a `main:application`.
-application = AuthDualMiddleware(app)
+application = SecurityHeadersMiddleware(AuthDualMiddleware(app))
 
 
 if __name__ == "__main__":

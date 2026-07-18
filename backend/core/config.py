@@ -107,6 +107,21 @@ class Settings(BaseSettings):
     APP_VERSION: str = "2.0.0"
     DEBUG: bool = False
 
+    # Cuando True, el arranque ABORTA si detecta credenciales por defecto,
+    # FERNET_KEY sin configurar, o JWT_SECRET_KEY genérica. Activar en prod.
+    # Además dispara HSTS en las respuestas.
+    PRODUCTION_MODE: bool = False
+
+    # Proxies confiables — si la app corre detrás de nginx/traefik y quieres
+    # que el rate limiter use X-Forwarded-For, listar las IPs de los proxies
+    # aquí. Por defecto vacío = no confiar en el header.
+    TRUSTED_PROXIES: str = ""
+
+    # Requiere que todos los endpoints públicos de PDF vengan con `?t=` firmado.
+    # Recomendado True en producción. Durante migración se puede dejar False
+    # para no romper URLs viejas ya emitidas.
+    REQUIRE_SIGNED_PDF_URLS: bool = False
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
     @field_validator("JWT_SECRET_KEY")
@@ -125,5 +140,52 @@ class Settings(BaseSettings):
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
 
+    @property
+    def trusted_proxies_list(self) -> list[str]:
+        return [p.strip() for p in self.TRUSTED_PROXIES.split(",") if p.strip()]
+
 
 settings = Settings()
+
+
+def enforce_production_readiness() -> None:
+    """Rechaza el arranque si `PRODUCTION_MODE=True` pero hay defaults inseguros.
+
+    Se llama desde el `lifespan` de main.py. Falla ruidosa antes de aceptar
+    tráfico — mejor romper el deploy que servir con credenciales por defecto.
+    """
+    if not settings.PRODUCTION_MODE:
+        return
+
+    problemas: list[str] = []
+
+    if settings.JWT_SECRET_KEY == "CHANGE-THIS-IN-PRODUCTION":
+        problemas.append(
+            "JWT_SECRET_KEY tiene el valor por defecto — genera una con "
+            "`python -c \"import secrets; print(secrets.token_urlsafe(64))\"` y ponla en .env"
+        )
+    if len(settings.JWT_SECRET_KEY) < 32:
+        problemas.append("JWT_SECRET_KEY tiene menos de 32 caracteres — insegura")
+
+    if not settings.FERNET_KEY:
+        problemas.append(
+            "FERNET_KEY no configurada — se necesita para encriptar OAuth tokens y credenciales DIAN"
+        )
+
+    if settings.SUPERADMIN_PASSWORD in {"admin123", "admin", "password", "12345678"}:
+        problemas.append("SUPERADMIN_PASSWORD es débil — usa una passphrase larga")
+    if len(settings.SUPERADMIN_PASSWORD) < 12:
+        problemas.append("SUPERADMIN_PASSWORD tiene menos de 12 caracteres — cámbiala en .env")
+
+    if settings.API_KEY and len(settings.API_KEY) < 32:
+        problemas.append("API_KEY legada tiene menos de 32 caracteres — insegura")
+
+    if settings.DEBUG:
+        problemas.append("DEBUG=True incompatible con PRODUCTION_MODE=True — apaga uno de los dos")
+
+    if problemas:
+        raise RuntimeError(
+            "PRODUCTION_MODE=True pero la configuración tiene problemas de seguridad:\n  - "
+            + "\n  - ".join(problemas)
+            + "\n\nCorrige el .env antes de arrancar."
+        )
