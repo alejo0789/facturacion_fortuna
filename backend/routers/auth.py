@@ -15,11 +15,13 @@ from core.security import (
 from core.dependencies import get_current_user
 from models_tenant import Firma, Empresa, Usuario, UsuarioEmpresa
 from services.empresa_seed import seed_empresa_default
+from services.rate_limit_db import check_rate_limit, clear_bucket
+from services.token_blacklist import revoke_token
+from services.audit import log_action
 from schemas_auth import (
     LoginRequest, RegisterRequest, TokenResponse, RefreshRequest,
     UserInfo, EmpresaInfo,
 )
-from middleware.rate_limiter import login_limiter, register_limiter
 
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -78,22 +80,24 @@ def _check_password(password: str):
 @router.post("/register", response_model=TokenResponse)
 async def register(data: RegisterRequest, request: Request, db: AsyncSession = Depends(get_db)):
     ip = _client_ip(request)
+    bucket = f"register:ip:{ip}"
 
-    if register_limiter.is_rate_limited(ip):
-        wait = register_limiter.remaining_seconds(ip)
-        raise HTTPException(
-            status_code=429,
-            detail=f"Demasiados intentos de registro. Intente en {wait // 60 + 1} min",
-        )
+    await check_rate_limit(
+        db, bucket=bucket,
+        max_attempts=3, window_seconds=30 * 60,
+        error_msg="Demasiados intentos de registro",
+    )
 
     _check_password(data.password)
 
     if (await db.execute(select(Usuario).where(Usuario.email == data.email))).scalar_one_or_none():
-        register_limiter.record_attempt(ip)
+        await log_action(db, request, action="auth.register", result="failure",
+                         details={"reason": "email_exists", "email": data.email})
         raise HTTPException(status_code=400, detail="El email ya esta registrado")
 
     if (await db.execute(select(Firma).where(Firma.nit == data.firma_nit))).scalar_one_or_none():
-        register_limiter.record_attempt(ip)
+        await log_action(db, request, action="auth.register", result="failure",
+                         details={"reason": "firma_nit_exists", "nit": data.firma_nit})
         raise HTTPException(status_code=400, detail="Ya existe una firma con ese NIT")
 
     firma = Firma(nombre=data.firma_nombre, nit=data.firma_nit)
@@ -140,6 +144,9 @@ async def register(data: RegisterRequest, request: Request, db: AsyncSession = D
             nit=empresa.nit, rol="ADMIN", logo_url=empresa.logo_url,
         ))
 
+    await log_action(db, request, action="auth.register", user_id=user.id,
+                     empresa_id=empresas_info[0].id if empresas_info else None,
+                     result="success")
     await db.commit()
 
     return TokenResponse(
@@ -153,22 +160,39 @@ async def register(data: RegisterRequest, request: Request, db: AsyncSession = D
 @router.post("/login", response_model=TokenResponse)
 async def login(data: LoginRequest, request: Request, db: AsyncSession = Depends(get_db)):
     ip = _client_ip(request)
+    bucket_ip = f"login:ip:{ip}"
+    bucket_email = f"login:email:{data.email.lower().strip()}"
 
-    if login_limiter.is_rate_limited(ip):
-        wait = login_limiter.remaining_seconds(ip)
-        raise HTTPException(
-            status_code=429,
-            detail=f"Demasiados intentos fallidos. Intente en {wait // 60 + 1} min",
-        )
+    # Doble check: por IP (5/15min) y por email (10/15min). Un atacante que
+    # rota IPs sigue frenado por el bucket de email.
+    await check_rate_limit(
+        db, bucket=bucket_ip,
+        max_attempts=5, window_seconds=15 * 60,
+        error_msg="Demasiados intentos desde esta IP",
+    )
+    await check_rate_limit(
+        db, bucket=bucket_email,
+        max_attempts=10, window_seconds=15 * 60,
+        error_msg="Demasiados intentos para este correo",
+    )
 
     user = (await db.execute(select(Usuario).where(Usuario.email == data.email))).scalar_one_or_none()
     if not user or not verify_password(data.password, user.password_hash):
-        login_limiter.record_attempt(ip)
+        await log_action(db, request, action="auth.login_failed",
+                         user_id=user.id if user else None, result="failure",
+                         details={"email": data.email})
+        await db.commit()
         raise HTTPException(status_code=401, detail="Credenciales invalidas")
     if not user.activo:
+        await log_action(db, request, action="auth.login_failed",
+                         user_id=user.id, result="failure",
+                         details={"reason": "inactive"})
+        await db.commit()
         raise HTTPException(status_code=403, detail="Usuario desactivado")
 
-    login_limiter.reset(ip)
+    # Login OK — limpia buckets de attempts fallidos
+    await clear_bucket(db, bucket_ip)
+    await clear_bucket(db, bucket_email)
 
     rows = (await db.execute(
         select(UsuarioEmpresa, Empresa)
@@ -194,12 +218,42 @@ async def login(data: LoginRequest, request: Request, db: AsyncSession = Depends
             for e in all_empresas
         ]
 
+    await log_action(db, request, action="auth.login", user_id=user.id,
+                     result="success",
+                     details={"empresas": len(empresas_info)})
+    await db.commit()
+
     return TokenResponse(
         access_token=create_access_token({"sub": str(user.id)}),
         refresh_token=create_refresh_token({"sub": str(user.id)}),
         user=UserInfo.model_validate(user),
         empresas=empresas_info,
     )
+
+
+@router.post("/logout")
+async def logout(
+    request: Request,
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Revoca el JWT del usuario actual (por `jti`).
+
+    Idempotente: si el token ya está revocado, no falla. Post-logout el
+    frontend debe borrar el token de localStorage.
+    """
+    jti = current_user.__dict__.get("_current_jti")
+    exp = current_user.__dict__.get("_current_token_exp")
+    if jti and exp:
+        # `exp` en JWT es epoch seconds; lo convertimos a datetime tz-aware
+        from datetime import datetime as _dt, timezone as _tz
+        expires_at = _dt.fromtimestamp(int(exp), tz=_tz.utc)
+        await revoke_token(db, jti, expires_at, reason="logout")
+
+    await log_action(db, request, action="auth.logout",
+                     user_id=current_user.id, result="success")
+    await db.commit()
+    return {"status": "logged_out"}
 
 
 @router.post("/refresh")

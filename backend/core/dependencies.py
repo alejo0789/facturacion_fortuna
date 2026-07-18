@@ -73,6 +73,13 @@ async def get_current_user(
         if not payload or payload.get("type") != "access":
             raise HTTPException(status_code=401, detail="Token invalido o expirado")
 
+        # Verificar que no esté revocado (logout, cambio de password, etc.)
+        jti = payload.get("jti")
+        if jti:
+            from services.token_blacklist import is_revoked
+            if await is_revoked(db, jti):
+                raise HTTPException(status_code=401, detail="Token revocado")
+
         user_id = payload.get("sub")
         if not user_id:
             raise HTTPException(status_code=401, detail="Token invalido")
@@ -81,6 +88,9 @@ async def get_current_user(
         user = result.scalar_one_or_none()
         if not user or not user.activo:
             raise HTTPException(status_code=401, detail="Usuario no encontrado o inactivo")
+        # Guardo el jti + exp en el user para poder revocarlo al logout
+        user.__dict__["_current_jti"] = jti
+        user.__dict__["_current_token_exp"] = payload.get("exp")
         return user
 
     # 2) X-API-Key

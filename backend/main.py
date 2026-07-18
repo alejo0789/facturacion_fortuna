@@ -37,6 +37,7 @@ import models_tenant  # noqa: F401  (registra Firma/Empresa/Usuario/UsuarioEmpre
 import models_contabilidad  # noqa: F401  (registra PUC/Periodos/Asientos/Banca)
 import models_impuestos  # noqa: F401  (registra ConfigImpuesto/Tarifa/Retencion)
 import models_dian  # noqa: F401  (registra DocumentoDian/DianSyncJob)
+import models_security  # noqa: F401  (RateLimitEvent/TokenBlacklist/AuditLog)
 
 from routers import (
     contracts, payments, pagos, facturas, consolidado,
@@ -174,6 +175,14 @@ async def lifespan(app: FastAPI):
     # FERNET_KEY sin configurar, o JWT_SECRET_KEY genérica.
     from core.config import enforce_production_readiness
     enforce_production_readiness()
+
+    # Deprecación explícita de la API_KEY global (n8n legacy).
+    if settings.API_KEY:
+        logger.warning(
+            "settings.API_KEY (global legada) está en uso — "
+            "sirve como fallback para el n8n legacy pero es un vector si se "
+            "filtra. Migra a api_key por empresa y borra la variable del .env."
+        )
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
