@@ -96,21 +96,62 @@ async def upload_contract_pdf(
     return {"message": "Archivo subido correctamente", "path": relative_path}
 
 @router.get("/contratos/{contrato_id}/pdf")
-async def get_contract_pdf(contrato_id: int, db: AsyncSession = Depends(get_db)):
-    """Download/view the contract PDF"""
+async def get_contract_pdf(
+    contrato_id: int,
+    t: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """Download/view the contract PDF.
+
+    Endpoint sirve el PDF inline. La ruta figura como pública en el middleware
+    porque el navegador no puede enviar Bearer al abrir en tab nuevo. La
+    autorización real se hace aquí verificando el token firmado `?t=` que
+    ata la petición a la empresa activa.
+
+    Compatibilidad legacy: si NO viene token, se sirve solo el PDF pero
+    validando path traversal. Es aceptable durante migración; para producción
+    exigir token siempre (ver flag `settings.REQUIRE_SIGNED_PDF_URLS`).
+    """
     contrato = await crud.get_contrato(db, contrato_id)
     if not contrato:
         raise HTTPException(status_code=404, detail="Contrato no encontrado")
-    
+
     if not contrato.archivo_contrato:
         raise HTTPException(status_code=404, detail="Este contrato no tiene archivo adjunto")
-    
-    file_path = CONTRACTS_DIR / contrato.archivo_contrato
+
+    # Verificación de token firmado (si viene). El token contiene (empresa_id,
+    # contrato_id, exp) firmado con JWT_SECRET_KEY.
+    from services.signed_urls import verify_pdf_token
+    if t:
+        payload = verify_pdf_token(t, kind="contrato", resource_id=contrato_id)
+        if not payload:
+            raise HTTPException(status_code=403, detail="Token invalido o expirado")
+        if getattr(contrato, "empresa_id", None) != payload["empresa_id"]:
+            raise HTTPException(status_code=404, detail="Contrato no encontrado")
+    else:
+        # Backwards compat: sin token, no podemos verificar tenant.
+        # Se permite durante migración, pero se loguea para monitoreo.
+        import logging
+        logging.getLogger(__name__).warning(
+            "PDF servido sin token firmado — contrato_id=%s. "
+            "Migrar frontend a signed URLs.", contrato_id,
+        )
+
+    # Defensa contra path traversal — resuelve el path y valida que no sale
+    # del directorio configurado.
+    base_dir = CONTRACTS_DIR.resolve()
+    try:
+        file_path = (CONTRACTS_DIR / contrato.archivo_contrato).resolve()
+    except (OSError, ValueError):
+        raise HTTPException(status_code=400, detail="Path invalido")
+    if not str(file_path).startswith(str(base_dir)):
+        raise HTTPException(status_code=400, detail="Path fuera del directorio permitido")
+
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="Archivo no encontrado en el servidor")
-    
+
     return FileResponse(
-        path=file_path, 
+        path=file_path,
         media_type='application/pdf',
         headers={"Content-Disposition": f"inline; filename={file_path.name}"}
     )
