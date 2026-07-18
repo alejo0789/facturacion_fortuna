@@ -32,48 +32,76 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
-from core.dependencies import get_current_empresa
+from core.dependencies import get_current_empresa, get_current_user
 from models_tenant import Empresa
 from services import google_oauth, microsoft_oauth
 
 
+import logging
+
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
-# state → (empresa_id, expires_at). Se limpia perezosamente al validar.
+# state → (empresa_id, user_id, expires_at). Se limpia perezosamente al validar
+# y también en un sweep al inicio de cada nuevo authorize (para no crecer sin
+# límite si un atacante inunda de peticiones).
 # In-memory: si el backend reinicia, los OAuth flows en curso se pierden
 # y el usuario tiene que reintentar. Aceptable para MVP.
-_state_cache: Dict[str, tuple[int, datetime]] = {}
+_state_cache: Dict[str, tuple[int, int, datetime]] = {}
 _STATE_TTL = timedelta(minutes=10)
+_STATE_MAX_ENTRIES = 10_000  # hard cap contra abuso
 
 
-def _remember_state(state: str, empresa_id: int) -> None:
-    _state_cache[state] = (empresa_id, datetime.utcnow() + _STATE_TTL)
+def _sweep_expired_states() -> None:
+    """Borra entries expiradas. O(n) sobre el cache — barato hasta ~10k."""
+    now = datetime.utcnow()
+    expired = [s for s, (_, _, exp) in _state_cache.items() if now > exp]
+    for s in expired:
+        _state_cache.pop(s, None)
 
 
-def _consume_state(state: str) -> Optional[int]:
-    """Devuelve empresa_id si state es válido y no expiró. Consume el token."""
+def _remember_state(state: str, empresa_id: int, user_id: int) -> None:
+    _sweep_expired_states()
+    if len(_state_cache) >= _STATE_MAX_ENTRIES:
+        # Hard cap: si alguien inunda, empezamos a rechazar. No es la ruta más
+        # elegante pero previene OOM.
+        raise HTTPException(
+            status_code=503,
+            detail="Demasiados OAuth flows en curso. Intenta en unos minutos.",
+        )
+    _state_cache[state] = (empresa_id, user_id, datetime.utcnow() + _STATE_TTL)
+
+
+def _consume_state(state: str) -> Optional[tuple[int, int]]:
+    """Devuelve (empresa_id, user_id) si state es válido y no expiró.
+
+    Consumo one-shot: al llamar se saca del cache aunque haya expirado, para
+    evitar que un state filtrado se pueda reutilizar.
+    """
     entry = _state_cache.pop(state, None)
     if not entry:
         return None
-    empresa_id, expires_at = entry
+    empresa_id, user_id, expires_at = entry
     if datetime.utcnow() > expires_at:
         return None
-    return empresa_id
+    return (empresa_id, user_id)
 
 
 # --------- Gmail ---------
 
 @router.get("/oauth/gmail/authorize")
 async def gmail_authorize(
+    current_user=Depends(get_current_user),
     empresa=Depends(get_current_empresa),
 ):
     """Devuelve la URL de Google a la que redirigir para iniciar el OAuth flow.
 
-    El frontend abre esta URL en una ventana nueva (popup).
+    El frontend abre esta URL en una ventana nueva (popup). El `state` firma
+    el user_id además del empresa_id para auditoría (log del quién inició).
     """
     state = google_oauth.new_state_token()
-    _remember_state(state, empresa.id)
+    _remember_state(state, empresa.id, current_user.id)
     try:
         url = google_oauth.build_authorize_url(empresa, state)
     except RuntimeError as e:
@@ -90,7 +118,8 @@ async def gmail_callback(
 ):
     """Endpoint al que Google redirige tras el consent.
 
-    Sin JWT (Google no manda headers). Autenticamos con el `state` opaco.
+    Sin JWT (Google no manda headers). Autenticamos con el `state` opaco,
+    que fue firmado one-shot cuando el user inició el flow autenticado.
     """
     if error:
         return _close_popup_html(success=False, message=f"Google devolvió error: {error}")
@@ -98,9 +127,12 @@ async def gmail_callback(
     if not code or not state:
         return _close_popup_html(success=False, message="Falta code o state en la respuesta de Google.")
 
-    empresa_id = _consume_state(state)
-    if empresa_id is None:
+    entry = _consume_state(state)
+    if entry is None:
         return _close_popup_html(success=False, message="State inválido o expirado. Reintenta la conexión.")
+    empresa_id, initiator_user_id = entry
+    logger.info("OAuth Gmail callback empresa=%s iniciado_por_user=%s",
+                empresa_id, initiator_user_id)
 
     result = await db.execute(select(Empresa).where(Empresa.id == empresa_id))
     empresa = result.scalar_one_or_none()
@@ -147,9 +179,12 @@ async def gmail_status(empresa=Depends(get_current_empresa)):
 # --------- Outlook ---------
 
 @router.get("/oauth/outlook/authorize")
-async def outlook_authorize(empresa=Depends(get_current_empresa)):
+async def outlook_authorize(
+    current_user=Depends(get_current_user),
+    empresa=Depends(get_current_empresa),
+):
     state = microsoft_oauth.new_state_token()
-    _remember_state(state, empresa.id)
+    _remember_state(state, empresa.id, current_user.id)
     try:
         url = microsoft_oauth.build_authorize_url(empresa, state)
     except RuntimeError as e:
@@ -179,13 +214,16 @@ async def outlook_callback(
             provider="outlook",
         )
 
-    empresa_id = _consume_state(state)
-    if empresa_id is None:
+    entry = _consume_state(state)
+    if entry is None:
         return _close_popup_html(
             success=False,
             message="State inválido o expirado. Reintenta la conexión.",
             provider="outlook",
         )
+    empresa_id, initiator_user_id = entry
+    logger.info("OAuth Outlook callback empresa=%s iniciado_por_user=%s",
+                empresa_id, initiator_user_id)
 
     result = await db.execute(select(Empresa).where(Empresa.id == empresa_id))
     empresa = result.scalar_one_or_none()

@@ -26,17 +26,52 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 def _client_ip(request: Request) -> str:
-    fwd = request.headers.get("X-Forwarded-For")
-    if fwd:
-        return fwd.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
+    """Devuelve la IP del cliente.
+
+    SEGURIDAD: `X-Forwarded-For` solo se acepta si la petición viene de un
+    proxy listado en `TRUSTED_PROXIES`. De lo contrario un atacante puede
+    poner cualquier IP en el header y saltar el rate limiter.
+    """
+    real_ip = request.client.host if request.client else "unknown"
+
+    trusted = settings.trusted_proxies_list
+    if trusted and real_ip in trusted:
+        fwd = request.headers.get("X-Forwarded-For")
+        if fwd:
+            # Primera IP en la cadena = cliente original
+            return fwd.split(",")[0].strip()
+
+    return real_ip
 
 
 def _check_password(password: str):
+    """Valida complejidad mínima de contraseña.
+
+    Reglas:
+      - largo >= MIN_PASSWORD_LENGTH (default 8)
+      - al menos 1 dígito
+      - al menos 1 letra
+      - máximo 200 chars (evita DoS con passwords enormes al bcrypt)
+    """
     if len(password) < settings.MIN_PASSWORD_LENGTH:
         raise HTTPException(
             status_code=400,
             detail=f"La contraseña debe tener al menos {settings.MIN_PASSWORD_LENGTH} caracteres",
+        )
+    if len(password) > 200:
+        raise HTTPException(
+            status_code=400,
+            detail="La contraseña es demasiado larga (máximo 200 caracteres)",
+        )
+    if not any(c.isdigit() for c in password):
+        raise HTTPException(
+            status_code=400,
+            detail="La contraseña debe incluir al menos un dígito",
+        )
+    if not any(c.isalpha() for c in password):
+        raise HTTPException(
+            status_code=400,
+            detail="La contraseña debe incluir al menos una letra",
         )
 
 

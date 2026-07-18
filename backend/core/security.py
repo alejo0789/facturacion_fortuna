@@ -1,5 +1,12 @@
 """
 JWT + hashing helpers. Basados en python-jose + passlib[bcrypt].
+
+Notas de seguridad:
+- bcrypt rounds = 13 (default 12). En 2026 esto da ~500ms por hash en un
+  server moderno — suficiente lentitud contra brute force offline. Hashes
+  con rounds<13 siguen verificándose (passlib maneja el upgrade opcional).
+- JWT firmado con HS256 + JWT_SECRET_KEY del .env. En prod la key debe ser
+  aleatoria de ≥64 chars; el guard de arranque lo verifica.
 """
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -8,7 +15,11 @@ from passlib.context import CryptContext
 
 from core.config import settings
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(
+    schemes=["bcrypt"],
+    deprecated="auto",
+    bcrypt__rounds=13,
+)
 
 
 def hash_password(password: str) -> str:
