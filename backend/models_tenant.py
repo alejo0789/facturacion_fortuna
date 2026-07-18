@@ -117,6 +117,21 @@ class Empresa(Base):
     outlook_connected_at = Column(DateTime)
     outlook_tenant_id = Column(String(255), default="common")
 
+    # Conciliación DIAN (migración 010). Cédula del representante legal
+    # + sesión Playwright activa, ambas encriptadas con Fernet.
+    dian_cedula_representante_enc = Column(Text)
+    dian_sesion_estado_enc = Column(Text)
+    dian_ultima_sync = Column(DateTime)
+    dian_periodicidad = Column(String(20), default="bimestral")
+
+    # Multi-método auth DIAN (migración 011). Ver comentarios de la migración
+    # para valores permitidos. Las CONTRASEÑAS del portal DIAN NO se persisten.
+    dian_metodo_auth = Column(String(30), default="persona")
+    dian_tipo_id = Column(String(4), default="CC")
+    dian_email_enc = Column(Text)                # solo para 'administrador'
+    dian_nit_empresa_dian_enc = Column(Text)     # 'rep_legal', 'usuario_autorizado'
+    dian_doc_usuario_enc = Column(Text)          # 'usuario_autorizado'
+
     # Estado del último test del webhook (UI)
     n8n_webhook_last_test = Column(DateTime)
     n8n_webhook_last_status = Column(String(10))  # 'ok'|'error'
