@@ -79,6 +79,12 @@ class Settings(BaseSettings):
     # suya en gemini_api_key_enc de empresas (guardada encriptada).
     GEMINI_API_KEY_GLOBAL: Optional[str] = None
 
+    # ---------- Conciliación DIAN ----------
+    # En dev conviene False para sortear Cloudflare Turnstile con UI real.
+    # En prod (Linux headless): True + un buen user-agent + posible sidecar
+    # con Chrome real y CDP si Turnstile bloquea.
+    DIAN_HEADLESS: bool = False
+
     # ---------- Superadmin semilla ----------
     SUPERADMIN_EMAIL: str = "admin@admin.com"
     SUPERADMIN_PASSWORD: str = "admin123"

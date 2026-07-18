@@ -17,3 +17,6 @@ reportlab
 python-jose[cryptography]
 passlib[bcrypt]
 bcrypt==4.0.1
+
+# Conciliación DIAN — scraper del portal catalogo-vpfe.dian.gov.co
+playwright
