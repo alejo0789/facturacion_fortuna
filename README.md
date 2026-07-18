@@ -4,17 +4,26 @@ Plataforma web para **firmas contables** y **empresas** colombianas que
 cubre, en un solo producto, el ciclo completo de:
 
 - **Facturación de proveedores** con extracción automática desde correo
-  (Outlook + n8n + IA) o carga manual.
+  (Gmail + Outlook + n8n + Google Gemini) o carga manual.
 - **Contabilización** en PUC colombiano (Decreto 2649/2650) con asientos
   de partida doble y motor de impuestos (IVA 19%, Retefuente, ReteIVA,
-  ReteICA).
+  ReteICA) actualizados a UVT 2026.
 - **Pagos** a proveedores y conciliación contra extractos bancarios
   (Bancolombia, Davivienda, genérico) mediante un motor de scoring.
-- **Cumplimiento DIAN**: generación de Medios Magnéticos formatos
+- **Cumplimiento DIAN — Medios Magnéticos**: generación de formatos
   **1001** (pagos + retenciones), **1007** (ingresos) y **1008**
   (cuentas por cobrar).
+- **Conciliación DIAN electrónica**: descarga automatizada del histórico
+  oficial de facturación electrónica del portal `catalogo-vpfe.dian.gov.co`
+  (Playwright) y cruce contra las facturas procesadas en la app. Cuatro
+  métodos de autenticación al portal (Persona, Administrador, Rep. Legal,
+  Usuario Autorizado). Dashboard estratégico de IVA con recomendaciones.
 - **Multi-tenant** real: una firma puede administrar N empresas-cliente,
-  cada usuario puede tener roles distintos por empresa.
+  cada usuario puede tener roles distintos por empresa. Aislamiento por
+  `empresa_id` verificado en cada endpoint.
+- **Seguridad**: guard de arranque, security headers, signed URLs, JWT +
+  bcrypt cost 13, secrets encriptados con Fernet. Ver
+  [`SECURITY.md`](./SECURITY.md).
 
 > **Rama activa**: `saas-multitenant`
 > **Versión**: 2.x — ver sección *[Cumplimiento de requerimientos](#cumplimiento-de-requerimientos)*
@@ -45,8 +54,9 @@ cubre, en un solo producto, el ciclo completo de:
    11. [Reset y limpieza](#10-resetear-todo-limpieza)
    12. [Troubleshooting](#11-troubleshooting)
 9. [Despliegue en producción](#despliegue-en-producción)
-10. [Autenticación — JWT y API Key](#autenticación--jwt-y-api-key)
-11. [Estructura del repositorio](#estructura-del-repositorio)
+10. [Seguridad](#seguridad)
+11. [Autenticación — JWT y API Key](#autenticación--jwt-y-api-key)
+12. [Estructura del repositorio](#estructura-del-repositorio)
 
 ---
 
@@ -194,7 +204,7 @@ una empresa individual lo use para su propia operación.
   automática para transacciones recurrentes (nómina, servicios
   públicos).
 
-### 5. Cumplimiento DIAN
+### 5. Cumplimiento DIAN — Medios Magnéticos (información exógena)
 
 - **Formato 1001** — Pagos y retenciones por tercero.
 - **Formato 1007** — Ingresos por tercero.
@@ -204,6 +214,47 @@ una empresa individual lo use para su propia operación.
 - Se construyen dinámicamente desde los asientos en estado
   **APROBADO** del año fiscal. Nunca se guardan archivos pre-generados:
   siempre reflejan el estado actual de la contabilidad.
+- Endpoints en [`backend/routers/dian.py`](./backend/routers/dian.py).
+
+### 6. Conciliación DIAN electrónica (factura electrónica)
+
+Vertical separada de Medios Magnéticos — cruza factura electrónica DIAN con
+lo procesado en la app.
+
+- **Descarga automatizada del portal**
+  [`catalogo-vpfe.dian.gov.co`](https://catalogo-vpfe.dian.gov.co/) vía
+  **Playwright** headless. Corre mes a mes en background y persiste en la
+  tabla `documentos_dian` con dedup por CUFE.
+- **Cuatro métodos de autenticación** al portal — el usuario elige el que
+  aplique según cómo esté registrada su empresa:
+
+  | Método | Credenciales | Segundo factor |
+  |---|---|---|
+  | Persona natural | Cédula + tipo doc | Magic link al correo |
+  | Administrador | Email + contraseña | Ninguno (automatizable) |
+  | Empresa · Rep. Legal | Cédula rep + NIT empresa + tipo doc | Magic link al correo |
+  | Empresa · Usuario Autorizado | NIT empresa + tipo doc + cédula usuario + contraseña | Ninguno (automatizable) |
+
+  **Las contraseñas del portal NUNCA se persisten**. Viven en memoria del
+  thread de sync durante el login y se descartan. Solo se guarda el
+  `storage_state` de la sesión Playwright (encriptado Fernet, ~30 min de
+  vigencia).
+- **Cuatro pestañas en la UI** (`/app/conciliacion-dian`):
+  1. **Sincronizar** — configurar método + disparar job + pegar magic link.
+  2. **Conciliación** — cruce facturas app ↔ documentos DIAN con estados
+     `coincide` / `diferencia_valor` / `solo_en_app` / `solo_en_dian`.
+  3. **IVA por período** — bimestral / cuatrimestral / anual, con saldos.
+  4. **IVA Estratégico** — dashboard analítico:
+     KPIs (IVA generado / descontable / no capturado), ratio de captura,
+     tendencia por período (Recharts), top 10 proveedores, facturas
+     huérfanas y **recomendaciones** heurísticas (adelantar compras, ratio
+     bajo, saldo a favor con Art. 850 ET, tendencia creciente, etc.).
+     Toggle COP / UVT.
+- Endpoints en [`backend/routers/dian_conciliacion.py`](./backend/routers/dian_conciliacion.py).
+- Setup completo del portal DIAN + Playwright en la sección de despliegue.
+- Sin credenciales DIAN, hay un **fixture** de prueba disponible con `DEBUG=True`:
+  `POST /api/conciliacion-dian/dev/seed-fixture` siembra un escenario
+  contable realista (12 docs DIAN + 9 facturas app + 4 proveedores).
 
 ---
 
@@ -230,16 +281,53 @@ empresa A y `SOLO_LECTURA` en la empresa B.
 
 ## Integraciones
 
-### n8n — extracción automática con IA
+### OAuth Gmail + Outlook — multi-tenant
+
+Arquitectura **Modelo A (SaaS-managed) + Modelo B (BYO) opcional**:
+
+- **Modelo A (default)**: el operador del SaaS registra UNA app OAuth por
+  proveedor (Google Cloud + Azure Portal), pega las credenciales en el
+  `.env` del backend (`GOOGLE_OAUTH_CLIENT_ID`, `MICROSOFT_OAUTH_CLIENT_ID`,
+  etc.). Cada empresa autoriza con 1 click en `/app/integraciones`. El
+  backend guarda el `refresh_token` por-tenant en `empresas` (encriptado
+  con Fernet). Cliente nunca ve estos secretos.
+- **Modelo B (avanzado)**: la empresa registra su propia OAuth app (por
+  privacidad de datos o volumen). Pega Client ID + Secret en el panel
+  Integraciones. Se guardan en `gmail_client_id_enc` / `outlook_client_id_enc`.
+
+Flujo:
+
+1. `GET /api/oauth/{gmail,outlook}/authorize` (autenticado JWT + `X-Empresa-Id`)
+   → devuelve la URL del proveedor a la que abrir un popup.
+2. Google/Microsoft redirige a `/api/oauth/{gmail,outlook}/callback?code&state`.
+   El `state` es un token opaco firmado que ata `(empresa_id, user_id)` con TTL 10 min.
+3. Backend intercambia `code` por `refresh_token` y lo guarda encriptado.
+4. Panel muestra "✓ Conectado como usuario@empresa.com".
+
+Scopes usados:
+
+- Gmail: `https://www.googleapis.com/auth/gmail.readonly`
+- Outlook (Microsoft Graph): `Mail.Read`, `offline_access`, `User.Read`
+
+Documentación operativa: [`SETUP_N8N.md`](./SETUP_N8N.md) tiene los pasos
+del setup del operador (Azure App registrations, Google Cloud Console).
+
+### Google Gemini — servicio del SaaS
+
+- **Key global** del SaaS (`GEMINI_API_KEY_GLOBAL` en `.env`) atiende a todos
+  los tenants por defecto.
+- **Fallback per-tenant**: si una empresa provee su propia key en el panel
+  Integraciones, se guarda encriptada en `gemini_api_key_enc` y sobrescribe
+  la global para esa empresa.
+- El nodo Gemini nativo del workflow n8n usa `credentialId` dinámico,
+  inyectado por el backend en el payload del webhook.
+
+### n8n — orquestación (un workflow, todos los tenants)
 
 Arquitectura **un solo workflow compartido + credenciales dinámicas**: el
-SaaS opera una instancia n8n con los workflows compartidos que atienden a
-todos los tenants. Cada empresa registra su propia credencial Google Gemini
-(AI Studio) en ese n8n y pega el Credential ID en su panel
-`/app/integraciones`. El backend inyecta ese ID en cada payload y el
-workflow lo usa como `credentialId` dinámico.
+SaaS opera una instancia n8n con el workflow que atiende a todos los tenants.
 
-Workflow único en `n8n/` (Google Gemini nativo, Outlook + Gmail):
+Workflow único en `n8n/`:
 
 | Archivo | Endpoints webhook |
 |---------|-------------------|
@@ -253,14 +341,20 @@ Autenticación del callback del workflow al backend:
 - `X-API-Key: <api_key de la empresa>` — UUID rotable vía
   `POST /api/empresas/{id}/rotate-api-key`.
 - `X-Empresa-Id: <id>` — identifica el tenant destino.
+- Bearer **dinámico** al proveedor de correo — el backend inyecta el
+  `refresh_token` desencriptado en el payload del webhook.
 
-El PDF viaja embebido como `pdf_base64` en el payload del webhook (no se lee
-del filesystem — evita la restricción `N8N_RESTRICT_FILE_ACCESS_TO`).
+El PDF viaja embebido como `pdf_base64` (no se lee del filesystem — evita
+`N8N_RESTRICT_FILE_ACCESS_TO`).
 
-Para el paso a paso completo con los tropiezos comunes documentados
-(activación del workflow, credenciales fixed value, `127.0.0.1` vs
-`localhost` en Windows, etc.), ver [`SETUP_N8N.md`](./SETUP_N8N.md) y
+Paso a paso completo con tropiezos comunes en
+[`SETUP_N8N.md`](./SETUP_N8N.md) y
 [`n8n/README_INTEGRACION.md`](./n8n/README_INTEGRACION.md).
+
+### Conciliación DIAN (portal catalogo-vpfe)
+
+Playwright + Chromium se lanza en un thread aislado con ProactorEventLoop
+propio (Windows). Ver Módulo 6 arriba.
 
 ### Oracle ManagerERP / MANAMED
 
@@ -313,7 +407,11 @@ Para el paso a paso completo con los tropiezos comunes documentados
 | **Fase 2** | Motor contable core | ✅ Completo: `services/causacion.py`, `services/impuestos.py`, periodos dentro de `routers/contabilidad.py` (crear, listar, cerrar) |
 | **Fase 3** | Extractos bancarios y conciliación | ✅ Completo: `routers/bancario.py` con 10 endpoints, parsers CSV/XLSX Bancolombia/Davivienda/genérico, scoring +50/+30/+20, dedupe SHA1, reglas configurables |
 | **Fase 4** | Reportes + cumplimiento DIAN | ✅ Completo: Balance General, Estado de Resultados y Retenciones dentro de `/api/contabilidad/balance`; Medios Magnéticos 1001/1007/1008 en `routers/dian.py` con JSON + CSV |
-| **Fase 5** | Frontend SaaS | ✅ Completo: shell autenticado en `/app/*`, 18 páginas (Dashboard, PUC, Asientos, Libro Mayor, Balance, Impuestos, Cuentas Bancarias, Conciliación, Medios Magnéticos, etc.), lazy-loading con Suspense, selector de empresa activa |
+| **Fase 5** | Frontend SaaS | ✅ Completo: shell autenticado en `/app/*`, 23 páginas (Dashboard, PUC, Asientos, Libro Mayor, Balance, Impuestos, Cuentas Bancarias, Conciliación Bancaria, Medios Magnéticos, Integraciones, Conciliación DIAN, etc.), lazy-loading con Suspense, selector de empresa activa |
+| **Fase 6** | PUC completo + tarifas 2026 | ✅ Completo: catálogo `puc_catalogo` con clases 1-9 (Decreto 2650), tarifas retención UVT $52.374 2026, autocompletes reusables, agregado desde catálogo por endpoint |
+| **Fase 7** | OAuth multi-tenant (Gmail + Outlook) + Gemini SaaS | ✅ Completo: `routers/oauth.py`, `services/google_oauth.py`, `services/microsoft_oauth.py`, `services/gemini.py`, panel `/app/integraciones` con SaaS-managed + BYO |
+| **Fase 8** | Conciliación DIAN + IVA Estratégico | ✅ Completo: Playwright multi-método auth (4 flujos), thread ProactorEventLoop, encriptación de sesión Fernet, dashboard estratégico con 4 tabs (Sincronizar, Conciliación, IVA por período, IVA Estratégico), Recharts + recomendaciones |
+| **Fase 9** | Hardening de seguridad | ✅ Completo: signed URLs HMAC, security headers, guard de arranque, rate limit por IP real, OAuth state binding, path traversal defense, password complexity, bcrypt cost 13, sanitización de errores. Ver [`SECURITY.md`](./SECURITY.md) |
 
 ### Plan de verificación
 
@@ -347,7 +445,7 @@ máquina. Al final tendrás:
 - **Anaconda / Miniconda**: https://www.anaconda.com/download
 - **PostgreSQL 14+**: https://www.postgresql.org/download/
 - **Git**.
-- **Node.js 18+** (solo para el frontend).
+- **Node.js 18+** (para el frontend).
 
 Verifica:
 
@@ -355,8 +453,22 @@ Verifica:
 conda --version
 psql --version
 git --version
-node --version   # opcional
+node --version
 ```
+
+**Opcionales** (según qué módulos vayas a usar):
+
+- **n8n 1.60+** — para captura automática por correo. Setup en
+  [`SETUP_N8N.md`](./SETUP_N8N.md).
+- **Google Cloud + Azure Portal** — para OAuth Gmail / Outlook (Modelo A).
+- **Playwright Chromium** — para Conciliación DIAN (portal scraping).
+  Se instala automáticamente al instalar la dependencia `playwright`
+  del backend, pero necesitas descargar el browser una vez:
+
+  ```bash
+  cd backend
+  playwright install chromium
+  ```
 
 ### 1. Clonar / actualizar el repo
 
@@ -448,6 +560,14 @@ JWT_ACCESS_TOKEN_EXPIRE_MINUTES=60
 JWT_REFRESH_TOKEN_EXPIRE_DAYS=7
 
 # ==========================================================
+# Fernet — encriptación simétrica de secretos en BD
+# ==========================================================
+# (OAuth refresh_tokens, credenciales DIAN, FTP passwords, Gemini keys por tenant)
+# Genera una nueva con:
+#   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+FERNET_KEY=CAMBIAR_POR_UNA_CLAVE_FERNET
+
+# ==========================================================
 # CORS — dominios autorizados a llamar al backend
 # ==========================================================
 CORS_ORIGINS=http://localhost:5173,http://localhost:3000,http://192.168.2.91:5173,https://saman.lafortuna.com.co,http://saman.lafortuna.com.co
@@ -473,9 +593,61 @@ MAX_LOGIN_ATTEMPTS=5
 LOGIN_LOCKOUT_MINUTES=15
 MIN_PASSWORD_LENGTH=8
 
+# Cuando True: aborta arranque si detecta credenciales por defecto,
+# FERNET_KEY faltante o JWT_SECRET_KEY genérica. Activa en prod.
+# Además dispara HSTS en las respuestas.
+PRODUCTION_MODE=False
+
+# Reverse proxies confiables — solo si corres detrás de nginx/traefik.
+# Sin esto, el rate limiter usa la IP real del socket (no X-Forwarded-For)
+# para evitar spoofing.
+TRUSTED_PROXIES=
+
+# Forzar tokens firmados en URLs de PDF. Ver SECURITY.md.
+# Recomendado True en prod. Durante migración: False.
+REQUIRE_SIGNED_PDF_URLS=False
+
+# Modo DEBUG — habilita endpoints /dev/* como el fixture de DIAN.
+# NUNCA True en prod (incompatible con PRODUCTION_MODE=True).
+DEBUG=True
+
 # ==========================================================
-# Opcional — sólo si n8n / integraciones legacy siguen usando X-API-Key
+# n8n — workflow compartido del SaaS (opcional)
 # ==========================================================
+N8N_PROCESS_WEBHOOK_URL=
+N8N_SEARCH_WEBHOOK_URL=
+N8N_PROCESS_EMAIL_WEBHOOK_URL=
+
+# ==========================================================
+# OAuth Multi-tenant — Modelo A (SaaS-managed)
+# ==========================================================
+# Google Cloud → OAuth 2.0 Client IDs
+GOOGLE_OAUTH_CLIENT_ID=
+GOOGLE_OAUTH_CLIENT_SECRET=
+GOOGLE_OAUTH_REDIRECT_URI=http://127.0.0.1:8000/api/oauth/gmail/callback
+
+# Azure Portal → App registrations
+MICROSOFT_OAUTH_CLIENT_ID=
+MICROSOFT_OAUTH_CLIENT_SECRET=
+MICROSOFT_OAUTH_REDIRECT_URI=http://127.0.0.1:8000/api/oauth/outlook/callback
+MICROSOFT_OAUTH_TENANT_ID=common
+
+# ==========================================================
+# Google Gemini — key global del SaaS (fallback si tenant no tiene la suya)
+# ==========================================================
+GEMINI_API_KEY_GLOBAL=
+
+# ==========================================================
+# Conciliación DIAN — Playwright
+# ==========================================================
+# En dev conviene False (headed) para sortear Cloudflare Turnstile con UI real.
+# En prod (Linux headless): True + user-agent apropiado.
+DIAN_HEADLESS=False
+
+# ==========================================================
+# Opcional — API_KEY legada (n8n antiguo de La Fortuna)
+# ==========================================================
+# Si no usas el n8n legacy, deja esto vacío.
 # API_KEY=la_api_key_que_usa_n8n
 ```
 
@@ -507,18 +679,46 @@ git status                          # NO deben aparecer en "untracked" ni "modif
 Si ves `backend/.env` en `git status`, algo anda mal con el `.gitignore` —
 revisa que el bloque `.env` esté presente en la raíz `.gitignore`.
 
-### 5. (Si migras datos existentes) Ejecutar la migración SaaS
+### 5. (Si migras datos existentes) Ejecutar las migraciones
 
-Si la base `supplier_db` ya tiene tablas del proyecto viejo, ejecuta
-la migración idempotente:
+Si la base `supplier_db` ya tiene tablas del proyecto viejo, aplica
+las migraciones idempotentes **en orden**:
 
 ```bash
-# desde backend/
-psql -U postgres -d supplier_db -f migrations/001_saas_multitenant.sql
+cd backend
+for f in migrations/*.sql; do
+    echo "Aplicando $f"
+    psql -U postgres -d supplier_db -f "$f"
+done
 ```
 
+O una por una (Windows PowerShell):
+
+```powershell
+Get-ChildItem migrations/*.sql | Sort-Object Name | ForEach-Object {
+    psql -U postgres -d supplier_db -f $_.FullName
+}
+```
+
+Migraciones actuales:
+
+| Archivo | Contenido |
+|---|---|
+| `001_saas_multitenant.sql` | Base multi-tenant: Firma, Empresa, Usuario, UsuarioEmpresa + backfill de `empresa_id` |
+| `002_conciliacion_unique.sql` | Índices únicos en conciliación bancaria |
+| `003_concepto_dian.sql` | Campo `concepto_dian` en asientos (mapping a Medios Magnéticos) |
+| `004_iva_factura.sql` | Columna `iva` en `facturas` (extraído por n8n) |
+| `005_puc_catalogo_completo.sql` | `puc_catalogo` con clases 1-9 del Decreto 2650 |
+| `006_tarifas_retencion_2026.sql` | 50+ conceptos con UVT $52.374 vigente 2026 |
+| `007_integraciones_n8n.sql` | Campos `n8n_webhook_url`, `gemini_credential_id` etc. |
+| `008_oauth_gmail_multitenant.sql` | OAuth Gmail: refresh_token encriptado, email conectado, modo SaaS-managed vs BYO |
+| `009_oauth_outlook_multitenant.sql` | Idem para Outlook (Microsoft Graph) |
+| `010_conciliacion_dian.sql` | `documentos_dian` + `dian_sync_jobs` para Conciliación DIAN |
+| `011_dian_multi_metodo_auth.sql` | Método de auth DIAN + credenciales por método (encriptadas) |
+
 Si la base está vacía, sáltate este paso — el `lifespan` del backend
-crea todo desde cero.
+crea todo desde cero con `Base.metadata.create_all` (equivalente a aplicar
+todas las migraciones).
 
 ### 6. Primer arranque del backend
 
@@ -654,15 +854,28 @@ Abre `http://localhost:5173/`.
 
 **Privadas (JWT válido):** todas bajo `/app/*`
 
+Operación:
+
 - `/app` → Dashboard.
 - `/app/contratos`, `/app/facturas`, `/app/facturas/pendientes`,
   `/app/pagos`, `/app/oficinas`, `/app/proveedores`.
 - `/app/reportes`, `/app/asistente-buscador`.
+
+Contabilidad:
+
 - `/app/puc`, `/app/asientos`, `/app/libro-mayor`, `/app/balance`,
   `/app/impuestos`.
-- `/app/cuentas-bancarias`, `/app/conciliacion`.
-- `/app/medios-magneticos` (DIAN 1001/1007/1008).
-- `/app/mi-equipo` (solo rol **ADMIN** en la empresa activa).
+- `/app/cuentas-bancarias`, `/app/conciliacion` (bancaria).
+
+Cumplimiento DIAN:
+
+- `/app/medios-magneticos` — Formatos 1001, 1007, 1008 (información exógena).
+- `/app/conciliacion-dian` — cross-check factura electrónica DIAN + IVA Estratégico.
+
+Administración:
+
+- `/app/integraciones` — OAuth Gmail + Outlook + Gemini + webhook n8n.
+- `/app/mi-equipo` — invitación de usuarios (solo rol **ADMIN**).
 
 #### 9.4 Flujo de uso
 
@@ -761,6 +974,46 @@ El proyecto trae `apache_config_production.conf` listo.
 
 ---
 
+## Seguridad
+
+Ver [`SECURITY.md`](./SECURITY.md) para el modelo de amenazas, controles
+implementados y checklist pre-producción. Puntos clave:
+
+- **Guard de arranque**: si `PRODUCTION_MODE=True` y detecta credenciales por
+  defecto (JWT_SECRET_KEY genérica, SUPERADMIN_PASSWORD débil, FERNET_KEY
+  vacía), el backend **aborta** con `RuntimeError` en el lifespan. Mejor
+  romper el deploy que servir con defaults.
+- **Security headers**: `X-Frame-Options`, `X-Content-Type-Options`,
+  `Referrer-Policy`, `Permissions-Policy` en todas las respuestas.
+  `Strict-Transport-Security` solo cuando `PRODUCTION_MODE=True`.
+- **Signed URLs para PDFs**: rutas públicas (que el navegador abre inline)
+  se protegen con tokens HMAC firmados (`?t=<token>`) que atan
+  `(empresa_id, resource_id, exp)` a la firma con la `JWT_SECRET_KEY`.
+- **Contraseñas del portal DIAN NO se persisten**: para métodos que las
+  requieren (Administrador, Usuario Autorizado) viajan en memoria del
+  thread de Playwright y se descartan tras el login. Solo se guarda la
+  sesión encriptada.
+- **Rate limiter con IP real**: el header `X-Forwarded-For` solo se
+  respeta si viene de un proxy listado en `TRUSTED_PROXIES`. Sin eso,
+  cualquiera podría saltar el límite spoofeando el header.
+- **Bcrypt cost 13** — ~500ms/hash en 2026 hardware.
+
+Antes de un deploy productivo:
+
+1. Genera secrets con:
+   ```bash
+   python -c "import secrets; print('JWT_SECRET_KEY=' + secrets.token_urlsafe(64))"
+   python -c "from cryptography.fernet import Fernet; print('FERNET_KEY=' + Fernet.generate_key().decode())"
+   ```
+2. Setea `PRODUCTION_MODE=True` y `DEBUG=False` en el `.env`.
+3. Cambia `SUPERADMIN_PASSWORD` a una passphrase ≥ 16 chars.
+4. Rota la password de PostgreSQL.
+5. Setea `TRUSTED_PROXIES=<ip-nginx>` si corres detrás de reverse proxy.
+6. Cuando el frontend esté migrado a `?t=` (signed URLs), activa
+   `REQUIRE_SIGNED_PDF_URLS=True`.
+
+---
+
 ## Autenticación — JWT y API Key
 
 `AuthDualMiddleware` acepta tres formas:
@@ -811,44 +1064,58 @@ Si el usuario no tiene acceso a esa empresa → HTTP 403.
 facturacion_fortuna/
 ├── backend/
 │   ├── core/
-│   │   ├── config.py              # Settings con pydantic-settings
-│   │   ├── security.py            # JWT + bcrypt
+│   │   ├── config.py              # Settings + enforce_production_readiness()
+│   │   ├── security.py            # JWT + bcrypt cost 13
 │   │   └── dependencies.py        # get_current_user, get_current_empresa, require_role
 │   ├── middleware/
-│   │   ├── auth_dual.py           # JWT + X-API-Key (ASGI puro)
+│   │   ├── auth_dual.py           # JWT + X-API-Key (ASGI puro, regex estricto para public routes)
+│   │   ├── security_headers.py    # X-Frame, X-Content-Type, Referrer, Permissions, HSTS
 │   │   └── rate_limiter.py        # Rate-limit para auth
-│   ├── migrations/
-│   │   └── 001_saas_multitenant.sql
+│   ├── migrations/                # 001 → 011 (ver sección 5)
 │   ├── routers/
-│   │   ├── auth.py                # login / register / refresh / me
-│   │   ├── empresas.py            # CRUD tenants
+│   │   ├── auth.py                # login / register / refresh / me + rate limit
+│   │   ├── empresas.py            # CRUD tenants + rotate-api-key
 │   │   ├── usuarios.py            # Admin de usuarios + roles
-│   │   ├── contabilidad.py        # PUC, periodos, asientos, libro mayor, balance, cuentas bancarias
-│   │   ├── impuestos.py           # IVA / Retefuente / ReteIVA / ReteICA
-│   │   ├── bancario.py            # Extractos + conciliación (Fase 3)
-│   │   ├── dian.py                # Medios Magnéticos 1001/1007/1008 (Fase 4)
-│   │   ├── facturas.py, pagos.py, proveedores.py, oficinas.py, contratos.py, reportes.py, ...
+│   │   ├── contabilidad.py        # PUC, periodos, asientos, libro mayor, balance
+│   │   ├── impuestos.py           # IVA / Retefuente / ReteIVA / ReteICA (UVT 2026)
+│   │   ├── bancario.py            # Extractos + conciliación bancaria
+│   │   ├── dian.py                # Medios Magnéticos 1001/1007/1008
+│   │   ├── dian_conciliacion.py   # Conciliación DIAN electrónica + IVA Estratégico
+│   │   ├── oauth.py               # OAuth Gmail + Outlook (multi-tenant)
+│   │   ├── contracts.py           # PDFs con signed URLs + path traversal defense
+│   │   ├── facturas.py, pagos.py, proveedores.py, oficinas.py, reportes.py, ...
 │   ├── services/
 │   │   ├── causacion.py           # Asientos automáticos al aprobar factura
 │   │   ├── pago.py                # Asiento pago + documento NB01 (MANAMED)
-│   │   └── impuestos.py           # Motor de retenciones
+│   │   ├── impuestos.py           # Motor de retenciones
+│   │   ├── credentials_encryption.py  # Fernet encrypt_str/decrypt_str
+│   │   ├── signed_urls.py         # HMAC PDF tokens
+│   │   ├── google_oauth.py        # Google OAuth + Gmail flow
+│   │   ├── microsoft_oauth.py     # Microsoft OAuth + Graph flow
+│   │   ├── gemini.py              # Google Gemini AI Studio
+│   │   ├── dian_sync.py           # Playwright multi-método + thread ProactorEventLoop
+│   │   ├── dian_conciliacion.py   # Match facturas ↔ documentos DIAN
+│   │   ├── dian_analisis_iva.py   # Dashboard IVA Estratégico
+│   │   └── dian_admin/            # Subpaquete portal DIAN (auth, documentos, exportar, iva)
 │   ├── models.py                  # Modelos negocio (con empresa_id)
-│   ├── models_tenant.py           # Firma, Empresa, Usuario, UsuarioEmpresa
-│   ├── models_contabilidad.py     # PUC, Asientos, Lineas, Extractos, Transacciones, Reglas
-│   ├── schemas*.py                # Pydantic schemas
+│   ├── models_tenant.py           # Firma, Empresa (con OAuth + DIAN fields), Usuario, UsuarioEmpresa
+│   ├── models_contabilidad.py     # PUC, Asientos, Extractos, Transacciones, Reglas
+│   ├── models_impuestos.py        # Configuración de impuestos por empresa
+│   ├── models_dian.py             # DocumentoDian + DianSyncJob
+│   ├── schemas*.py                # Pydantic schemas (auth, dian, contabilidad, ...)
 │   ├── populate_puc.py            # PUC Decreto 2649/2650 ~167 cuentas
 │   ├── smoke_test.py              # Test end-to-end
-│   ├── main.py                    # App + lifespan (seed + backfill)
-│   ├── requirements.txt
-│   └── .env.example
+│   ├── main.py                    # App + lifespan (seed + guard prod + backfill)
+│   └── requirements.txt
 ├── frontend/
 │   ├── src/
 │   │   ├── auth/                  # JWT store, ProtectedRoute, PublicRoute
 │   │   ├── components/            # Sidebar, modales, selectores
-│   │   ├── pages/                 # 18 páginas (ver sección 9.3)
+│   │   ├── pages/                 # 23 páginas (ver sección 9.3)
 │   │   ├── utils/
 │   │   │   ├── apiClient.ts       # apiGet/apiPost/apiPut/apiDelete tipados
-│   │   │   └── fetchInterceptor.ts # Inyección JWT + X-Empresa-Id
+│   │   │   ├── fetchInterceptor.ts # Inyección JWT + X-Empresa-Id
+│   │   │   └── format.ts          # formatCOP + helpers
 │   │   ├── types/                 # Tipos compartidos
 │   │   └── App.tsx                # Router con lazy() + Suspense
 │   ├── vite.config.ts
@@ -857,7 +1124,8 @@ facturacion_fortuna/
 │   ├── workflow_facturacion_saas.json  # 3 sub-flujos: procesar-factura + buscar + procesar-adjunto
 │   └── README_INTEGRACION.md
 ├── apache_config_production.conf  # Reverse proxy HTTPS
-├── SETUP_N8N.md                   # Guía end-to-end del setup de n8n
+├── SECURITY.md                    # Auditoría de seguridad + checklist pre-producción
+├── SETUP_N8N.md                   # Guía end-to-end del setup de n8n + OAuth
 ├── DEPLOYMENT_LOCAL.md            # Versión extendida del despliegue
 └── README.md                      # ← este archivo
 ```

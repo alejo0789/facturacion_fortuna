@@ -32,6 +32,24 @@ git --version
 node --version   # opcional
 ```
 
+**Opcionales según qué módulos vayas a probar:**
+
+- **Playwright + Chromium** para el módulo Conciliación DIAN. Se instala
+  junto con `pip install -r requirements.txt`, pero necesitas descargar el
+  browser una vez:
+
+  ```bash
+  cd backend
+  playwright install chromium
+  ```
+
+  En Windows, además, requiere que el backend use `WindowsProactorEventLoopPolicy`
+  (ya configurado en `main.py`). Sin esto, `chromium.launch()` falla con
+  `NotImplementedError`.
+
+- **n8n 1.60+** para automatización de correo (opcional). Setup completo
+  en [`SETUP_N8N.md`](./SETUP_N8N.md).
+
 ---
 
 ## 1. Clonar / actualizar el repo y cambiar a la rama
@@ -109,37 +127,48 @@ Y luego usa en `DATABASE_URL`: `postgresql+asyncpg://fortuna:fortuna@localhost:5
 
 ## 4. Configurar el `.env`
 
-Copia la plantilla y ajústala:
+Los archivos `.env` **no están en el repo** por seguridad. Créalos a mano.
+La plantilla completa con todas las secciones (JWT, Fernet, OAuth Gmail y
+Outlook, Gemini, DIAN, seguridad de producción) está en la sección
+"Configuración local — archivos `.env`" del [`README.md`](./README.md#4-configuración-local--archivos-env).
 
-```bash
-# desde backend/
-copy .env.example .env          # Windows
-cp .env.example .env            # macOS/Linux
-```
-
-Edita `backend/.env` con un editor de texto y ajusta mínimo estos 3 valores:
+Para desarrollo local mínimo, ajusta al menos estos 5 valores en `backend/.env`:
 
 ```env
-# Base de datos
+# 1. Base de datos
 DATABASE_URL=postgresql+asyncpg://postgres:TU_PASSWORD@localhost:5432/supplier_db
 
-# JWT — genera una clave aleatoria propia
+# 2. JWT — genera una clave aleatoria propia
 JWT_SECRET_KEY=UNA-CLAVE-LARGA-Y-ALEATORIA-NO-USES-ESTA
 
-# Credenciales del superadmin que se creará en el primer arranque
+# 3. Fernet — genera con Fernet.generate_key()
+FERNET_KEY=CAMBIAR_POR_UNA_CLAVE_FERNET
+
+# 4. Superadmin inicial
 SUPERADMIN_EMAIL=admin@admin.com
 SUPERADMIN_PASSWORD=admin123
+
+# 5. Modo DEBUG habilita fixture endpoints (/dev/*)
+DEBUG=True
+PRODUCTION_MODE=False
 ```
 
-Para generar una `JWT_SECRET_KEY` segura:
+Para generar keys aleatorias:
 
 ```bash
+# JWT_SECRET_KEY
 python -c "import secrets; print(secrets.token_urlsafe(64))"
+
+# FERNET_KEY
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 
-El resto de variables (`CORS_ORIGINS`, `DEFAULT_FIRMA_*`, `DEFAULT_EMPRESA_*`, etc.) las puedes dejar con los defaults.
+El resto de variables opcionales (CORS_ORIGINS, DEFAULT_*, OAuth, DIAN, n8n,
+Gemini) tienen defaults sensatos y se pueden dejar vacías al principio.
+Se activan solo cuando uses el módulo correspondiente.
 
-> Si vienes migrando desde el proyecto original de La Fortuna y quieres que n8n siga funcionando sin cambios, coloca también:
+> Si vienes migrando desde el proyecto original de La Fortuna y quieres que
+> n8n siga funcionando sin cambios, agrega también:
 > `API_KEY=<la_api_key_que_ya_usaba_n8n>`
 
 ---
@@ -347,6 +376,52 @@ Abre `http://localhost:5173` (ya **no** lleva el sufijo `/facturacion_ia`).
   - `X-Empresa-Id: <id>` de la empresa activa
 - Si el backend responde `401`, el interceptor limpia la sesión y React Router redirige a `/login`.
 - Las rutas `/app/*` están envueltas en `<ProtectedRoute>` que redirige a `/login` cuando no hay sesión.
+
+---
+
+## 9.7 Verificar Conciliación DIAN (opcional)
+
+Sirve para probar el módulo sin credenciales reales del portal DIAN.
+
+### 9.7.1 Cargar datos de prueba (fixture)
+
+Con `DEBUG=True` en el `.env` del backend:
+
+1. Log in y ve al empresa por defecto (La Fortuna, empresa_id=1).
+2. Navega a `/app/conciliacion-dian` → tab **Sincronizar**.
+3. Click **"Cargar datos de prueba"** al final del card Configuración.
+4. Deberías ver: `"Fixture cargada: 12 docs DIAN + 9 facturas app + 4 proveedores"`.
+
+### 9.7.2 Verificar los 4 tabs
+
+- **Tab Conciliación** (rango May 1 – Jun 30):
+  - COINCIDE: 3
+  - DIFERENCIA $: 1 (COM-78300)
+  - SOLO EN APP: 1 (SPP-9988)
+  - SOLO EN DIAN: 1 (PAP-20455)
+- **Tab IVA por período** — año 2026 bimestral: Bim 1-4 con datos, Bim 5-6 en cero.
+- **Tab IVA Estratégico** — Bim 3 (May-Jun):
+  - IVA generado: $2.850.000
+  - IVA descontable app: $1.028.890
+  - Saldo declaración: $1.821.110 a pagar
+  - IVA sin capturar: $19.000
+  - Tasa captura: 80.0%
+
+### 9.7.3 Probar sync real (opcional)
+
+Necesitas registro en el portal DIAN. Configurar en tab Sincronizar:
+
+- **Persona natural**: solo tu cédula.
+- **Administrador**: correo + contraseña del portal.
+- **Empresa · Rep. Legal**: cédula del rep + NIT empresa.
+- **Empresa · Usuario Autorizado**: NIT empresa + cédula usuario + contraseña.
+
+Para métodos con contraseña, el sync te pide la password inline en la UI —
+**no se guarda en BD**. Vive en memoria durante el login de Playwright y se descarta.
+
+Chromium abrirá una ventana (headed en dev por default). Si ves el error
+`NotImplementedError`, verifica que `main.py` tenga el bloque de
+`WindowsProactorEventLoopPolicy` al inicio.
 
 ---
 
