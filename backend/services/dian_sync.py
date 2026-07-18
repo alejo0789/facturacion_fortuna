@@ -1004,23 +1004,28 @@ async def run_sync_job(job_id: int, session_maker: async_sessionmaker,
                 await db.commit()
 
         except Exception as e:
+            # Log completo (traceback) va al server log. En BD solo un mensaje
+            # corto, tipado, sin traceback ni paths internos ni argumentos
+            # (podrían contener passwords si el error viene del login).
             logger.exception("Sync DIAN %s crashed", job_id)
-            # Pintar el tipo de excepción + primer línea del traceback en el
-            # mensaje persistido para que se vea desde la UI sin necesidad
-            # de bucear en logs. El traceback completo va con logger.exception.
-            import traceback
-            tb_last = ""
-            for line in reversed(traceback.format_exception(type(e), e, e.__traceback__)):
-                stripped = line.strip()
-                if stripped and not stripped.startswith("Traceback"):
-                    tb_last = stripped
-                    break
             try:
+                # Sanitiza: quita cualquier `password=...` que aparezca por accidente
+                # en la representación de la excepción.
+                import re as _re
+                msg_raw = f"{type(e).__name__}: {str(e)}"
+                msg_clean = _re.sub(
+                    r"(password|contraseña|passw)[\s=:]*[^\s,)]+",
+                    r"\1=[REDACTED]",
+                    msg_raw,
+                    flags=_re.IGNORECASE,
+                )
+                # Mensaje amigable para el usuario final
                 job.estado = "failed"
                 job.mensaje = (
-                    f"{type(e).__name__}: {str(e)}\n"
-                    f"En: {tb_last[:500]}"
-                )[:1000]
+                    "Error durante el sync. Detalle técnico en el log del servidor. "
+                    f"Tipo: {type(e).__name__}. "
+                    f"Info: {msg_clean[:200]}"
+                )[:500]
                 await db.commit()
             except Exception:
                 pass
