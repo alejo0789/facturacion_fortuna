@@ -26,7 +26,7 @@ import asyncio
 from datetime import date, datetime, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -48,6 +48,9 @@ from services.dian_conciliacion import (
     conciliar_facturas_vs_dian, resumen_conciliacion,
 )
 from services.dian_analisis_iva import analizar_iva_estrategico
+from services.audit import log_action
+from services.rate_limit_db import check_rate_limit
+from core.dependencies import get_current_user
 
 
 router = APIRouter()
@@ -85,7 +88,9 @@ async def get_dian_config(empresa=Depends(get_current_empresa)):
 @router.put("/conciliacion-dian/config", response_model=DianConfigOut)
 async def put_dian_config(
     payload: DianConfigIn,
+    request: Request,
     empresa=Depends(get_current_empresa),
+    current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Guarda la config del método de auth DIAN.
@@ -161,6 +166,14 @@ async def put_dian_config(
     # ese método más tarde.
     empresa.dian_sesion_estado_enc = None
 
+    await log_action(
+        db, request,
+        action="dian.config_update",
+        user_id=current_user.id, empresa_id=empresa.id,
+        resource_type="empresa", resource_id=empresa.id,
+        details={"metodo": metodo, "tipo_id": payload.tipo_id},
+    )
+
     await db.commit()
     return _empresa_a_config_out(empresa)
 
@@ -183,7 +196,9 @@ async def delete_dian_session(
 @router.post("/conciliacion-dian/sync/start", response_model=SyncJobOut)
 async def start_sync(
     payload: SyncJobStart,
+    request: Request,
     empresa=Depends(get_current_empresa),
+    current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Crea un job y arranca el sync Playwright en background.
@@ -200,6 +215,15 @@ async def start_sync(
     """
     if payload.fecha_desde > payload.fecha_hasta:
         raise HTTPException(status_code=400, detail="fecha_desde debe ser <= fecha_hasta")
+
+    # Rate limit: máximo 6 syncs iniciados por empresa por hora — previene
+    # que un compromise abuse del portal DIAN (que tiene sus propios
+    # límites y rechazará al tenant si nos pasamos).
+    await check_rate_limit(
+        db, bucket=f"dian-sync:empresa:{empresa.id}",
+        max_attempts=6, window_seconds=60 * 60,
+        error_msg="Límite de sincronizaciones DIAN por hora",
+    )
 
     metodo = (empresa.dian_metodo_auth or "persona").strip()
 
@@ -272,6 +296,21 @@ async def start_sync(
     # Arrancar el worker — la password (si existe) viaja como argumento del thread.
     # Nunca se guarda en BD. Al terminar el thread, la variable local sale del scope.
     dian_sync.spawn_sync_job(job.id, SessionLocal, password=payload.password)
+
+    await log_action(
+        db, request,
+        action="dian.sync_start",
+        user_id=current_user.id, empresa_id=empresa.id,
+        resource_type="dian_sync_job", resource_id=job.id,
+        details={
+            "metodo": metodo,
+            "fecha_desde": payload.fecha_desde.isoformat(),
+            "fecha_hasta": payload.fecha_hasta.isoformat(),
+            "usa_password": bool(payload.password),
+            "force_relogin": payload.force_password_relogin,
+        },
+    )
+    await db.commit()
 
     return job
 

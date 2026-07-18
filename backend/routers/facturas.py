@@ -935,17 +935,65 @@ async def asignar_multiples_oficinas(
 
 # --- View Invoice ---
 
+@router.get("/facturas/{factura_id}/pdf-url")
+async def get_factura_pdf_signed_url(
+    factura_id: int,
+    empresa=Depends(get_current_empresa),
+    db: AsyncSession = Depends(get_db),
+):
+    """Devuelve una URL firmada con TTL 5 min para abrir el PDF de una
+    factura en un tab del navegador."""
+    from services.signed_urls import create_pdf_token
+    factura = await crud.get_factura(db, factura_id)
+    if not factura:
+        raise HTTPException(status_code=404, detail="Factura no encontrada")
+    if getattr(factura, "empresa_id", None) not in (None, empresa.id):
+        raise HTTPException(status_code=404, detail="Factura no encontrada")
+
+    token = create_pdf_token(
+        kind="factura",
+        resource_id=factura_id,
+        empresa_id=empresa.id,
+    )
+    return {
+        "url": f"/api/facturas/{factura_id}/ver?t={token}",
+        "expires_in_seconds": 300,
+    }
+
+
 @router.get("/facturas/{factura_id}/ver")
-async def ver_factura(factura_id: int, db: AsyncSession = Depends(get_db)):
+async def ver_factura(
+    factura_id: int,
+    t: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+):
     """
     View the invoice PDF.
     Reads the file from the network share and serves it to the browser.
     Supports file:// URLs and UNC paths.
+
+    Autorización: token firmado `?t=` (recomendado). Sin token se sirve
+    igual para backwards-compat, pero se loguea warning. En prod activar
+    `REQUIRE_SIGNED_PDF_URLS=True` para exigir el token.
     """
     factura = await crud.get_factura(db, factura_id)
     if not factura:
         raise HTTPException(status_code=404, detail="Factura no encontrada")
-    
+
+    from services.signed_urls import verify_pdf_token
+    if t:
+        payload = verify_pdf_token(t, kind="factura", resource_id=factura_id)
+        if not payload:
+            raise HTTPException(status_code=403, detail="Token invalido o expirado")
+        if getattr(factura, "empresa_id", None) != payload["empresa_id"]:
+            raise HTTPException(status_code=404, detail="Factura no encontrada")
+    else:
+        import logging
+        logging.getLogger(__name__).warning(
+            "PDF factura servido sin token firmado — factura_id=%s. "
+            "Migrar frontend a signed URLs.", factura_id,
+        )
+
     if not factura.url_factura:
         raise HTTPException(status_code=404, detail="Esta factura no tiene URL de archivo")
     

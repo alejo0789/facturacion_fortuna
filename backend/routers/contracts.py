@@ -5,6 +5,7 @@ from typing import List, Optional
 import schemas, crud
 from database import get_db
 from core.dependencies import get_current_empresa
+from services.signed_urls import create_pdf_token
 import os
 import re
 from pathlib import Path
@@ -55,44 +56,49 @@ async def create_contrato(
 # --- File Upload/Download ---
 @router.post("/contratos/{contrato_id}/upload-pdf")
 async def upload_contract_pdf(
-    contrato_id: int, 
+    contrato_id: int,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db)
 ):
-    """Upload a PDF file for a contract"""
-    # Validate file type
-    if not file.filename.lower().endswith('.pdf'):
-        raise HTTPException(status_code=400, detail="Solo se permiten archivos PDF")
-    
-    if file.content_type != 'application/pdf':
-        raise HTTPException(status_code=400, detail="El archivo debe ser un PDF válido")
-    
-    # Get contract with provider info
+    """Upload a PDF file for a contract.
+
+    Valida por magic bytes (%PDF-) además del content-type header. El header
+    de MIME es informativo (el atacante puede mandar lo que quiera).
+    """
+    # Get contract with provider info FIRST — evita gastar disco si el
+    # contrato no existe
     contrato = await crud.get_contrato(db, contrato_id)
     if not contrato:
         raise HTTPException(status_code=404, detail="Contrato no encontrado")
-    
+
     if not contrato.proveedor:
         raise HTTPException(status_code=400, detail="El contrato no tiene proveedor asociado")
-    
+
+    # Leer + validar magic bytes ANTES de tocar el disco
+    content = await file.read()
+    from services.upload_validation import validate_upload
+    validate_upload(content, filename=file.filename or "", allowed={"pdf"})
+
     # Create provider folder
     provider_folder = CONTRACTS_DIR / sanitize_folder_name(contrato.proveedor.nombre)
     provider_folder.mkdir(exist_ok=True)
-    
-    # Generate filename
-    safe_filename = f"contrato_{contrato_id}_{file.filename}"
+
+    # Generate filename — solo alfanum, punto y guión
+    safe_filename = f"contrato_{contrato_id}_{file.filename or 'file.pdf'}"
     safe_filename = re.sub(r'[^\w\.\-]', '_', safe_filename)
     file_path = provider_folder / safe_filename
-    
-    # Save file
-    content = await file.read()
+
+    # Defensa contra path traversal en el nombre generado
+    if not str(file_path.resolve()).startswith(str(CONTRACTS_DIR.resolve())):
+        raise HTTPException(status_code=400, detail="Path invalido")
+
     with open(file_path, 'wb') as f:
         f.write(content)
-    
+
     # Update contract with file path
     relative_path = str(file_path.relative_to(CONTRACTS_DIR))
     await crud.update_contrato_archivo(db, contrato_id, relative_path)
-    
+
     return {"message": "Archivo subido correctamente", "path": relative_path}
 
 @router.get("/contratos/{contrato_id}/pdf")
@@ -155,6 +161,38 @@ async def get_contract_pdf(
         media_type='application/pdf',
         headers={"Content-Disposition": f"inline; filename={file_path.name}"}
     )
+
+@router.get("/contratos/{contrato_id}/pdf-url")
+async def get_contract_pdf_signed_url(
+    contrato_id: int,
+    empresa=Depends(get_current_empresa),
+    db: AsyncSession = Depends(get_db),
+):
+    """Devuelve una URL firmada con TTL corto que sirve para abrir el PDF
+    en un nuevo tab del navegador (donde no se puede mandar Authorization).
+
+    La URL retornada tiene forma:
+        /api/contratos/42/pdf?t=<HMAC firmado con JWT_SECRET_KEY>
+
+    El token codifica (kind='contrato', resource_id=42, empresa_id=X, exp).
+    El endpoint público que lo consume valida los 4 campos.
+    """
+    contrato = await crud.get_contrato(db, contrato_id)
+    if not contrato:
+        raise HTTPException(status_code=404, detail="Contrato no encontrado")
+    if getattr(contrato, "empresa_id", None) not in (None, empresa.id):
+        raise HTTPException(status_code=404, detail="Contrato no encontrado")
+
+    token = create_pdf_token(
+        kind="contrato",
+        resource_id=contrato_id,
+        empresa_id=empresa.id,
+    )
+    return {
+        "url": f"/api/contratos/{contrato_id}/pdf?t={token}",
+        "expires_in_seconds": 300,
+    }
+
 
 @router.delete("/contratos/{contrato_id}/pdf")
 async def delete_contract_pdf(contrato_id: int, db: AsyncSession = Depends(get_db)):
