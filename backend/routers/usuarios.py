@@ -2,7 +2,7 @@
 Router de gestión de usuarios: crear usuario dentro de la firma,
 listar, asignar roles por empresa.
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -11,6 +11,7 @@ from core.security import hash_password
 from core.dependencies import get_current_user, require_role
 from models_tenant import Usuario, UsuarioEmpresa, Empresa
 from schemas_auth import UserCreate, UserUpdate, AssignRoleRequest, UserInfo
+from services.audit import log_action
 
 
 router = APIRouter(prefix="/usuarios", tags=["usuarios"])
@@ -25,6 +26,7 @@ VALID_ROLES = {
 @router.post("/", response_model=UserInfo)
 async def create_user(
     data: UserCreate,
+    request: Request,
     current_user=Depends(require_role("ADMIN")),
     db: AsyncSession = Depends(get_db),
 ):
@@ -42,6 +44,12 @@ async def create_user(
         activo=True,
     )
     db.add(user)
+    await db.flush()
+
+    await log_action(db, request, action="usuario.create",
+                     user_id=current_user.id,
+                     resource_type="usuario", resource_id=user.id,
+                     details={"email": data.email})
     await db.commit()
     await db.refresh(user)
     return UserInfo.model_validate(user)
@@ -65,6 +73,7 @@ async def list_users(
 async def update_user(
     user_id: int,
     data: UserUpdate,
+    request: Request,
     current_user=Depends(require_role("ADMIN")),
     db: AsyncSession = Depends(get_db),
 ):
@@ -74,8 +83,19 @@ async def update_user(
     if not current_user.es_superadmin and user.firma_id != current_user.firma_id:
         raise HTTPException(status_code=403, detail="No puede modificar usuarios de otra firma")
 
-    for k, v in data.model_dump(exclude_unset=True).items():
+    changes = data.model_dump(exclude_unset=True)
+    was_active = user.activo
+    for k, v in changes.items():
         setattr(user, k, v)
+
+    action = "usuario.update"
+    if "activo" in changes and was_active and not user.activo:
+        action = "usuario.deactivate"
+    await log_action(db, request, action=action,
+                     user_id=current_user.id,
+                     resource_type="usuario", resource_id=user.id,
+                     details={"changes": list(changes.keys())})
+
     await db.commit()
     await db.refresh(user)
     return UserInfo.model_validate(user)
@@ -84,6 +104,7 @@ async def update_user(
 @router.post("/asignar-rol")
 async def assign_role(
     data: AssignRoleRequest,
+    request: Request,
     current_user=Depends(require_role("ADMIN")),
     db: AsyncSession = Depends(get_db),
 ):
@@ -104,6 +125,7 @@ async def assign_role(
         )
     )).scalar_one_or_none()
 
+    prev_rol = existing.rol if existing else None
     if existing:
         existing.rol = data.rol
     else:
@@ -113,5 +135,9 @@ async def assign_role(
             rol=data.rol,
         ))
 
+    await log_action(db, request, action="usuario.role_change",
+                     user_id=current_user.id, empresa_id=data.empresa_id,
+                     resource_type="usuario", resource_id=data.usuario_id,
+                     details={"prev_rol": prev_rol, "new_rol": data.rol})
     await db.commit()
     return {"status": "ok", "usuario_id": data.usuario_id, "empresa_id": data.empresa_id, "rol": data.rol}

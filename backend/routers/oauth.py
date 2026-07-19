@@ -35,6 +35,8 @@ from database import get_db
 from core.dependencies import get_current_empresa, get_current_user
 from models_tenant import Empresa
 from services import google_oauth, microsoft_oauth
+from services.audit import log_action
+from fastapi import Request
 
 
 import logging
@@ -144,8 +146,17 @@ async def gmail_callback(
         userinfo = await google_oauth.fetch_userinfo(token_response["access_token"])
         await google_oauth.save_tokens_to_empresa(db, empresa, token_response, userinfo)
     except Exception as e:
+        await log_action(db, None, action="oauth.gmail.connect",
+                         empresa_id=empresa_id, user_id=initiator_user_id,
+                         result="failure", details={"error": str(e)[:200]})
+        await db.commit()
         return _close_popup_html(success=False, message=f"Error guardando tokens: {e}")
 
+    await log_action(db, None, action="oauth.gmail.connect",
+                     empresa_id=empresa_id, user_id=initiator_user_id,
+                     result="success",
+                     details={"connected_email": userinfo.get("email")})
+    await db.commit()
     return _close_popup_html(
         success=True,
         message=f"Gmail conectado como {userinfo.get('email', 'desconocido')}",
@@ -154,11 +165,16 @@ async def gmail_callback(
 
 @router.post("/oauth/gmail/disconnect")
 async def gmail_disconnect(
+    request: Request,
+    current_user=Depends(get_current_user),
     empresa=Depends(get_current_empresa),
     db: AsyncSession = Depends(get_db),
 ):
     """Borra los tokens Gmail de la empresa. No revoca en Google."""
     await google_oauth.disconnect_gmail(db, empresa)
+    await log_action(db, request, action="oauth.gmail.disconnect",
+                     user_id=current_user.id, empresa_id=empresa.id)
+    await db.commit()
     return {"status": "disconnected"}
 
 
@@ -235,6 +251,10 @@ async def outlook_callback(
         userinfo = await microsoft_oauth.fetch_userinfo(token_response["access_token"])
         await microsoft_oauth.save_tokens_to_empresa(db, empresa, token_response, userinfo)
     except Exception as e:
+        await log_action(db, None, action="oauth.outlook.connect",
+                         empresa_id=empresa_id, user_id=initiator_user_id,
+                         result="failure", details={"error": str(e)[:200]})
+        await db.commit()
         return _close_popup_html(
             success=False,
             message=f"Error guardando tokens: {e}",
@@ -242,6 +262,11 @@ async def outlook_callback(
         )
 
     email = userinfo.get("mail") or userinfo.get("userPrincipalName") or "desconocido"
+    await log_action(db, None, action="oauth.outlook.connect",
+                     empresa_id=empresa_id, user_id=initiator_user_id,
+                     result="success",
+                     details={"connected_email": email})
+    await db.commit()
     return _close_popup_html(
         success=True,
         message=f"Outlook conectado como {email}",
@@ -251,10 +276,15 @@ async def outlook_callback(
 
 @router.post("/oauth/outlook/disconnect")
 async def outlook_disconnect(
+    request: Request,
+    current_user=Depends(get_current_user),
     empresa=Depends(get_current_empresa),
     db: AsyncSession = Depends(get_db),
 ):
     await microsoft_oauth.disconnect_outlook(db, empresa)
+    await log_action(db, request, action="oauth.outlook.disconnect",
+                     user_id=current_user.id, empresa_id=empresa.id)
+    await db.commit()
     return {"status": "disconnected"}
 
 

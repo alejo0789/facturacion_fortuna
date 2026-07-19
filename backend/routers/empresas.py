@@ -4,7 +4,7 @@ Router de gestión de Empresas (tenants) dentro de una Firma.
 import time
 import uuid
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -18,6 +18,7 @@ from schemas_empresa import (
     IntegracionesResponse, IntegracionesUpdate, IntegracionesTestResult,
 )
 from services.empresa_seed import seed_empresa_default
+from services.audit import log_action
 from services.integraciones_n8n import (
     get_shared_process_url,
     get_shared_search_url,
@@ -156,6 +157,7 @@ async def seed_contabilidad(
 @router.post("/{empresa_id}/rotate-api-key", response_model=EmpresaResponse)
 async def rotate_api_key(
     empresa_id: int,
+    request: Request,
     current_user=Depends(require_role("ADMIN")),
     db: AsyncSession = Depends(get_db),
 ):
@@ -163,6 +165,9 @@ async def rotate_api_key(
     if not empresa:
         raise HTTPException(status_code=404, detail="Empresa no encontrada")
     empresa.api_key = str(uuid.uuid4())
+    await log_action(db, request, action="empresa.api_key_rotated",
+                     user_id=current_user.id, empresa_id=empresa_id,
+                     resource_type="empresa", resource_id=empresa_id)
     await db.commit()
     await db.refresh(empresa)
     return EmpresaResponse.model_validate(empresa)
