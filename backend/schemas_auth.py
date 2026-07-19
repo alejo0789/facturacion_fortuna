@@ -11,6 +11,10 @@ from typing import Optional
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
+    # 2FA — solo requerido si el usuario tiene two_factor_enabled=True.
+    # El frontend detecta el 401 con code='2fa_required' y reintenta pidiendo
+    # el código.
+    totp_code: Optional[str] = None
 
 
 class RegisterRequest(BaseModel):
@@ -75,3 +79,21 @@ class AssignRoleRequest(BaseModel):
     usuario_id: int
     empresa_id: int
     rol: str  # ADMIN, CONTADOR, AUDITOR, FACTURACION, CONTABILIDAD, PRODUCTOS, VENTAS, SOLO_LECTURA
+
+
+# 2FA
+class TwoFactorSetupResponse(BaseModel):
+    """Respuesta de /2fa/setup — el secret debe mostrarse una sola vez."""
+    secret: str
+    provisioning_uri: str
+    issuer: str = "Facturación SaaS"
+
+
+class TwoFactorVerifySetupRequest(BaseModel):
+    secret: str
+    code: str  # 6 dígitos
+
+
+class TwoFactorDisableRequest(BaseModel):
+    password: str
+    code: str

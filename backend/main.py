@@ -44,7 +44,7 @@ from routers import (
     reportes, oficinas_oracle, archivo_plano, feedback, asistente,
     auth, empresas, usuarios,
     contabilidad, impuestos, bancario, dian,
-    oauth, dian_conciliacion,
+    oauth, dian_conciliacion, audit,
 )
 from middleware.auth_dual import AuthDualMiddleware
 from middleware.security_headers import SecurityHeadersMiddleware
@@ -187,7 +187,22 @@ async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     await _seed_defaults()
-    yield
+
+    # Background task: cleanup periódico de tablas de seguridad cada 6h.
+    from services.security_cleanup import periodic_cleanup_task
+    cleanup_task = asyncio.create_task(
+        periodic_cleanup_task(SessionLocal, interval_seconds=6 * 60 * 60),
+        name="security-cleanup",
+    )
+
+    try:
+        yield
+    finally:
+        cleanup_task.cancel()
+        try:
+            await cleanup_task
+        except (asyncio.CancelledError, Exception):
+            pass
 
 
 app = FastAPI(
@@ -224,6 +239,7 @@ app.include_router(feedback.router, prefix="/api", tags=["feedback"])
 app.include_router(asistente.router, prefix="/api", tags=["asistente"])
 app.include_router(oauth.router, prefix="/api", tags=["oauth"])
 app.include_router(dian_conciliacion.router, prefix="/api", tags=["dian-conciliacion"])
+app.include_router(audit.router, prefix="/api", tags=["audit"])
 
 # ---- Módulo contable (Iteración 2 + Fase 3/4) ----
 app.include_router(contabilidad.router, prefix="/api", tags=["contabilidad"])

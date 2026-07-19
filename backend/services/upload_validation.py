@@ -98,4 +98,9 @@ def validate_upload(
                 f"Aceptados: {', '.join(sorted(allowed))}."
             ),
         )
+
+    # Análisis heurístico de contenido — no-op si AV_SCAN_ENABLED=False.
+    from services.av_scan import maybe_scan_or_reject
+    maybe_scan_or_reject(detected, contents)
+
     return detected

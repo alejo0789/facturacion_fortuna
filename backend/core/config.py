@@ -122,6 +122,11 @@ class Settings(BaseSettings):
     # para no romper URLs viejas ya emitidas.
     REQUIRE_SIGNED_PDF_URLS: bool = False
 
+    # Análisis heurístico de PDFs subidos (JavaScript, /Launch, embedded files).
+    # NO es un antivirus. Para producción real, extender `services/av_scan.py`
+    # con ClamAV o VirusTotal.
+    AV_SCAN_ENABLED: bool = False
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
     @field_validator("JWT_SECRET_KEY")

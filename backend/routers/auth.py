@@ -21,7 +21,9 @@ from services.audit import log_action
 from schemas_auth import (
     LoginRequest, RegisterRequest, TokenResponse, RefreshRequest,
     UserInfo, EmpresaInfo,
+    TwoFactorSetupResponse, TwoFactorVerifySetupRequest, TwoFactorDisableRequest,
 )
+from services import two_factor
 
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -190,7 +192,29 @@ async def login(data: LoginRequest, request: Request, db: AsyncSession = Depends
         await db.commit()
         raise HTTPException(status_code=403, detail="Usuario desactivado")
 
-    # Login OK — limpia buckets de attempts fallidos
+    # Login OK a nivel de password — verificar 2FA si está activo
+    if user.two_factor_enabled:
+        if not data.totp_code:
+            await log_action(db, request, action="auth.login_failed",
+                             user_id=user.id, result="failure",
+                             details={"reason": "2fa_required"})
+            await db.commit()
+            raise HTTPException(
+                status_code=401,
+                detail={"detail": "Se requiere código 2FA", "code": "2fa_required"},
+            )
+        secret = two_factor.load_user_secret(user)
+        if not secret or not two_factor.verify_code(secret, data.totp_code):
+            await log_action(db, request, action="auth.login_failed",
+                             user_id=user.id, result="failure",
+                             details={"reason": "2fa_wrong_code"})
+            await db.commit()
+            raise HTTPException(
+                status_code=401,
+                detail={"detail": "Código 2FA inválido", "code": "2fa_wrong"},
+            )
+
+    # Login completo OK — limpia buckets de attempts fallidos
     await clear_bucket(db, bucket_ip)
     await clear_bucket(db, bucket_email)
 
@@ -307,3 +331,80 @@ async def my_empresas(
         )
         for ue, e in rows
     ]
+
+
+# ============================================================================
+# 2FA (TOTP) — migración 013
+# ============================================================================
+
+@router.get("/2fa/status")
+async def two_factor_status(current_user=Depends(get_current_user)):
+    """Estado del 2FA para el usuario actual."""
+    return {"enabled": bool(current_user.two_factor_enabled)}
+
+
+@router.post("/2fa/setup", response_model=TwoFactorSetupResponse)
+async def two_factor_setup(current_user=Depends(get_current_user)):
+    """Genera un nuevo secret 2FA. NO lo guarda todavia — solo al confirmar
+    con /2fa/verify-setup se persiste.
+
+    Devuelve el secret (para copiado manual) + provisioning URI (para QR).
+    """
+    if current_user.two_factor_enabled:
+        raise HTTPException(status_code=400, detail="2FA ya esta activo")
+
+    secret = two_factor.generate_secret()
+    uri = two_factor.provisioning_uri(secret, current_user.email)
+    return TwoFactorSetupResponse(secret=secret, provisioning_uri=uri)
+
+
+@router.post("/2fa/verify-setup")
+async def two_factor_verify_setup(
+    payload: TwoFactorVerifySetupRequest,
+    request: Request,
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Confirma el enrollment 2FA. El usuario envia el TOTP generado por su
+    app + el secret que le devolvio /setup. Si el TOTP verifica, guardamos
+    el secret encriptado y activamos el flag.
+    """
+    if current_user.two_factor_enabled:
+        raise HTTPException(status_code=400, detail="2FA ya esta activo")
+
+    if not two_factor.verify_code(payload.secret, payload.code):
+        raise HTTPException(status_code=400, detail="Codigo invalido")
+
+    two_factor.save_user_secret(current_user, payload.secret)
+    await log_action(db, request, action="auth.2fa_enabled",
+                     user_id=current_user.id, result="success")
+    await db.commit()
+    return {"status": "enabled"}
+
+
+@router.post("/2fa/disable")
+async def two_factor_disable(
+    payload: TwoFactorDisableRequest,
+    request: Request,
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Desactiva 2FA. Exige password + codigo TOTP actual — protege contra
+    un atacante que se metio con un JWT robado (aunque tenga el JWT, no
+    tiene el token del authenticator + el password fresh).
+    """
+    if not current_user.two_factor_enabled:
+        raise HTTPException(status_code=400, detail="2FA no esta activo")
+
+    if not verify_password(payload.password, current_user.password_hash):
+        raise HTTPException(status_code=401, detail="Contrasena incorrecta")
+
+    secret = two_factor.load_user_secret(current_user)
+    if not secret or not two_factor.verify_code(secret, payload.code):
+        raise HTTPException(status_code=400, detail="Codigo 2FA invalido")
+
+    two_factor.disable_user_2fa(current_user)
+    await log_action(db, request, action="auth.2fa_disabled",
+                     user_id=current_user.id, result="success")
+    await db.commit()
+    return {"status": "disabled"}
