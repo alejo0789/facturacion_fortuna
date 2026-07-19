@@ -157,27 +157,70 @@ La revisión de julio 2026 añadió:
 
 ---
 
+## Tercera pasada — controles añadidos (migración 013)
+
+### 2FA (TOTP)
+
+- Endpoints en `routers/auth.py`:
+  - `GET /api/auth/2fa/status`
+  - `POST /api/auth/2fa/setup` (genera secret base32 + provisioning URI)
+  - `POST /api/auth/2fa/verify-setup` (confirma con TOTP; solo entonces activa)
+  - `POST /api/auth/2fa/disable` (exige password + código actual)
+- Integrado en `/login`: si `two_factor_enabled`, exige `totp_code`. Backend devuelve 401 con `code: "2fa_required"` para que el UI pida el campo.
+- Secret guardado encriptado (Fernet) en `usuarios.two_factor_secret_enc`.
+- Frontend `/app/seguridad` con setup guiado (QR + verificación).
+- Ventana de tolerancia: ±30s por desincronización de reloj.
+- Sin códigos de recuperación aún (pendiente — implica UX de "guarda estos códigos").
+
+### AV scan (heurística inline)
+
+- `services/av_scan.py` con marcadores comunes en PDFs maliciosos: `/JavaScript`, `/Launch`, `/EmbeddedFile`, `/RichMedia`, `/SubmitForm`.
+- Se ejecuta desde `services/upload_validation.py` solo cuando `settings.AV_SCAN_ENABLED=True`.
+- **NO es un antivirus** — es defensa en profundidad contra PDFs con acciones ejecutables.
+- Extension point: reemplazar `_heuristic_pdf_scan` con ClamAV vía `clamd` o VirusTotal API cuando se necesite.
+
+### Audit log — endpoint y hooks completos
+
+- `GET /api/audit-log` (ADMIN-only) con filtros por fecha, action prefix, user, resource, result. Paginado 50/página.
+- `GET /api/audit-log/actions` devuelve las acciones únicas con conteo (para poblar dropdown UI).
+- Página `/app/auditoria` en el frontend con tabla, filtros y detalle expandible.
+- Hooks agregados en:
+  - `auth.login`, `auth.login_failed`, `auth.logout`, `auth.register`, `auth.2fa_enabled`, `auth.2fa_disabled`
+  - `oauth.gmail.connect/disconnect`, `oauth.outlook.connect/disconnect`
+  - `usuario.create`, `usuario.update`, `usuario.deactivate`, `usuario.role_change`
+  - `empresa.api_key_rotated`
+  - `dian.config_update`, `dian.sync_start`
+
+### Cleanup periódico
+
+- Background task en el `lifespan` de FastAPI cada 6 horas (`services/security_cleanup.py`).
+- Standalone script `scripts/cleanup_security.py` para cron (Linux) o Task Scheduler (Windows).
+- Limpia: `rate_limit_events` con antigüedad > 2h, `token_blacklist` cuyo `expires_at` ya pasó.
+- `audit_log` **NUNCA** se limpia (append-only por diseño).
+
+---
+
 ## Amenazas conocidas pendientes
 
-Ver `docs/security-backlog.md` (por crear) para el detalle.
+Ver `docs/security-backlog.md` (por crear) para el detalle. Lo restante requiere infra externa o decisión de producto:
 
-### File uploads sin AV scan
+### AV scan real (ClamAV / VirusTotal)
 
-**Impacto**: usuarios podrían subir malware disfrazado de PDF válido (magic bytes correctos pero payload interior malicioso).
+**Impacto**: la heurística de `av_scan.py` bloquea PDFs con acciones ejecutables comunes, pero no detecta payloads sofisticados dentro del PDF (fuentes malformadas, exploits en el parser del cliente).
 
-**Mitigación futura**: integración con ClamAV (server-side) o VirusTotal API.
+**Mitigación**: integrar ClamAV vía `clamd` (Linux, socket local) o VirusTotal Public API. La interfaz `scan_bytes(kind, contents) -> ScanResult` ya está lista — solo cambia la implementación.
 
-### 2FA para admins
+### Códigos de recuperación 2FA
 
-**Impacto**: cuentas con rol ADMIN sin segundo factor. Si se compromete el password, no hay backup.
+**Impacto**: si el usuario pierde el authenticator + no configuró backup, queda bloqueado.
 
-**Mitigación futura**: TOTP con `pyotp` + QR de setup.
+**Mitigación futura**: generar 10 códigos one-shot al activar 2FA, guardarlos hasheados (bcrypt), permitir uso en login como alternativa al TOTP.
 
-### Rate limiter — GC lazy puede acumular en Postgres
+### Rate limiter — futuro Redis
 
-**Impacto**: si hay pico de tráfico, la tabla `rate_limit_events` puede crecer hasta que corra un GC de un request. En steady state se estabiliza.
+**Impacto**: la implementación Postgres funciona bien hasta ~5k req/min. Para picos más altos o para revocación instantánea de JWTs entre workers, Redis con pub/sub es más eficiente.
 
-**Mitigación**: cron nocturno `DELETE FROM rate_limit_events WHERE attempted_at < NOW() - INTERVAL '2 hours'` o extender el GC lazy.
+**Mitigación**: la interfaz `check_rate_limit()` y `is_revoked()` ya están abstractas, solo cambia el backend.
 
 ## Reporte de vulnerabilidades
 

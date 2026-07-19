@@ -716,6 +716,7 @@ Migraciones actuales:
 | `010_conciliacion_dian.sql` | `documentos_dian` + `dian_sync_jobs` para Conciliación DIAN |
 | `011_dian_multi_metodo_auth.sql` | Método de auth DIAN + credenciales por método (encriptadas) |
 | `012_security_hardening.sql` | `rate_limit_events`, `token_blacklist`, `audit_log` |
+| `013_two_factor_auth.sql` | `two_factor_secret_enc` + `two_factor_enabled` en `usuarios` |
 
 Si la base está vacía, sáltate este paso — el `lifespan` del backend
 crea todo desde cero con `Base.metadata.create_all` (equivalente a aplicar
@@ -877,6 +878,8 @@ Administración:
 
 - `/app/integraciones` — OAuth Gmail + Outlook + Gemini + webhook n8n.
 - `/app/mi-equipo` — invitación de usuarios (solo rol **ADMIN**).
+- `/app/auditoria` — audit log (solo rol **ADMIN**).
+- `/app/seguridad` — configuración de 2FA (TOTP) del usuario actual.
 
 #### 9.4 Flujo de uso
 
