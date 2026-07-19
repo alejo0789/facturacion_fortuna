@@ -174,6 +174,10 @@ class Usuario(Base):
     activo = Column(Boolean, default=True)
     created_at = Column(DateTime, server_default=func.now())
 
+    # 2FA (TOTP) — migración 013. El secret se guarda encriptado con Fernet.
+    two_factor_secret_enc = Column(Text)
+    two_factor_enabled = Column(Boolean, default=False)
+
     firma = relationship("Firma", back_populates="usuarios")
     empresas = relationship("UsuarioEmpresa", back_populates="usuario")
 
