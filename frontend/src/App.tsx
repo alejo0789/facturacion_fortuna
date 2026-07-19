@@ -57,6 +57,8 @@ const ConciliacionBancariaPage = lazy(() => import('./pages/ConciliacionBancaria
 const MediosMagneticosPage = lazy(() => import('./pages/MediosMagneticosPage'));
 const ConciliacionDianPage = lazy(() => import('./pages/ConciliacionDianPage'));
 const IntegracionesPage = lazy(() => import('./pages/IntegracionesPage'));
+const SeguridadPage = lazy(() => import('./pages/SeguridadPage'));
+const AuditLogPage = lazy(() => import('./pages/AuditLogPage'));
 
 function LoadingFallback() {
     return (
@@ -97,6 +99,8 @@ function AppShell() {
                         <Route path="medios-magneticos" element={<MediosMagneticosPage />} />
                         <Route path="conciliacion-dian" element={<ConciliacionDianPage />} />
                         <Route path="integraciones" element={<IntegracionesPage />} />
+                        <Route path="seguridad" element={<SeguridadPage />} />
+                        <Route path="auditoria" element={<AuditLogPage />} />
                         <Route path="*" element={<Navigate to="/app" replace />} />
                     </Routes>
                 </Suspense>

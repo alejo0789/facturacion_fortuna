@@ -90,7 +90,7 @@ interface AuthContextValue {
     empresaActiva: EmpresaInfo | null;
     isAuthenticated: boolean;
     isLoading: boolean;
-    login: (email: string, password: string) => Promise<void>;
+    login: (email: string, password: string, totp_code?: string) => Promise<void>;
     register: (payload: RegisterPayload) => Promise<void>;
     logout: () => Promise<void>;
     switchEmpresa: (empresaId: number) => void;
@@ -163,15 +163,28 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
     };
 
     // ---- login ----
-    const login = async (email: string, password: string) => {
+    // Si el backend responde 401 con code='2fa_required', lanzamos un error
+    // tipado que la UI puede detectar para pedir el código TOTP.
+    const login = async (email: string, password: string, totp_code?: string) => {
+        const body: Record<string, unknown> = { email, password };
+        if (totp_code) body.totp_code = totp_code;
+
         const res = await fetch(`${API_URL}/api/auth/login`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, password }),
+            body: JSON.stringify(body),
         });
         if (!res.ok) {
-            const detail = await res.json().catch(() => ({ detail: 'Error de login' }));
-            throw new Error(detail.detail || `HTTP ${res.status}`);
+            const raw = await res.json().catch(() => ({ detail: 'Error de login' }));
+            // detail puede ser string (default) o object { detail, code } (2FA)
+            const innerDetail = typeof raw.detail === 'object' ? raw.detail : null;
+            const message =
+                (innerDetail?.detail as string | undefined) ||
+                (typeof raw.detail === 'string' ? raw.detail : undefined) ||
+                `HTTP ${res.status}`;
+            const err = new Error(message) as Error & { code?: string };
+            err.code = innerDetail?.code;
+            throw err;
         }
         const data: TokenResponse = await res.json();
         persistSession(data);

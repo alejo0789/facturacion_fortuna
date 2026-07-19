@@ -10,6 +10,8 @@ export default function LoginPage() {
 
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [totpCode, setTotpCode] = useState('');
+    const [needsTotp, setNeedsTotp] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [submitting, setSubmitting] = useState(false);
 
@@ -18,9 +20,16 @@ export default function LoginPage() {
         setError(null);
         setSubmitting(true);
         try {
-            await login(email, password);
+            await login(email, password, needsTotp ? totpCode : undefined);
             navigate(from, { replace: true });
         } catch (err) {
+            const code = (err as Error & { code?: string })?.code;
+            if (code === '2fa_required') {
+                setNeedsTotp(true);
+                setError(null);
+                setSubmitting(false);
+                return;
+            }
             setError(err instanceof Error ? err.message : 'Error al iniciar sesión');
         } finally {
             setSubmitting(false);
@@ -176,6 +185,27 @@ export default function LoginPage() {
                                 placeholder="••••••••"
                             />
                         </div>
+                        {needsTotp && (
+                            <div className="anim-fade-up">
+                                <label className="kicker block mb-2">Código 2FA (6 dígitos)</label>
+                                <input
+                                    type="text"
+                                    inputMode="numeric"
+                                    pattern="[0-9]*"
+                                    maxLength={6}
+                                    value={totpCode}
+                                    onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, ''))}
+                                    required
+                                    autoFocus
+                                    autoComplete="one-time-code"
+                                    className="input-field font-mono text-center tracking-widest"
+                                    placeholder="000000"
+                                />
+                                <p className="text-[11px] mt-1.5" style={{ color: 'var(--ink-faint)' }}>
+                                    Abre tu app de autenticación (Google Authenticator, Authy, 1Password…).
+                                </p>
+                            </div>
+                        )}
                         <button
                             type="submit"
                             disabled={submitting}
