@@ -129,6 +129,25 @@ class Settings(BaseSettings):
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
+    @field_validator("DATABASE_URL")
+    @classmethod
+    def _normalize_database_url(cls, v: str) -> str:
+        """Acepta el formato que dan Railway/Heroku/Supabase y lo convierte
+        al que asyncpg necesita:
+
+          postgres://...      → postgresql+asyncpg://...
+          postgresql://...    → postgresql+asyncpg://...
+
+        Además, convierte ?sslmode=require (psycopg2) → ?ssl=require (asyncpg).
+        """
+        if v.startswith("postgres://"):
+            v = "postgresql+asyncpg://" + v[len("postgres://"):]
+        elif v.startswith("postgresql://") and "+asyncpg" not in v:
+            v = "postgresql+asyncpg://" + v[len("postgresql://"):]
+        # asyncpg entiende `ssl=require`, no `sslmode=require`.
+        v = v.replace("?sslmode=", "?ssl=").replace("&sslmode=", "&ssl=")
+        return v
+
     @field_validator("JWT_SECRET_KEY")
     @classmethod
     def _warn_default_jwt(cls, v: str) -> str:

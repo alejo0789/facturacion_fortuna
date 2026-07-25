@@ -1,0 +1,42 @@
+# --- Python bytecode + venv ---
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+.venv/
+venv/
+env/
+
+# --- Secretos (nunca al build context) ---
+.env
+.env.*
+!.env.example
+*.env
+
+# --- Test / dev artifacts ---
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.tox/
+
+# --- Storage local (los uploads van a Volume en prod) ---
+storage/
+temp/
+uploads/
+*.sqlite
+*.db
+
+# --- Scripts one-off que ensuciaban el repo ---
+analyze_errors.py
+assign_internet_category.py
+buscar_nb_dc07_1700.py
+check_*.py
+smoke_test.py
+
+# --- IDE ---
+.vscode/
+.idea/
+*.swp
+*.log

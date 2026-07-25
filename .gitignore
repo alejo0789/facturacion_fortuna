@@ -223,6 +223,7 @@ backup_db/
 !DEPLOYMENT_LOCAL.md
 !SETUP_N8N.md
 !SECURITY.md
+!DEPLOYMENT_RAILWAY.md
 !n8n/README_INTEGRACION.md
 !backend/migrations/*.sql
 # NOTA: backend/.env.example y frontend/.env.production se SACARON del repo

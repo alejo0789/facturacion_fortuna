@@ -54,6 +54,8 @@ cubre, en un solo producto, el ciclo completo de:
    11. [Reset y limpieza](#10-resetear-todo-limpieza)
    12. [Troubleshooting](#11-troubleshooting)
 9. [Despliegue en producción](#despliegue-en-producción)
+   - Railway: ver [`DEPLOYMENT_RAILWAY.md`](./DEPLOYMENT_RAILWAY.md)
+   - Apache tradicional: ver [`DEPLOYMENT_LOCAL.md`](./DEPLOYMENT_LOCAL.md)
 10. [Seguridad](#seguridad)
 11. [Autenticación — JWT y API Key](#autenticación--jwt-y-api-key)
 12. [Estructura del repositorio](#estructura-del-repositorio)
