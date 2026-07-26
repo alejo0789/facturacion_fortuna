@@ -70,7 +70,14 @@ class AuthDualMiddleware:
             await self.app(scope, receive, send)
             return
 
-        path = scope.get("path", "")
+        # Normalizar slashes duplicados en el path (`//api/x` → `/api/x`).
+        # Sin esto, si el frontend arma URLs con VITE_API_URL terminado en `/`,
+        # `//api/auth/login` no matchea el set literal de PUBLIC_ROUTES y
+        # el usuario recibe 401 aunque las credenciales sean correctas.
+        # nginx normaliza esto por default; aquí lo hacemos explícito por si
+        # la app sirve directo sin reverse proxy delante.
+        raw_path = scope.get("path", "") or "/"
+        path = re.sub(r"/+", "/", raw_path)
         method = scope.get("method", "")
 
         # CORS preflight
