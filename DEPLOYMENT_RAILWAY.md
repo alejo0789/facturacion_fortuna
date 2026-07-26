@@ -444,10 +444,22 @@ python -c "import secrets; print('N8N_ENCRYPTION_KEY=' + secrets.token_hex(32))"
 
 ### 8.2 Crear el servicio n8n
 
-1. En el project → **+ Add** → **Docker Image**.
-2. **Image Name**: `n8nio/n8n:latest`.
+**Importante**: NO uses la imagen `n8nio/n8n:latest` directa — falla en el
+primer arranque con `EACCES: permission denied, open '/home/node/.n8n/config'`
+porque Railway monta los volúmenes como `root:root` y n8n corre como
+usuario `node` (UID 1000).
+
+Solución: usamos un mini-Dockerfile ya incluido en el repo (`n8n-service/`)
+que envuelve la imagen oficial y hace chown del volumen antes de arrancar.
+
+1. En el project → **+ Add** → **GitHub Repo**.
+2. Selecciona tu repo (el mismo del backend/frontend).
 3. Nombre del servicio: `n8n`.
-4. Mantén la misma **Region** que tu backend.
+4. Tab **Settings**:
+   - **Branch**: `saas-multitenant`
+   - **Root Directory**: `n8n-service`
+   - **Builder**: Dockerfile (auto-detectado)
+5. Mantén la misma **Region** que tu backend.
 
 ### 8.3 Adjuntar volumen
 
