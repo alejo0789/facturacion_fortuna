@@ -5,8 +5,33 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Default to a local postgres instance if not set
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/supplier_db")
+
+def _normalize_database_url(url: str) -> str:
+    """Convierte el formato que dan Railway/Heroku (`postgresql://` con
+    driver default psycopg2) al formato que necesita asyncpg
+    (`postgresql+asyncpg://`).
+
+    También convierte `?sslmode=require` → `?ssl=require` (psycopg2 usa el
+    primero, asyncpg entiende el segundo).
+
+    Esta lógica está duplicada en `core/config.py` (validador Pydantic) —
+    la mantenemos también aquí porque este módulo se importa muy temprano
+    (antes que `core.config` en algunos paths) y no queremos depender de
+    orden de imports para arrancar la BD.
+    """
+    if url.startswith("postgres://"):
+        url = "postgresql+asyncpg://" + url[len("postgres://"):]
+    elif url.startswith("postgresql://") and "+asyncpg" not in url:
+        url = "postgresql+asyncpg://" + url[len("postgresql://"):]
+    url = url.replace("?sslmode=", "?ssl=").replace("&sslmode=", "&ssl=")
+    return url
+
+
+# Default: local postgres. En Railway, DATABASE_URL viene inyectada como
+# referencia al servicio Postgres y se normaliza al formato asyncpg.
+DATABASE_URL = _normalize_database_url(
+    os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/supplier_db")
+)
 
 engine = create_async_engine(DATABASE_URL, echo=True)
 
