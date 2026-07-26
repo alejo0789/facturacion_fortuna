@@ -138,7 +138,11 @@ class Empresa(Base):
 
     # Almacenamiento de archivos
     storage_type = Column(String(20), default="local")  # local, ftp, s3
-    storage_path = Column(String(500), default="./storage/facturas")
+    # NULL por default → services.storage_paths.resolve_storage_path()
+    # auto-deriva a `settings.STORAGE_PATH / <empresa.id>`. Solo se setea
+    # explícitamente cuando el tenant tiene un path especial (SMB share,
+    # UNC de red, etc.).
+    storage_path = Column(String(500), nullable=True)
     ftp_host = Column(String(255))
     ftp_port = Column(Integer, default=21)
     ftp_user = Column(String(100))

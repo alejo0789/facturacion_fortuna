@@ -719,6 +719,7 @@ Migraciones actuales:
 | `011_dian_multi_metodo_auth.sql` | Método de auth DIAN + credenciales por método (encriptadas) |
 | `012_security_hardening.sql` | `rate_limit_events`, `token_blacklist`, `audit_log` |
 | `013_two_factor_auth.sql` | `two_factor_secret_enc` + `two_factor_enabled` en `usuarios` |
+| `014_storage_paths_auto.sql` | Limpieza de `storage_path` defaults viejos → NULL (auto-derivado por-empresa) |
 
 Si la base está vacía, sáltate este paso — el `lifespan` del backend
 crea todo desde cero con `Base.metadata.create_all` (equivalente a aplicar

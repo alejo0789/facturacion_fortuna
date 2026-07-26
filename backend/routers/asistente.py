@@ -413,8 +413,9 @@ async def process_documents(
             ),
         )
 
-    storage_path = getattr(empresa, "storage_path", None) or LEGACY_INVOICE_PATH
-    temporal_path = TEMPORAL_FILES_PATH_FALLBACK  # TODO: hacer también per-tenant
+    from services.storage_paths import resolve_storage_path, resolve_temp_path
+    storage_path = resolve_storage_path(empresa)   # auto-derivado por empresa.id
+    temporal_path = resolve_temp_path(empresa)     # ídem
     openai_credential_id = getattr(empresa, "n8n_credential_openai_id", None)
 
     # Gemini API key resuelta para inyectar en cada file_info y llegar hasta
@@ -422,12 +423,7 @@ async def process_documents(
     gemini_api_key = google_oauth.resolve_gemini_api_key(empresa)
     for f in valid_files:
         f["gemini_api_key"] = gemini_api_key
-
-    if not os.path.exists(storage_path):
-        try:
-            os.makedirs(storage_path, exist_ok=True)
-        except Exception as e:
-            print(f"Error creando directorio {storage_path}: {e}")
+    # resolve_storage_path/resolve_temp_path ya crearon las carpetas si no existían.
 
     background_tasks.add_task(
         process_files_sequentially_task,

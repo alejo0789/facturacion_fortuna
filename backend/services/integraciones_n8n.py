@@ -86,7 +86,8 @@ def get_shared_process_email_url() -> Optional[str]:
 def get_upload_config(empresa) -> N8nUploadConfig:
     """Resuelve la config de upload n8n para la empresa activa.
 
-    Precedencia: override empresa → SaaS-shared → env legacy → constante legacy.
+    Precedencia webhook: override empresa → SaaS-shared → env legacy → constante legacy.
+    Storage path: auto-derivado por-empresa (`services/storage_paths.py`).
     """
     empresa_override = getattr(empresa, "n8n_webhook_url", None)
     shared = get_shared_process_url()
@@ -96,10 +97,13 @@ def get_upload_config(empresa) -> N8nUploadConfig:
         not shared or empresa_override != shared
     )
 
+    # Import diferido para no crear circular imports en tests aislados.
+    from services.storage_paths import resolve_storage_path
+
     return N8nUploadConfig(
         webhook_url=webhook_url,
         api_key=getattr(empresa, "api_key", "") or os.getenv("API_KEY", ""),
-        storage_path=(getattr(empresa, "storage_path", None) or LEGACY_INVOICE_PATH),
+        storage_path=resolve_storage_path(empresa),
         openai_credential_id=getattr(empresa, "n8n_credential_openai_id", None),
         empresa_id=empresa.id,
         is_self_hosted=is_self_hosted,

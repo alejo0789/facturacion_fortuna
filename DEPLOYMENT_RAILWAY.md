@@ -283,9 +283,28 @@ STORAGE_PATH=/app/storage/facturas
 TEMPORAL_FILES_PATH=/app/storage/temp
 ```
 
-Y en la app (tras el primer login), en el panel **Integraciones** de cada
-Empresa, setea `storage_path = /app/storage/facturas/<slug-empresa>` para
-aislar archivos por tenant.
+**Eso es todo.** No hay que configurar `storage_path` por-empresa a mano —
+el helper `services/storage_paths.resolve_storage_path()` deriva
+automáticamente `<STORAGE_PATH>/<empresa.id>` para cada tenant. Las
+carpetas se crean solas al primer upload:
+
+```
+/app/storage/facturas/1/    ← Empresa La Fortuna
+/app/storage/facturas/2/    ← Empresa Cliente X
+/app/storage/facturas/3/    ← Empresa Cliente Y
+...
+```
+
+Si algún tenant requiere un path especial (SMB share, /mnt propio, etc.),
+se puede sobreescribir editando `empresas.storage_path` directamente en BD
+o vía el panel Integraciones — pero es la excepción, no la regla.
+
+> **Aplicar migración 014**: si vienes migrando desde una BD anterior
+> (Postgres ya poblada con el default viejo `'./storage/facturas'`), corre
+> `migrations/014_storage_paths_auto.sql` para que los tenants existentes
+> pasen al modo auto-derivado. En Railway con Postgres fresco (creado en
+> este deploy), no hace falta — `Base.metadata.create_all` ya usa el nuevo
+> default `NULL`.
 
 > ⚠️ Los volumes de Railway están vinculados a un solo servicio y **no
 > escalan a múltiples réplicas**. Si más adelante escalas horizontalmente,

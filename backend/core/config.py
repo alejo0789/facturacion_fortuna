@@ -85,6 +85,18 @@ class Settings(BaseSettings):
     # con Chrome real y CDP si Turnstile bloquea.
     DIAN_HEADLESS: bool = False
 
+    # ---------- Storage de facturas ----------
+    # Base path donde se agrupan las carpetas por-empresa (una carpeta por
+    # empresa.id). En Railway con Volume: /app/storage/facturas.
+    # En local: ./storage/facturas (relativo al cwd del backend).
+    # No hace falta configurarlo por-empresa — `services/storage_paths.py`
+    # deriva el path automáticamente. Un tenant puede sobreescribir con su
+    # propio path (UNC de SMB, etc.) editando `empresas.storage_path`.
+    STORAGE_PATH: str = "./storage/facturas"
+
+    # Path para adjuntos temporales del buscador de correo (por-empresa).
+    TEMPORAL_FILES_PATH: str = "./storage/temp"
+
     # ---------- Superadmin semilla ----------
     SUPERADMIN_EMAIL: str = "admin@admin.com"
     SUPERADMIN_PASSWORD: str = "admin123"
