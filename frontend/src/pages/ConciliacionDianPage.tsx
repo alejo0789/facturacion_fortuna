@@ -463,7 +463,8 @@ export default function ConciliacionDianPage() {
             const data = await apiGet<ConciliacionResponse>('/api/conciliacion-dian/conciliacion', {
                 fecha_desde: concFechaDesde,
                 fecha_hasta: concFechaHasta,
-                solo_compras: concSoloCompras,
+                // FastAPI acepta "true"/"false" para bool en query params
+                solo_compras: concSoloCompras ? 'true' : 'false',
             });
             setConc(data);
         } catch (err) {
@@ -1393,7 +1394,7 @@ export default function ConciliacionDianPage() {
                                             <YAxis fontSize={10} stroke="var(--ink-faint)"
                                                 tickFormatter={(v: number) => v > 1e6 ? `${(v / 1e6).toFixed(0)}M` : v > 1e3 ? `${(v / 1e3).toFixed(0)}K` : `${v}`} />
                                             <Tooltip
-                                                formatter={(v: number) => formatCOP(v)}
+                                                formatter={(v: number | undefined) => formatCOP(v ?? 0)}
                                                 contentStyle={{ background: 'var(--surface)', border: '1px solid var(--rule)', fontSize: 12 }}
                                             />
                                             <Legend wrapperStyle={{ fontSize: 11 }} />

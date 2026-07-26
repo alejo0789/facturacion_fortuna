@@ -58,10 +58,8 @@ interface OutlookStatus {
     has_custom_client: boolean;
 }
 
-const PROVIDER_LABEL: Record<EmailProvider, string> = {
-    outlook: 'Microsoft Outlook',
-    gmail: 'Gmail',
-};
+// PROVIDER_LABEL fue removido — no está en uso. Los labels se manejan
+// inline en el JSX o en constantes por-card.
 
 export default function IntegracionesPage() {
     const [data, setData] = useState<Integraciones | null>(null);
