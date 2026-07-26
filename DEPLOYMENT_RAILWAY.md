@@ -255,22 +255,47 @@ CORS_ORIGINS=https://facturacion-frontend.up.railway.app
 Los contenedores de Railway tienen filesystem **efímero** — si redespliegas
 el backend, los PDFs subidos se pierden. Solución: montar un volume.
 
-1. Tab **Settings** del backend → sección **Volumes** → **Add Volume**.
-2. Configuración:
-   - **Name**: `storage`
+**En la UI actual de Railway** (finales 2025+) los Volumes se crean desde el
+canvas del project, NO desde Settings del servicio:
+
+1. Vuelve al **Project view** (vista con los cuadros de servicios).
+2. Click **`+ Add`** o **`+ Create`** arriba a la derecha (junto a `Deploy`).
+3. En el menú → **Volume**.
+4. Selecciona a qué servicio adjuntarlo → `backend` (o el nombre que le
+   diste, ej. `facturacion_fortuna`).
+5. Configura:
    - **Mount Path**: `/app/storage`
-   - **Size**: 10GB (ajustable después)
-3. Añade variables:
-   ```
-   STORAGE_PATH=/app/storage/facturas
-   TEMPORAL_FILES_PATH=/app/storage/temp
-   ```
-4. En **Empresa** (Panel Integraciones dentro de la app, tras el primer login),
-   setea `storage_path = /app/storage/facturas/<slug-empresa>`.
+   - **Region**: **la misma región que el servicio backend** (para latencia
+     baja — Railway te la sugiere por default).
+   - **Size**: 10GB (ajustable después, empieza pequeño; se cobra por lo asignado).
+   - **Name**: Railway lo autogenera como `<servicio>-volume` — está bien así.
+
+Al confirmar:
+- El volume aparece como un pequeño chip debajo del servicio backend en el
+  canvas (ícono de disco + nombre).
+- Se abre la vista del volume con tabs **Metrics** y **Settings** — desde ahí
+  puedes cambiar mount path, tamaño y ver uso.
+
+Ahora en las **Variables del backend** añade:
+
+```
+STORAGE_PATH=/app/storage/facturas
+TEMPORAL_FILES_PATH=/app/storage/temp
+```
+
+Y en la app (tras el primer login), en el panel **Integraciones** de cada
+Empresa, setea `storage_path = /app/storage/facturas/<slug-empresa>` para
+aislar archivos por tenant.
 
 > ⚠️ Los volumes de Railway están vinculados a un solo servicio y **no
 > escalan a múltiples réplicas**. Si más adelante escalas horizontalmente,
 > migra a S3/R2/GCS. Ver sección [Backups + observabilidad](#14-backups--observabilidad).
+
+> **UI variations**: si estás en una versión antigua del dashboard, el
+> Volume puede aparecer directamente en `Settings → Volumes` del servicio,
+> o al hacer click sobre el servicio en el canvas y ver un botón `+ Add Volume`
+> en el panel lateral. El flujo del canvas (`+ Add` global) descrito arriba
+> es el que funciona con la UI actual.
 
 ### 6.5 Health check
 
