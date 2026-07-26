@@ -13,7 +13,12 @@
 #   - Root Directory: n8n-service
 #   - Builder: Dockerfile (auto-detectado)
 # =============================================================================
-FROM docker.n8n.io/n8nio/n8n:latest
+# Usamos Docker Hub (registry default) en vez de docker.n8n.io porque el
+# registry oficial de n8n rate-limita agresivo (429 al primer build en Railway).
+# Docker Hub tiene la misma imagen sincronizada.
+# Pineamos versión específica (no `latest`) para builds reproducibles y para
+# evitar sorpresas por breaking changes al re-desplegar.
+FROM n8nio/n8n:1.75.0
 
 # Necesitamos root para chown y para instalar su-exec
 USER root
