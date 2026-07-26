@@ -420,36 +420,129 @@ Redespliega el backend (**Deploy** o push).
 
 ---
 
-## 8. Servicio 4 — n8n
+## 8. Servicio 4 — n8n dedicado (recomendado)
 
-**Ya tienes un n8n en Railway** — solo lo enlazas al backend con sus URLs.
+**Recomendación**: crear un servicio n8n **dentro del mismo project** en vez
+de reusar uno de otro proyecto. Aislamiento operativo, private networking,
+credenciales OAuth de clientes no mezcladas con otros proyectos del equipo.
 
-En tu n8n:
+Costo extra: ~$5-8/mes por el contenedor + volumen.
 
-1. Importa el workflow (una sola vez): `n8n/workflow_facturacion_saas.json`.
-   Ver [`SETUP_N8N.md`](./SETUP_N8N.md) para los pasos completos.
-2. Activa el workflow.
-3. Copia las URLs de los 3 webhooks:
-   - `/webhook/procesar-factura`
-   - `/webhook/buscar-facturas`
-   - `/webhook/procesar-adjunto`
+### 8.1 Generar secretos locales
 
-En el backend Railway → **Variables**:
+Antes de tocar Railway, genera los 2 secretos que necesitas y guárdalos en
+tu gestor de contraseñas. **Si pierdes `N8N_ENCRYPTION_KEY`, todas las
+credenciales OAuth guardadas en n8n quedan inutilizables e irrecuperables.**
 
-```bash
-N8N_PROCESS_WEBHOOK_URL=https://tu-n8n.up.railway.app/webhook/procesar-factura
-N8N_SEARCH_WEBHOOK_URL=https://tu-n8n.up.railway.app/webhook/buscar-facturas
-N8N_PROCESS_EMAIL_WEBHOOK_URL=https://tu-n8n.up.railway.app/webhook/procesar-adjunto
+```powershell
+# Password del panel n8n
+python -c "import secrets, string; alfabeto = string.ascii_letters + string.digits + '!@#$%^&*'; print('N8N_BASIC_AUTH_PASSWORD=' + ''.join(secrets.choice(alfabeto) for _ in range(24)))"
+
+# Encryption key (64 chars hex)
+python -c "import secrets; print('N8N_ENCRYPTION_KEY=' + secrets.token_hex(32))"
 ```
 
-Redespliega el backend.
+### 8.2 Crear el servicio n8n
+
+1. En el project → **+ Add** → **Docker Image**.
+2. **Image Name**: `n8nio/n8n:latest`.
+3. Nombre del servicio: `n8n`.
+4. Mantén la misma **Region** que tu backend.
+
+### 8.3 Adjuntar volumen
+
+Mismo flow que el paso 6.4 (volume del backend):
+
+1. Canvas del project → **+ Add** → **Volume**.
+2. Adjuntar a `n8n`.
+3. **Mount Path**: `/home/node/.n8n`
+4. **Size**: 5 GB
+
+### 8.4 Generar dominio (y copiarlo)
+
+Servicio `n8n` → **Settings → Networking → Generate Domain**.
+
+Railway te asigna algo como `n8n-production-e4a2.up.railway.app`.
+
+**Cópialo — lo vas a pegar 3 veces en las variables.**
+
+### 8.5 Configurar variables del n8n
+
+Tab **Variables** → **Raw Editor** → pega:
+
+```bash
+# Auth básica del panel (protege el UI)
+N8N_BASIC_AUTH_ACTIVE=true
+N8N_BASIC_AUTH_USER=admin
+N8N_BASIC_AUTH_PASSWORD=<pega el generado en 8.1>
+
+# Encriptación de credenciales internas de n8n
+N8N_ENCRYPTION_KEY=<pega el generado en 8.1>
+
+# Host y protocolo — el subdominio del paso 8.4
+N8N_HOST=<subdominio-del-8.4>
+N8N_PROTOCOL=https
+N8N_PORT=5678
+WEBHOOK_URL=https://<subdominio-del-8.4>/
+
+# Timezone Colombia
+GENERIC_TIMEZONE=America/Bogota
+TZ=America/Bogota
+
+# Ejecuciones — retención 7 días (evita que el volumen crezca sin control)
+EXECUTIONS_DATA_PRUNE=true
+EXECUTIONS_DATA_MAX_AGE=168
+```
+
+**Save** → Railway redespliega el n8n con las variables. ~2 min.
+
+### 8.6 Setup inicial de n8n
+
+1. Abre `https://<tu-subdominio>.up.railway.app` en el navegador.
+2. Prompt **Basic Auth** → user `admin`, password del 8.1.
+3. Wizard **Setup Owner Account** — crea la cuenta owner con tu email real
+   (distinta del basic auth; esta es la que administra los workflows).
+
+### 8.7 Importar el workflow
+
+1. Panel n8n → menú lateral **Workflows** → **Import from File**.
+2. Sube `n8n/workflow_facturacion_saas.json` desde tu clon local del repo.
+3. **Activa el workflow** (toggle arriba a la derecha).
+4. Click en cada nodo webhook → tab **Node** → copia la **Production URL**:
+   - **Webhook - Procesar Factura** → `/webhook/procesar-factura`
+   - **Webhook - Buscar Facturas** → `/webhook/buscar-facturas`
+   - **Webhook - Procesar Adjunto** → `/webhook/procesar-adjunto`
+
+### 8.8 Enlazar al backend
+
+Backend service → **Variables** → añade:
+
+```bash
+N8N_PROCESS_WEBHOOK_URL=https://<subdominio>/webhook/procesar-factura
+N8N_SEARCH_WEBHOOK_URL=https://<subdominio>/webhook/buscar-facturas
+N8N_PROCESS_EMAIL_WEBHOOK_URL=https://<subdominio>/webhook/procesar-adjunto
+```
+
+**Deploy** para que el backend recargue.
 
 ### Comunicación n8n → backend
 
-n8n también necesita saber la URL de callback del backend. Al importar el
-workflow, verás nodos HTTP Request apuntando a `{{$json.callback_url}}` — esa
-URL viaja en el payload que el backend envía al webhook, así que **no hace
-falta configurarla estáticamente en n8n**.
+n8n necesita saber la URL del backend para el callback. NO se configura
+estáticamente — el backend inyecta `callback_url` en el payload que envía
+al webhook, y los nodos HTTP Request lo leen con `{{$json.callback_url}}`.
+Nada que hacer manual.
+
+### Alternativa — reusar un n8n existente
+
+Si prefieres saltarte 8.1-8.6 y usar un n8n que ya tenías corriendo (en
+otro project de Railway o self-hosted):
+
+- Salta directo a 8.7 (importar workflow) en tu n8n existente.
+- Continúa con 8.8 con las URLs de ese n8n.
+
+Trade-offs: más barato (no otro contenedor) pero acoplamiento entre
+proyectos + latencia HTTP pública. Ver documento adjunto sobre esta
+decisión en el chat de deploy.
 
 ---
 
