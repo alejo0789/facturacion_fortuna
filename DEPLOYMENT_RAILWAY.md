@@ -369,15 +369,28 @@ Mira los logs en tiempo real:
 
 **Importante**: como Vite hornea `import.meta.env.VITE_*` en el bundle al
 hacer build, estas variables se deben inyectar como **Build Args**, no como
-runtime env. Nuestro Dockerfile ya está preparado:
+runtime env. Nuestro Dockerfile ya está preparado.
 
-Tab **Variables** del frontend → añade:
+**Railway auto-detecta variables** `VITE_*` en el código y las sugiere. Vas
+a ver 3 en "Suggested Variables" — hay que decidir qué hacer con cada una:
+
+| Variable sugerida | Acción | Por qué |
+|---|---|---|
+| `VITE_API_URL` | ✅ **Mantener** con la URL del backend | La que necesitas para que el frontend hable con la API |
+| `VITE_API_KEY` | ⚠️ **Eliminar** (click la X) | Es `LEGACY_API_KEY` — solo se usaba con el n8n antiguo de La Fortuna. En Railway los usuarios se autentican por JWT normal. El placeholder por default es INSEGURO |
+| `VITE_AUTHORIZED_EMAILS` | 🗑️ **Eliminar** (click la X) | Código muerto — no está referenciado en ningún lado del frontend actual. Vestigio de un feature descartado |
+
+Configuración final — **solo estas 2 variables** en el frontend:
 
 ```bash
-# URL del backend (la que copiaste en el paso 6.6)
+# URL del backend (la que copiaste en el paso 6.6). SIN slash al final —
+# evita que otros callers hagan concat y generen `//api/`.
 VITE_API_URL=https://facturacion-backend-production.up.railway.app
 
-# Base path — en Railway se sirve en la raíz del dominio
+# Base path — en Railway se sirve en la raíz del dominio.
+# CRÍTICA: sin esta variable el frontend usa `/facturacion_ia/` como base
+# y las rutas dan 404. Es el default del vite.config.ts para el deploy
+# Apache legacy.
 VITE_BASE_PATH=/
 ```
 
