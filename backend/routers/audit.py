@@ -61,8 +61,10 @@ async def list_audit_log(
 
     # Los eventos auth.* (login/logout/2FA) se registran antes de que el
     # usuario elija empresa, así que quedan con empresa_id=NULL. Los
-    # incluimos aquí atándolos a los usuarios que pertenecen a la empresa
-    # activa — así el ADMIN de esa empresa ve los logins de su equipo.
+    # incluimos aquí bajo dos criterios:
+    #   - user_id pertenece a la empresa activa (miembros vía usuario_empresa)
+    #   - user_id == current_user.id (cubre a superadmin, que no está en
+    #     usuario_empresa pero ve las empresas por bypass es_superadmin)
     user_ids_subq = select(UsuarioEmpresa.usuario_id).where(
         UsuarioEmpresa.empresa_id == filter_empresa_id
     )
@@ -70,7 +72,10 @@ async def list_audit_log(
         AuditLog.empresa_id == filter_empresa_id,
         and_(
             AuditLog.empresa_id.is_(None),
-            AuditLog.user_id.in_(user_ids_subq),
+            or_(
+                AuditLog.user_id == current_user.id,
+                AuditLog.user_id.in_(user_ids_subq),
+            ),
         ),
     )
     stmt = select(AuditLog).where(scope_condition)
@@ -150,7 +155,10 @@ async def list_action_types(
         AuditLog.empresa_id == empresa.id,
         and_(
             AuditLog.empresa_id.is_(None),
-            AuditLog.user_id.in_(user_ids_subq),
+            or_(
+                AuditLog.user_id == current_user.id,
+                AuditLog.user_id.in_(user_ids_subq),
+            ),
         ),
     )
     result = await db.execute(
