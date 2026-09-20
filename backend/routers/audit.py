@@ -16,13 +16,13 @@ from datetime import date, datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
 from core.dependencies import get_current_empresa, get_current_user, require_role
 from models_security import AuditLog
-from models_tenant import Usuario
+from models_tenant import Usuario, UsuarioEmpresa
 from schemas_audit import AuditLogEntry, AuditLogPage
 
 
@@ -59,10 +59,22 @@ async def list_audit_log(
             )
         filter_empresa_id = empresa_id_override
 
-    stmt = select(AuditLog).where(AuditLog.empresa_id == filter_empresa_id)
-    count_stmt = select(func.count(AuditLog.id)).where(
-        AuditLog.empresa_id == filter_empresa_id
+    # Los eventos auth.* (login/logout/2FA) se registran antes de que el
+    # usuario elija empresa, así que quedan con empresa_id=NULL. Los
+    # incluimos aquí atándolos a los usuarios que pertenecen a la empresa
+    # activa — así el ADMIN de esa empresa ve los logins de su equipo.
+    user_ids_subq = select(UsuarioEmpresa.usuario_id).where(
+        UsuarioEmpresa.empresa_id == filter_empresa_id
     )
+    scope_condition = or_(
+        AuditLog.empresa_id == filter_empresa_id,
+        and_(
+            AuditLog.empresa_id.is_(None),
+            AuditLog.user_id.in_(user_ids_subq),
+        ),
+    )
+    stmt = select(AuditLog).where(scope_condition)
+    count_stmt = select(func.count(AuditLog.id)).where(scope_condition)
 
     if fecha_desde:
         dt = datetime.combine(fecha_desde, datetime.min.time()).replace(tzinfo=timezone.utc)
@@ -131,9 +143,19 @@ async def list_action_types(
 
     Útil para poblar un dropdown en la UI.
     """
+    user_ids_subq = select(UsuarioEmpresa.usuario_id).where(
+        UsuarioEmpresa.empresa_id == empresa.id
+    )
+    scope_condition = or_(
+        AuditLog.empresa_id == empresa.id,
+        and_(
+            AuditLog.empresa_id.is_(None),
+            AuditLog.user_id.in_(user_ids_subq),
+        ),
+    )
     result = await db.execute(
         select(AuditLog.action, func.count(AuditLog.id))
-        .where(AuditLog.empresa_id == empresa.id)
+        .where(scope_condition)
         .group_by(AuditLog.action)
         .order_by(func.count(AuditLog.id).desc())
     )
