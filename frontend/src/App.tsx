@@ -5,6 +5,8 @@
  *   /           → LandingPage
  *   /login      → LoginPage
  *   /register   → RegisterPage (wizard)
+ *   /privacidad → PrivacidadPage (Habeas Data Ley 1581)
+ *   /terminos   → TerminosPage
  *
  * Rutas protegidas (requieren sesión):
  *   /app                       → DashboardHome
@@ -36,6 +38,8 @@ import DashboardHome from './pages/DashboardHome';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import LandingPage from './pages/LandingPage';
+import PrivacidadPage from './pages/PrivacidadPage';
+import TerminosPage from './pages/TerminosPage';
 
 // Lazy-loaded route chunks
 const Dashboard = lazy(() => import('./pages/Dashboard'));
@@ -117,6 +121,10 @@ export default function App() {
                 <Route path="/" element={<PublicRoute><LandingPage /></PublicRoute>} />
                 <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
                 <Route path="/register" element={<PublicRoute><RegisterPage /></PublicRoute>} />
+
+                {/* Rutas legales — visibles siempre, sin redirección */}
+                <Route path="/privacidad" element={<PrivacidadPage />} />
+                <Route path="/terminos" element={<TerminosPage />} />
 
                 {/* Rutas protegidas (shell autenticado) */}
                 <Route path="/app/*" element={<ProtectedRoute><AppShell /></ProtectedRoute>} />
