@@ -1010,13 +1010,24 @@ async def ver_factura(
 
     with open(local_path, "rb") as f:
         content = f.read()
-    
-    # Return with inline disposition so browser displays it instead of downloading
+
+    # El middleware global setea X-Frame-Options: DENY para prevenir
+    # clickjacking. Aquí lo relajamos: el visor de facturas en el frontend
+    # SÍ necesita embeder el PDF en un iframe cross-origin. Usamos CSP
+    # `frame-ancestors` con la lista de orígenes permitidos (los mismos de
+    # CORS) — que browsers modernos priorizan sobre X-Frame-Options — y
+    # dejamos X-Frame-Options: SAMEORIGIN como fallback benigno para que
+    # el middleware no sobreescriba con DENY.
+    from core.config import settings as _settings
+    allowed_origins = " ".join(_settings.cors_origins_list) or "'self'"
+
     return Response(
         content=content,
         media_type="application/pdf",
         headers={
-            "Content-Disposition": f'inline; filename="{filename}"'
+            "Content-Disposition": f'inline; filename="{filename}"',
+            "X-Frame-Options": "SAMEORIGIN",
+            "Content-Security-Policy": f"frame-ancestors 'self' {allowed_origins}",
         }
     )
 

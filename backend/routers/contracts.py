@@ -156,10 +156,19 @@ async def get_contract_pdf(
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="Archivo no encontrado en el servidor")
 
+    # Ver comentario en /api/facturas/{id}/ver: relajamos X-Frame-Options y
+    # usamos CSP frame-ancestors para permitir embed desde el frontend.
+    from core.config import settings as _settings
+    allowed_origins = " ".join(_settings.cors_origins_list) or "'self'"
+
     return FileResponse(
         path=file_path,
         media_type='application/pdf',
-        headers={"Content-Disposition": f"inline; filename={file_path.name}"}
+        headers={
+            "Content-Disposition": f"inline; filename={file_path.name}",
+            "X-Frame-Options": "SAMEORIGIN",
+            "Content-Security-Policy": f"frame-ancestors 'self' {allowed_origins}",
+        }
     )
 
 @router.get("/contratos/{contrato_id}/pdf-url")
