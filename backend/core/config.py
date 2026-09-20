@@ -44,6 +44,12 @@ class Settings(BaseSettings):
     N8N_SEARCH_WEBHOOK_URL: Optional[str] = None   # workflow buscar correos (fase 2)
     N8N_PROCESS_EMAIL_WEBHOOK_URL: Optional[str] = None  # workflow procesar adjunto (fase 2)
 
+    # URL pública del backend para que n8n haga el callback (crear factura,
+    # entregar resultados de búsqueda). Se inyecta en el payload como
+    # `callback_url` — el workflow lo lee con {{ $json.callback_url }} en vez
+    # de hardcodear localhost. En Railway: la URL del servicio backend.
+    PUBLIC_BACKEND_URL: Optional[str] = None
+
     # ---------- OAuth Multi-tenant ----------
     # Modelo A (SaaS-managed): el operador registra UNA OAuth app por proveedor
     # en Google Cloud / Azure y pega las credenciales aquí. Cada empresa autoriza

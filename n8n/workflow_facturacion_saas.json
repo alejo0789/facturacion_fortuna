@@ -21,7 +21,7 @@
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "// n8n a veces anida el payload del webhook bajo .body (Content-Type\n// application/json). Aceptamos ambos por robustez. Además, si el payload\n// viene en $json directamente pero también existe body, priorizamos body.\nconst raw = $json || {};\nconst webhook = $('Webhook — Recibir Factura').item?.json || {};\nconst d = raw.body || webhook.body || raw || webhook;\nreturn {\n  apiKey: d.apiKey || '',\n  empresaId: d.empresaId || null,\n  gemini_credential_id: d.openai_credential_id || d.gemini_credential_id || '',\n  gemini_api_key: d.gemini_api_key || '',\n  file_path: d.file_path || '',\n  file_url: d.file_url || '',\n  filename: d.filename || '',\n  original_filename: d.original_filename || d.filename || '',\n  uploaded_at: d.uploaded_at || new Date().toISOString(),\n  pdf_base64: d.pdf_base64 || '',\n  pdf_mime_type: d.pdf_mime_type || 'application/pdf'\n};"
+        "jsCode": "// n8n a veces anida el payload del webhook bajo .body (Content-Type\n// application/json). Aceptamos ambos por robustez. Además, si el payload\n// viene en $json directamente pero también existe body, priorizamos body.\nconst raw = $json || {};\nconst webhook = $('Webhook — Recibir Factura').item?.json || {};\nconst d = raw.body || webhook.body || raw || webhook;\nreturn {\n  apiKey: d.apiKey || '',\n  empresaId: d.empresaId || null,\n  gemini_credential_id: d.openai_credential_id || d.gemini_credential_id || '',\n  gemini_api_key: d.gemini_api_key || '',\n  file_path: d.file_path || '',\n  file_url: d.file_url || '',\n  filename: d.filename || '',\n  original_filename: d.original_filename || d.filename || '',\n  uploaded_at: d.uploaded_at || new Date().toISOString(),\n  pdf_base64: d.pdf_base64 || '',\n  pdf_mime_type: d.pdf_mime_type || 'application/pdf',\n  // URL del backend para el POST final (crear factura). El backend la\n  // inyecta desde settings.PUBLIC_BACKEND_URL. Fallback duro a localhost\n  // solo para desarrollo — en prod SIEMPRE debe venir del backend.\n  callback_url: d.callback_url || 'http://127.0.0.1:8000/api/facturas/crear-con-oficina'\n};"
       },
       "name": "Extraer Contexto Tenant",
       "type": "n8n-nodes-base.code",
@@ -51,9 +51,9 @@
         "resource": "document",
         "modelId": {
           "__rl": true,
-          "value": "models/gemini-2.5-flash",
+          "value": "models/gemini-3.5-flash",
           "mode": "list",
-          "cachedResultName": "models/gemini-2.5-flash"
+          "cachedResultName": "models/gemini-3.5-flash"
         },
         "text": "Eres un experto en facturas colombianas. Analiza el PDF adjunto y devuelve SOLO un JSON válido con esta estructura exacta, sin texto adicional ni bloques markdown:\n\n{\n  \"proveedor_nit\": \"NIT del proveedor con dígito de verificación (ej 900238454-8)\",\n  \"proveedor_nombre\": \"Razón social del proveedor\",\n  \"numero_factura\": \"Número de la factura\",\n  \"cufe\": \"Código CUFE o null\",\n  \"fecha_factura\": \"YYYY-MM-DD\",\n  \"fecha_vencimiento\": \"YYYY-MM-DD o null\",\n  \"valor\": 123456,\n  \"observaciones\": \"Notas relevantes sobre la factura\"\n}\n\nReglas:\n- Si no encuentras un campo, ponlo como null.\n- \"valor\" debe ser número decimal sin separadores ni símbolo de moneda.\n- \"proveedor_nit\" debe incluir el dígito de verificación si está visible.\n- Responde SOLO con el JSON, sin texto antes ni después.",
         "inputType": "binary",
@@ -106,7 +106,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "http://127.0.0.1:8000/api/facturas/crear-con-oficina",
+        "url": "={{ $('Extraer Contexto Tenant').first().json.callback_url }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -137,7 +137,7 @@
       ],
       "typeVersion": 4.2,
       "id": "a3cb2c95-c36c-4119-b558-e22a5e8a2310",
-      "notes": "URL hardcoded a 127.0.0.1:8000 porque N8N_BLOCK_ENV_ACCESS_IN_NODE bloquea $env.* en expresiones. Si tu backend está en otro host, edita este campo tras importar."
+      "notes": "URL dinámica desde el payload: el backend inyecta callback_url basado en settings.PUBLIC_BACKEND_URL. El nodo 'Extraer Contexto Tenant' expone ese valor con fallback a localhost para dev."
     },
     {
       "parameters": {
@@ -216,7 +216,7 @@
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "// Mismo patrón que 'Procesar Factura' — extraer contexto tenant, aceptando\n// tanto payload plano como anidado bajo .body.\nconst raw = $json || {};\nconst webhook = $('Webhook — Recibir Adjunto').item?.json || {};\nconst d = raw.body || webhook.body || raw || webhook;\nreturn {\n  apiKey: d.apiKey || '',\n  empresaId: d.empresaId || null,\n  gemini_credential_id: d.openai_credential_id || d.gemini_credential_id || '',\n  gemini_api_key: d.gemini_api_key || '',\n  file_path: d.file_path || '',\n  file_url: d.file_url || '',\n  filename: d.filename || '',\n  original_filename: d.original_filename || d.filename || '',\n  uploaded_at: d.uploaded_at || new Date().toISOString(),\n  pdf_base64: d.pdf_base64 || '',\n  pdf_mime_type: d.pdf_mime_type || 'application/pdf'\n};"
+        "jsCode": "// Mismo patrón que 'Procesar Factura' — extraer contexto tenant, aceptando\n// tanto payload plano como anidado bajo .body.\nconst raw = $json || {};\nconst webhook = $('Webhook — Recibir Adjunto').item?.json || {};\nconst d = raw.body || webhook.body || raw || webhook;\nreturn {\n  apiKey: d.apiKey || '',\n  empresaId: d.empresaId || null,\n  gemini_credential_id: d.openai_credential_id || d.gemini_credential_id || '',\n  gemini_api_key: d.gemini_api_key || '',\n  file_path: d.file_path || '',\n  file_url: d.file_url || '',\n  filename: d.filename || '',\n  original_filename: d.original_filename || d.filename || '',\n  uploaded_at: d.uploaded_at || new Date().toISOString(),\n  pdf_base64: d.pdf_base64 || '',\n  pdf_mime_type: d.pdf_mime_type || 'application/pdf',\n  callback_url: d.callback_url || 'http://127.0.0.1:8000/api/facturas/crear-con-oficina'\n};"
       },
       "name": "Extraer Contexto Tenant Adjunto",
       "type": "n8n-nodes-base.code",
@@ -246,9 +246,9 @@
         "resource": "document",
         "modelId": {
           "__rl": true,
-          "value": "models/gemini-2.5-flash",
+          "value": "models/gemini-3.5-flash",
           "mode": "list",
-          "cachedResultName": "models/gemini-2.5-flash"
+          "cachedResultName": "models/gemini-3.5-flash"
         },
         "text": "Eres un experto en facturas colombianas. Analiza el PDF adjunto (capturado desde correo) y devuelve SOLO un JSON válido con esta estructura exacta, sin texto adicional ni bloques markdown:\n\n{\n  \"proveedor_nit\": \"NIT del proveedor con dígito de verificación (ej 900238454-8)\",\n  \"proveedor_nombre\": \"Razón social del proveedor\",\n  \"numero_factura\": \"Número de la factura\",\n  \"cufe\": \"Código CUFE o null\",\n  \"fecha_factura\": \"YYYY-MM-DD\",\n  \"fecha_vencimiento\": \"YYYY-MM-DD o null\",\n  \"valor\": 123456,\n  \"observaciones\": \"Notas relevantes sobre la factura\"\n}\n\nReglas:\n- Si no encuentras un campo, ponlo como null.\n- \"valor\" debe ser número decimal sin separadores ni símbolo de moneda.\n- \"proveedor_nit\" debe incluir el dígito de verificación si está visible.\n- Responde SOLO con el JSON, sin texto antes ni después.",
         "inputType": "binary",
@@ -301,7 +301,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "http://127.0.0.1:8000/api/facturas/crear-con-oficina",
+        "url": "={{ $('Extraer Contexto Tenant Adjunto').first().json.callback_url }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [

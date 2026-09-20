@@ -246,6 +246,14 @@ DIAN_HEADLESS=True
 # ----- CORS: URL del frontend Railway (la sabrás tras crear el servicio) -----
 # Placeholder — actualizar tras el paso 7.
 CORS_ORIGINS=https://facturacion-frontend.up.railway.app
+
+# ----- URL pública del backend (para callbacks de n8n) -----
+# n8n hace POST de vuelta al backend para crear la factura. El backend
+# inyecta esta URL en el payload como `callback_url` y el workflow la lee
+# con {{ $json.callback_url }} — así el workflow es idéntico entre dev y
+# prod (no hay que editar URLs tras importar).
+# Actualizar tras `Generate Domain` (paso 6.6). Sin slash al final.
+PUBLIC_BACKEND_URL=https://facturacion-backend.up.railway.app
 ```
 
 **No configures OAuth ni Gemini todavía** — esos van en el paso 11.
@@ -525,14 +533,26 @@ EXECUTIONS_DATA_MAX_AGE=168
    - **Webhook - Buscar Facturas** → `/webhook/buscar-facturas`
    - **Webhook - Procesar Adjunto** → `/webhook/procesar-adjunto`
 
+> **Modelo Gemini deprecado**: si al ejecutar el workflow los dos nodos
+> `Analyze document` fallan con `404 - This model models/gemini-*-flash is
+> no longer available`, actualiza el modelo desde el dropdown a la versión
+> vigente (ej. `models/gemini-3.5-flash`). Google rota modelos cada ~6-9
+> meses; el JSON del repo se actualiza cuando toca, pero puede ir un tick
+> atrás si tu import es antiguo.
+
 ### 8.8 Enlazar al backend
 
-Backend service → **Variables** → añade:
+Backend service → **Variables** → añade las 3 URLs de webhook Y verifica que
+`PUBLIC_BACKEND_URL` esté configurada (ver paso 6.3 — la usa el workflow
+para el callback de crear factura):
 
 ```bash
 N8N_PROCESS_WEBHOOK_URL=https://<subdominio>/webhook/procesar-factura
 N8N_SEARCH_WEBHOOK_URL=https://<subdominio>/webhook/buscar-facturas
 N8N_PROCESS_EMAIL_WEBHOOK_URL=https://<subdominio>/webhook/procesar-adjunto
+
+# YA debe estar del paso 6.3 — verifica que no siga con el placeholder:
+PUBLIC_BACKEND_URL=https://<tu-backend>.up.railway.app
 ```
 
 **Deploy** para que el backend recargue.
@@ -540,9 +560,18 @@ N8N_PROCESS_EMAIL_WEBHOOK_URL=https://<subdominio>/webhook/procesar-adjunto
 ### Comunicación n8n → backend
 
 n8n necesita saber la URL del backend para el callback. NO se configura
-estáticamente — el backend inyecta `callback_url` en el payload que envía
-al webhook, y los nodos HTTP Request lo leen con `{{$json.callback_url}}`.
-Nada que hacer manual.
+estáticamente en el workflow — el backend inyecta `callback_url` en el
+payload y los nodos HTTP Request lo leen con
+`{{ $('Extraer Contexto Tenant').first().json.callback_url }}`. El valor
+sale de `PUBLIC_BACKEND_URL` del backend, así que un solo workflow sirve
+para dev + staging + prod sin editar el JSON tras cada import.
+
+> **Troubleshooting** — si en n8n el nodo `API — Crear Factura` falla con
+> `ECONNREFUSED 127.0.0.1:8000`, significa que el backend NO envió
+> `callback_url` en el payload (el fallback del workflow es localhost).
+> Causas: (a) `PUBLIC_BACKEND_URL` no está seteada en las variables del
+> backend, o (b) el backend no ha redesplegado tras añadirla. Redespliega
+> el backend y vuelve a intentar el flujo desde el frontend.
 
 ### Alternativa — reusar un n8n existente
 
