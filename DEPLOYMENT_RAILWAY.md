@@ -546,15 +546,34 @@ Nada que hacer manual.
 
 ### Alternativa — reusar un n8n existente
 
-Si prefieres saltarte 8.1-8.6 y usar un n8n que ya tenías corriendo (en
-otro project de Railway o self-hosted):
+Si tu equipo ya tiene un n8n corriendo (otro project Railway, n8n cloud
+en n8n.io, o self-hosted en VPS), puedes reusarlo:
 
-- Salta directo a 8.7 (importar workflow) en tu n8n existente.
-- Continúa con 8.8 con las URLs de ese n8n.
+**Ventajas**: sin costo adicional, sin container extra que mantener.
+**Desventajas**: acoplamiento entre proyectos (si tumban el otro n8n,
+tumbas facturación), latencia HTTP pública, workflows conviven con los
+de otros proyectos.
 
-Trade-offs: más barato (no otro contenedor) pero acoplamiento entre
-proyectos + latencia HTTP pública. Ver documento adjunto sobre esta
-decisión en el chat de deploy.
+**Pasos**:
+
+1. **Salta 8.1-8.6** — no crees servicio nuevo en Railway.
+2. **(Opcional pero recomendado)** — En tu n8n existente, crea un
+   **Project** o **Folder** dedicado para facturación (ej. "Facturación SaaS")
+   para aislar los workflows del resto.
+3. **Ejecuta el paso 8.7** (importar `n8n/workflow_facturacion_saas.json`)
+   en el n8n existente.
+4. **Ejecuta el paso 8.8** con las URLs de webhook de ese n8n.
+
+Si el n8n existente es en **Railway (otro project)**, sus URLs serán
+`https://<subdominio>.up.railway.app/webhook/...`.
+
+Si es **n8n Cloud (app.n8n.cloud)**, serán
+`https://<subdominio>.app.n8n.cloud/webhook/...`.
+
+Si es self-hosted en VPS con dominio, `https://n8n.tudominio.com/webhook/...`.
+
+En todos los casos, la URL viene del propio nodo Webhook de n8n al
+abrirlo — n8n muestra la "Production URL" que le corresponde.
 
 ---
 
