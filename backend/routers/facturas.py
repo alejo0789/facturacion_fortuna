@@ -36,6 +36,7 @@ from services.integraciones_n8n import (
     build_upload_payload,
     call_upload_webhook,
     file_url_from_storage,
+    humanize_workflow_error,
     LEGACY_INVOICE_PATH,
     LEGACY_WEBHOOK_URL,
 )
@@ -623,8 +624,13 @@ async def create_factura_con_oficinas(
 
 
 def enrich_factura_with_file_info(factura: models.Factura) -> schemas.Factura:
-    """Calculates the expected UNC path and checks if the file exists"""
-    # Convert to Pydantic object first if it's a model
+    """Calcula el path local esperado y verifica si el archivo existe.
+
+    Cross-platform: usa `local_path_from_file_url` para manejar UNC (Windows),
+    drive letter (Windows) y POSIX absoluto (Linux/Mac) con la misma lógica.
+    """
+    from services.storage_paths import local_path_from_file_url
+
     if hasattr(factura, "__dict__"):
         factura_schema = schemas.Factura.model_validate(factura)
     else:
@@ -635,36 +641,22 @@ def enrich_factura_with_file_info(factura: models.Factura) -> schemas.Factura:
         factura_schema.storage_path = "Sin URL asignada"
         return factura_schema
 
-    url = factura_schema.url_factura
-    unc_path = ""
+    local_path = local_path_from_file_url(factura_schema.url_factura)
+    factura_schema.storage_path = local_path
 
-    if url.startswith("file://"):
-        path_part = unquote(url[7:])
-        # Distinguir drive letter local (ej. C:/Users/...) vs UNC (//server/share):
-        # - Windows drive letter: 2do char es ":" → path local, NO prefijar con "\\".
-        # - Otro caso (share, path relativo) → tratar como UNC con prefijo "\\".
-        if len(path_part) >= 2 and path_part[1] == ":":
-            unc_path = path_part.replace("/", "\\")
-        else:
-            unc_path = "\\\\" + path_part.replace("/", "\\")
-    elif url.startswith("\\\\"):
-        unc_path = unquote(url)
-    else:
-        # HTTP or other
-        unc_path = url
-
-    factura_schema.storage_path = unc_path
-    
-    # Check if it's a local/network path and if it exists
-    if unc_path.startswith("\\\\") or (len(unc_path) > 1 and unc_path[1] == ":"):
+    is_filesystem_path = (
+        local_path.startswith("\\\\")
+        or (len(local_path) > 1 and local_path[1] == ":")
+        or local_path.startswith("/")
+    )
+    if is_filesystem_path:
         try:
-            factura_schema.file_exists = os.path.exists(unc_path)
-        except:
+            factura_schema.file_exists = os.path.exists(local_path)
+        except Exception:
             factura_schema.file_exists = False
     else:
-        # For HTTP URLs we don't easily check existence here without a request
-        factura_schema.file_exists = True # Assume true if it's a web URL for now
-        
+        factura_schema.file_exists = True
+
     return factura_schema
 
 
@@ -997,36 +989,26 @@ async def ver_factura(
     if not factura.url_factura:
         raise HTTPException(status_code=404, detail="Esta factura no tiene URL de archivo")
     
+    from services.storage_paths import local_path_from_file_url
+
     url = factura.url_factura
-    
-    # Convert file:// URL to Windows path.
-    # - file://C:/Users/... → C:\Users\... (drive letter local, sin prefijo UNC)
-    # - file://192.168.2.20/Facturas/... → \\192.168.2.20\Facturas\... (share UNC)
-    if url.startswith("file://"):
-        path_part = unquote(url[7:])
-        if len(path_part) >= 2 and path_part[1] == ":":
-            unc_path = path_part.replace("/", "\\")
-        else:
-            unc_path = "\\\\" + path_part.replace("/", "\\")
-    elif url.startswith("\\\\"):
-        # Already a UNC path
-        unc_path = unquote(url)
-    else:
-        # Maybe it's an HTTP URL - redirect to it
+
+    # Cross-platform: file://, \\UNC y file:///abs se convierten al path local
+    # correcto según OS. HTTP se pasa como redirect.
+    if url.startswith("http://") or url.startswith("https://"):
         return RedirectResponse(url=url)
-    
-    # Check if file exists
-    if not os.path.exists(unc_path):
+
+    local_path = local_path_from_file_url(url)
+
+    if not os.path.exists(local_path):
         raise HTTPException(
-            status_code=404, 
-            detail=f"Archivo no encontrado en la ruta: {unc_path}"
+            status_code=404,
+            detail=f"Archivo no encontrado en la ruta: {local_path}"
         )
-    
-    # Get filename for Content-Disposition header
-    filename = os.path.basename(unc_path)
-    
-    # Read file content
-    with open(unc_path, "rb") as f:
+
+    filename = os.path.basename(local_path)
+
+    with open(local_path, "rb") as f:
         content = f.read()
     
     # Return with inline disposition so browser displays it instead of downloading
@@ -1555,35 +1537,37 @@ async def upload_factura_pdf(
                         "factura": n8n_result.get("factura"),
                         "n8n_response": n8n_result,
                     }
-                # n8n returned an error
+                # n8n returned an error — humanizar antes de exponer al frontend.
+                err_code, err_msg = humanize_workflow_error(
+                    n8n_result=n8n_result, raw_response=response.text
+                )
                 return {
                     "ok": False,
-                    "message": n8n_result.get(
-                        "error", n8n_result.get(
-                            "message", "Error procesando factura en n8n"
-                        )
-                    ),
+                    "error_code": err_code,
+                    "message": err_msg,
                     "file_url": url_factura,
                     "filename": safe_filename,
                     "n8n_response": n8n_result,
                 }
-            except Exception as e:
+            except Exception:
+                err_code, err_msg = humanize_workflow_error(
+                    raw_response=response.text
+                )
                 return {
                     "ok": False,
-                    "message": (
-                        f"n8n respondió pero sin JSON válido ({type(e).__name__}: {e}). "
-                        "Probablemente un nodo del workflow falló (revisa Executions en n8n). "
-                        "El archivo se guardó pero NO se creó factura."
-                    ),
+                    "error_code": err_code,
+                    "message": err_msg,
                     "file_url": url_factura,
                     "filename": safe_filename,
                     "raw_response": response.text[:500],
                 }
 
         # n8n returned error status
+        err_code, err_msg = humanize_workflow_error(raw_response=response.text)
         return {
             "ok": False,
-            "message": f"Error en n8n: HTTP {response.status_code}",
+            "error_code": err_code,
+            "message": err_msg,
             "file_url": url_factura,
             "filename": safe_filename,
         }
@@ -1591,14 +1575,19 @@ async def upload_factura_pdf(
     except httpx.TimeoutException:
         return {
             "ok": False,
-            "message": "Timeout: n8n tardó demasiado en procesar (más de 120 segundos)",
+            "error_code": "timeout",
+            "message": (
+                "El servicio de IA tardó más de 2 minutos en responder. "
+                "Puede estar sobrecargado — intenta de nuevo en unos minutos."
+            ),
             "file_url": url_factura,
             "filename": safe_filename
         }
     except Exception as e:
         return {
             "ok": False,
-            "message": f"Error conectando con n8n: {str(e)}",
+            "error_code": "connection_error",
+            "message": f"Error conectando con el servicio de procesamiento: {str(e)}",
             "file_url": url_factura,
             "filename": safe_filename
         }

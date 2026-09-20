@@ -27,10 +27,45 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
+from urllib.parse import unquote
 
 from core.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+def local_path_from_file_url(url: str) -> str:
+    """Convierte una url_factura almacenada al path local del filesystem.
+
+    Maneja los flavors históricos que aparecen en la BD:
+      - `file://C:/Users/...`        → drive letter Windows (`C:\\Users\\...`)
+      - `file:///app/storage/...`    → POSIX absoluto (`/app/storage/...`)
+      - `file://app/storage/...`     → POSIX absoluto legacy sin leading `/`
+                                       (bug histórico de file_url_from_storage);
+                                       se restaura la `/` cuando el runtime es
+                                       POSIX.
+      - `file://server/share/...`    → UNC de red Windows (`\\\\server\\share\\...`)
+      - `\\\\server\\share\\...`     → UNC crudo, devolver tal cual.
+
+    Cualquier otra cosa (http://, https://, url vacía) se devuelve tal cual —
+    quien llame se encarga.
+    """
+    if not url:
+        return url
+    if url.startswith("\\\\"):
+        return unquote(url)
+    if not url.startswith("file://"):
+        return url
+
+    path_part = unquote(url[7:])
+
+    if len(path_part) >= 2 and path_part[1] == ":":
+        return path_part.replace("/", "\\")
+    if path_part.startswith("/"):
+        return path_part
+    if os.name == "posix":
+        return "/" + path_part
+    return "\\\\" + path_part.replace("/", "\\")
 
 
 # Legacy — solo se usa como último recurso si NADA está configurado. Se

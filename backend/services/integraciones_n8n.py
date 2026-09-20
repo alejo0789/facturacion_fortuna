@@ -174,6 +174,69 @@ def build_upload_payload(
     return payload
 
 
+def humanize_workflow_error(
+    n8n_result: Optional[dict] = None,
+    raw_response: Optional[str] = None,
+) -> tuple[str, str]:
+    """Traduce errores comunes del workflow n8n a un mensaje amigable.
+
+    Retorna (error_code, mensaje_es). El error_code sirve para que el
+    frontend decida qué UI mostrar (toast informativo vs error rojo).
+
+    Detecta:
+    - Gemini overload (503, "overloaded", "unavailable")
+    - Gemini rate limit / quota (429, "quota")
+    - Gemini modelo deprecado ("no longer available", "not found")
+    - Gemini API key inválida (401/403, "API key not valid")
+    - Genérico: pasa el mensaje original.
+    """
+    haystack = ""
+    if n8n_result:
+        try:
+            import json as _json
+            haystack = _json.dumps(n8n_result, ensure_ascii=False).lower()
+        except Exception:
+            haystack = str(n8n_result).lower()
+    if raw_response:
+        haystack = (haystack + " " + raw_response.lower()) if haystack else raw_response.lower()
+
+    if not haystack:
+        return "unknown", "Error desconocido procesando la factura."
+
+    if any(k in haystack for k in ("overloaded", "unavailable", '"code":503', "status code 503")):
+        return (
+            "ai_overloaded",
+            "El modelo de IA está temporalmente sobrecargado. "
+            "Intenta subir la factura de nuevo en 1-2 minutos.",
+        )
+    if any(k in haystack for k in ("rate limit", "rate_limit", "quota", "resource_exhausted",
+                                     '"code":429', "status code 429")):
+        return (
+            "ai_rate_limited",
+            "Se alcanzó el límite de uso del modelo de IA por ahora. "
+            "Espera unos minutos y vuelve a intentarlo.",
+        )
+    if any(k in haystack for k in ("no longer available", "not_found", '"code":404',
+                                     "model not found", "is not found for api version")):
+        return (
+            "ai_model_deprecated",
+            "El modelo de IA configurado ya no está disponible. "
+            "Contacta al administrador para actualizar el workflow.",
+        )
+    if any(k in haystack for k in ("api key not valid", "invalid api key", "api_key_invalid",
+                                     '"code":401', '"code":403', "permission_denied")):
+        return (
+            "ai_credentials",
+            "La credencial del modelo de IA no es válida. "
+            "Contacta al administrador para revisar la configuración.",
+        )
+    # Fallback: usar el mensaje original si viene del error, o genérico.
+    default_msg = None
+    if n8n_result:
+        default_msg = n8n_result.get("error") or n8n_result.get("message")
+    return "workflow_error", default_msg or "Error procesando la factura en el workflow."
+
+
 async def call_upload_webhook(
     cfg: N8nUploadConfig,
     payload: dict,
@@ -195,8 +258,18 @@ async def call_upload_webhook(
 
 
 def file_url_from_storage(storage_path: str, safe_filename: str) -> str:
-    """URL legible para la factura. Soporta UNC y paths locales."""
+    """URL legible para la factura. Soporta UNC, drive-letter local y POSIX abs.
+
+    - UNC Windows (`\\\\server\\share\\dir`) → `file://server/share/dir/name`
+    - Drive letter (`C:\\Users\\...`)         → `file://C:/Users/.../name`
+    - POSIX absoluto (`/app/storage/...`)     → `file:///app/storage/.../name`
+
+    El leading `/` de un path POSIX se preserva (bug fix — antes se
+    stripeaba con `.lstrip('/')` y `local_path_from_file_url` no podía
+    reconstruir el path absoluto en Linux).
+    """
     if storage_path.startswith("\\\\"):
         normalized = storage_path.lstrip("\\").replace("\\", "/")
         return f"file://{normalized}/{safe_filename}"
-    return f"file://{storage_path.replace(os.sep, '/').lstrip('/')}/{safe_filename}"
+    normalized = storage_path.replace(os.sep, "/")
+    return f"file://{normalized}/{safe_filename}"
