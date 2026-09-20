@@ -51,9 +51,9 @@
         "resource": "document",
         "modelId": {
           "__rl": true,
-          "value": "models/gemini-3.5-flash",
+          "value": "models/gemini-3.1-flash-lite",
           "mode": "list",
-          "cachedResultName": "models/gemini-3.5-flash"
+          "cachedResultName": "models/gemini-3.1-flash-lite"
         },
         "text": "Eres un experto en facturas colombianas. Analiza el PDF adjunto y devuelve SOLO un JSON válido con esta estructura exacta, sin texto adicional ni bloques markdown:\n\n{\n  \"proveedor_nit\": \"NIT del proveedor con dígito de verificación (ej 900238454-8)\",\n  \"proveedor_nombre\": \"Razón social del proveedor\",\n  \"numero_factura\": \"Número de la factura\",\n  \"cufe\": \"Código CUFE o null\",\n  \"fecha_factura\": \"YYYY-MM-DD\",\n  \"fecha_vencimiento\": \"YYYY-MM-DD o null\",\n  \"valor\": 123456,\n  \"observaciones\": \"Notas relevantes sobre la factura\"\n}\n\nReglas:\n- Si no encuentras un campo, ponlo como null.\n- \"valor\" debe ser número decimal sin separadores ni símbolo de moneda.\n- \"proveedor_nit\" debe incluir el dígito de verificación si está visible.\n- Responde SOLO con el JSON, sin texto antes ni después.",
         "inputType": "binary",
@@ -246,9 +246,9 @@
         "resource": "document",
         "modelId": {
           "__rl": true,
-          "value": "models/gemini-3.5-flash",
+          "value": "models/gemini-3.1-flash-lite",
           "mode": "list",
-          "cachedResultName": "models/gemini-3.5-flash"
+          "cachedResultName": "models/gemini-3.1-flash-lite"
         },
         "text": "Eres un experto en facturas colombianas. Analiza el PDF adjunto (capturado desde correo) y devuelve SOLO un JSON válido con esta estructura exacta, sin texto adicional ni bloques markdown:\n\n{\n  \"proveedor_nit\": \"NIT del proveedor con dígito de verificación (ej 900238454-8)\",\n  \"proveedor_nombre\": \"Razón social del proveedor\",\n  \"numero_factura\": \"Número de la factura\",\n  \"cufe\": \"Código CUFE o null\",\n  \"fecha_factura\": \"YYYY-MM-DD\",\n  \"fecha_vencimiento\": \"YYYY-MM-DD o null\",\n  \"valor\": 123456,\n  \"observaciones\": \"Notas relevantes sobre la factura\"\n}\n\nReglas:\n- Si no encuentras un campo, ponlo como null.\n- \"valor\" debe ser número decimal sin separadores ni símbolo de moneda.\n- \"proveedor_nit\" debe incluir el dígito de verificación si está visible.\n- Responde SOLO con el JSON, sin texto antes ni después.",
         "inputType": "binary",
