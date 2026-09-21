@@ -279,6 +279,18 @@ async def process_single_file_task(
         except Exception as read_err:
             print(f"WARN: no se pudo leer {dest_path} para base64: {read_err}")
 
+        # URL pública del backend para el callback de "crear factura". El
+        # workflow del sub-flujo procesar-adjunto lo lee vía
+        # {{ $('Extraer Contexto Tenant Adjunto').first().json.callback_url }}
+        # en vez de hardcodear 127.0.0.1:8000. Mismo patrón que en
+        # build_upload_payload del flujo de subida manual.
+        from services.integraciones_n8n import resolve_public_backend_url
+        public_base = resolve_public_backend_url()
+        callback_url = (
+            f"{public_base}/api/facturas/crear-con-oficina"
+            if public_base else None
+        )
+
         webhook_data = {
             "event": "invoice_uploaded_via_search",
             "file_path": dest_path,
@@ -295,6 +307,7 @@ async def process_single_file_task(
             # Analyze document Adjunto ahora es HTTP Request a Gemini API,
             # no el nodo nativo con credential guardada.
             "gemini_api_key": file_info.get("gemini_api_key"),
+            "callback_url": callback_url,
         }
 
         headers = {"Content-Type": "application/json"}
