@@ -131,6 +131,12 @@ class IntegracionesResponse(BaseModel):
     effective_process_url: Optional[str] = None
     effective_search_url: Optional[str] = None
 
+    # Estado OAuth (calculado en el enrichment). El frontend usa estos flags
+    # para saber si el buscador puede operar en modo dinámico (sin
+    # n8n_credential_email_id, que solo aplica al modelo legacy).
+    gmail_connected: bool = False
+    outlook_connected: bool = False
+
     model_config = {"from_attributes": True}
 
 

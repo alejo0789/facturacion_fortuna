@@ -7,6 +7,8 @@ interface IntegracionesMin {
     n8n_credential_email_id: string | null;
     n8n_email_provider: 'outlook' | 'gmail' | 'yahoo' | 'imap' | null;
     effective_search_url: string | null;
+    gmail_connected: boolean;
+    outlook_connected: boolean;
 }
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
@@ -84,14 +86,27 @@ export default function AsistenteBuscadorPage() {
                 n8n_credential_email_id: cfg.n8n_credential_email_id,
                 n8n_email_provider: cfg.n8n_email_provider,
                 effective_search_url: cfg.effective_search_url,
+                gmail_connected: cfg.gmail_connected ?? false,
+                outlook_connected: cfg.outlook_connected ?? false,
             }))
             .catch(() => setInteg(null));
     }, []);
-    const configIncomplete = !!integ && (
-        !integ.n8n_email_provider ||
-        !integ.n8n_credential_email_id ||
-        !integ.effective_search_url
-    );
+    // Aceptamos dos modos válidos:
+    //   1) OAuth dinámico (SaaS-managed): al menos un proveedor conectado
+    //      (gmail_connected u outlook_connected) + effective_search_url.
+    //   2) Legacy: credential_email_id + n8n_email_provider explícitos +
+    //      effective_search_url. Se mantiene por compatibilidad con tenants
+    //      pre-OAuth.
+    const oauthReady = !!integ && (integ.gmail_connected || integ.outlook_connected)
+        && !!integ.effective_search_url;
+    const legacyReady = !!integ && !!integ.n8n_email_provider
+        && !!integ.n8n_credential_email_id && !!integ.effective_search_url;
+    const configIncomplete = !!integ && !oauthReady && !legacyReady;
+    const activeProviderLabel = integ?.gmail_connected
+        ? 'GMAIL'
+        : integ?.outlook_connected
+            ? 'OUTLOOK'
+            : integ?.n8n_email_provider?.toUpperCase() ?? null;
 
     useEffect(() => {
         return () => {
@@ -272,10 +287,10 @@ export default function AsistenteBuscadorPage() {
                             Falta conectar tu cuenta de correo a n8n
                         </div>
                         <p className="text-[12px] mt-2 max-w-2xl" style={{ color: 'var(--ink-soft)' }}>
-                            Para que la búsqueda funcione necesitas:{' '}
-                            <strong>proveedor de correo</strong> seleccionado y{' '}
-                            <strong>Credential ID</strong> de tu cuenta pegado en el panel de
-                            Integraciones. El SaaS soporta Outlook, Gmail, Yahoo e IMAP genérico.
+                            Para que la búsqueda funcione necesitas conectar Gmail u
+                            Outlook desde el panel de Integraciones (recomendado, un
+                            solo click), o en modo self-hosted pegar el{' '}
+                            <strong>Credential ID</strong> de tu cuenta n8n.
                         </p>
                     </div>
                     <Link to="/app/integraciones" className="btn-accent text-[12px] flex-shrink-0">
@@ -284,11 +299,11 @@ export default function AsistenteBuscadorPage() {
                 </div>
             )}
 
-            {!configIncomplete && integ?.n8n_email_provider && (
+            {!configIncomplete && activeProviderLabel && (
                 <div className="text-[12px]" style={{ color: 'var(--ink-faint)' }}>
                     <span className="kicker mr-2">Conectado vía</span>
                     <span className="font-mono" style={{ color: 'var(--accent)' }}>
-                        {integ.n8n_email_provider.toUpperCase()}
+                        {activeProviderLabel}
                     </span>
                 </div>
             )}

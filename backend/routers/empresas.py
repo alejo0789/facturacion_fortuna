@@ -188,6 +188,9 @@ def _enrich_integraciones_response(empresa) -> IntegracionesResponse:
     base.shared_search_url = shared_s
     base.effective_process_url = empresa.n8n_webhook_url or shared_p
     base.effective_search_url = empresa.n8n_search_webhook or shared_s
+    # Estado OAuth por-tenant — solo booleans, nunca exponer el token.
+    base.gmail_connected = bool(getattr(empresa, "gmail_refresh_token_enc", None))
+    base.outlook_connected = bool(getattr(empresa, "outlook_refresh_token_enc", None))
     # Self-hosted sólo si el override apunta a una URL distinta a la shared
     base.mode = (
         "self_hosted"
