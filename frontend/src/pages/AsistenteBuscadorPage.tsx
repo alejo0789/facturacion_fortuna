@@ -45,6 +45,11 @@ export default function AsistenteBuscadorPage() {
 
     const pollingRef = useRef<number | null>(null);
     const currentRequestIdRef = useRef<string | null>(null);
+    const pollStartRef = useRef<number | null>(null);
+    // Timeout para no dejar el spinner girando si n8n muere sin callback.
+    // 3 minutos cubren extracción de gemini + lecturas de Gmail sin llegar a
+    // dejar al usuario esperando toda la vida.
+    const POLL_TIMEOUT_MS = 3 * 60 * 1000;
 
     // Descarga el PDF con auth (JWT) y crea una blob URL local para el iframe.
     // El iframe no puede enviar headers Authorization, por eso no basta con
@@ -122,6 +127,17 @@ export default function AsistenteBuscadorPage() {
     }, []);
 
     const pollStatus = async (requestId: string) => {
+        // Corte por timeout — si n8n muere sin llamar al callback, no dejamos
+        // el spinner girando eternamente.
+        if (pollStartRef.current && Date.now() - pollStartRef.current > POLL_TIMEOUT_MS) {
+            setError(
+                'El workflow no respondió en 3 minutos. Puede haber fallado ' +
+                'un nodo en n8n (revisa Executions). Intenta de nuevo.'
+            );
+            setLoading(false);
+            setStatusMsg('');
+            return;
+        }
         try {
             const res = await authFetch(`${API_URL}/asistente/search/${requestId}`);
             if (!res.ok) {
@@ -186,6 +202,7 @@ export default function AsistenteBuscadorPage() {
             currentRequestIdRef.current = requestId;
 
             setStatusMsg('Buscando correos y archivos (esto puede tomar un momento)…');
+            pollStartRef.current = Date.now();
             pollStatus(requestId);
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Error');

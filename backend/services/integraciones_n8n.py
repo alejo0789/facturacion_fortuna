@@ -110,19 +110,22 @@ def get_upload_config(empresa) -> N8nUploadConfig:
     )
 
 
-def _resolve_callback_url() -> Optional[str]:
-    """URL pública del backend + path del callback de crear factura.
+def resolve_public_backend_url() -> Optional[str]:
+    """URL pública base del backend, desde settings o env var.
 
-    n8n usa este valor para el POST final que crea la factura en el backend.
-    Preferir PUBLIC_BACKEND_URL en settings; fallback env var.
+    n8n la usa para los callbacks (crear factura, entregar resultados de
+    búsqueda). Sin ella, el workflow cae a fallbacks hardcoded (localhost).
     """
     base = None
     if settings is not None:
         base = getattr(settings, "PUBLIC_BACKEND_URL", None)
-    base = base or os.getenv("PUBLIC_BACKEND_URL")
-    if not base:
-        return None
-    return base.rstrip("/") + "/api/facturas/crear-con-oficina"
+    return (base or os.getenv("PUBLIC_BACKEND_URL") or "").rstrip("/") or None
+
+
+def _resolve_callback_url() -> Optional[str]:
+    """Callback específico para el flujo de crear factura desde upload."""
+    base = resolve_public_backend_url()
+    return f"{base}/api/facturas/crear-con-oficina" if base else None
 
 
 def build_upload_payload(

@@ -140,6 +140,16 @@ async def search_emails_async(
     # Gemini API key: per-tenant override → global fallback.
     gemini_api_key = google_oauth.resolve_gemini_api_key(empresa)
 
+    # URL pública del backend para el callback (evita el fallback duro a
+    # 127.0.0.1:8000 que el workflow trae por defecto). El workflow lee
+    # {{ $json.callbackUrl }} en el nodo "Callback · Con resultados".
+    from services.integraciones_n8n import resolve_public_backend_url
+    public_base = resolve_public_backend_url()
+    callback_url = (
+        f"{public_base}/api/asistente/callback/search-results"
+        if public_base else None
+    )
+
     payload = {
         "requestId": request_id,
         "email": query.email,
@@ -159,6 +169,9 @@ async def search_emails_async(
         "outlook_access_token": outlook_access_token,
         "outlook_email": getattr(empresa, "outlook_email", None),
         "gemini_api_key": gemini_api_key,
+        # Callback dinámico — el workflow usa este valor en el nodo
+        # "Callback · Con resultados" en vez del fallback duro localhost.
+        "callbackUrl": callback_url,
     }
 
     try:
