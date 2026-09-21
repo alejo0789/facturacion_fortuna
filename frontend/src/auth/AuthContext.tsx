@@ -63,6 +63,7 @@ const LS_EMPRESA_ACTIVA = 'fortuna.empresa_activa_id';
 export const authStorage = {
     getAccessToken: () => localStorage.getItem(LS_ACCESS),
     getRefreshToken: () => localStorage.getItem(LS_REFRESH),
+    setAccessToken: (token: string) => localStorage.setItem(LS_ACCESS, token),
     getEmpresaActivaId: (): number | null => {
         const raw = localStorage.getItem(LS_EMPRESA_ACTIVA);
         return raw ? Number(raw) : null;
